@@ -30,17 +30,19 @@ def normalize_text(value):
 
 def normalize_awb(value):
     """
-    Normaliza a AWB preservando zeros à esquerda.
+    Regra oficial de normalização da AWB:
 
-    Formato completo da Planilha da Torre / bipagem:
-    577 + AWB de 8 dígitos + 4 dígitos finais
+    Sempre que o código começar por 577:
+    - descarta o prefixo 577;
+    - pega exatamente os 8 dígitos seguintes;
+    - ignora qualquer sufixo restante.
 
     Exemplos:
-    577123456700001 -> 12345670
-    577012345670001 -> 01234567
+    5771788444250001 -> 17884442
+    577178694340001  -> 17869434
+    577003801330001  -> 00380133
 
-    Regra: remove exatamente os 3 primeiros dígitos (577)
-    e os 4 últimos; preserva os 8 dígitos centrais como texto.
+    Se vier uma AWB pura, preserva/completa para 8 dígitos.
     """
     if pd.isna(value):
         return None
@@ -52,19 +54,14 @@ def normalize_awb(value):
     if not digits:
         return None
 
-    # Código completo: 577 + AWB(8) + sufixo(4)
-    if len(digits) == 15 and digits.startswith("577"):
-        return digits[3:-4]
+    # Regra oficial: 577 + AWB(8) + qualquer sufixo
+    if digits.startswith("577") and len(digits) >= 11:
+        return digits[3:11]
 
-    # Eu Entrego: 577 + AWB(8)
-    if len(digits) == 11 and digits.startswith("577"):
-        return digits[3:]
-
-    # AWB pura: preserva/completa para 8 dígitos
+    # AWB pura
     if len(digits) <= 8:
         return digits.zfill(8)
 
-    # Formatos inesperados ficam sem classificação automática.
     return None
 
 def parse_date(series):
@@ -246,20 +243,21 @@ def read_torre(file_bytes):
 
 def extract_returns(text):
     """
-    Extrai retornos preservando a AWB de 8 dígitos.
+    Extrai AWBs do texto do WhatsApp.
 
-    Formato oficial:
-    577 + AWB(8) + sufixo(4)
+    Regra oficial:
+    qualquer código que contenha 577 seguido de pelo menos 8 dígitos
+    terá como AWB os 8 dígitos imediatamente após 577.
 
-    Também aceita uma AWB pura de exatamente 8 dígitos.
+    Também aceita AWB pura de exatamente 8 dígitos.
     """
     if not text:
         return []
 
     found = set()
 
-    # Código completo oficial.
-    for match in re.findall(r"(?<!\d)577(\d{8})\d{4}(?!\d)", text):
+    # Código completo com prefixo 577 e qualquer sufixo depois da AWB.
+    for match in re.findall(r"(?<!\d)577(\d{8})\d*(?!\d)", text):
         found.add(match)
 
     # AWB pura digitada diretamente.
