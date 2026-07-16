@@ -381,6 +381,50 @@ def safe_dataframe_for_streamlit(df):
                 lambda x: "" if pd.isna(x) else str(x)
             )
     return safe
+
+def edi_client_name(row):
+    """
+    Padroniza clientes EDI conhecidos pelo ID_Empresa.
+    Novos IDs continuam visíveis para posterior mapeamento.
+    """
+    company_id = str(row.get("ID_Empresa", "")).strip().replace(".0", "")
+    mapping = {
+        "1422": "Riachuelo",
+        "1708": "Três Corações",
+        "3608": "Neodent",
+    }
+    return mapping.get(company_id, f"Cliente {company_id}" if company_id else "Não identificado")
+
+
+def classify_edi_status(row):
+    """
+    Classificação inicial para validação operacional.
+
+    BOOKING:
+    - Última ocorrência indica BKD / Booking Confirmation.
+
+    NÃO EXECUTADO:
+    - Não possui AWB e também não há emissão de CTe.
+
+    Os dois grupos formam a carteira 'Booking / não executado'.
+    """
+    occurrence = normalize_text(row.get("UltimaOcorrencia", ""))
+    awb = row.get("Nº AWB")
+    emission = row.get("EmissaoCTe")
+    cte_generated = normalize_text(row.get("CTeGerado", ""))
+
+    if "BOOK" in occurrence or occurrence.startswith("BKD"):
+        return "BOOKING"
+
+    awb_missing = pd.isna(awb) or str(awb).strip() in {"", "NAN", "NONE"}
+    emission_missing = pd.isna(emission) or str(emission).strip() in {"", "NAN", "NONE"}
+
+    if awb_missing and emission_missing and cte_generated in {"", "NO", "NAO", "NÃO"}:
+        return "NÃO EXECUTADO"
+
+    return "FORA DO BOOKING"
+
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -555,7 +599,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.4 — Last Mile + First Mile por trecho/destino + EDI múltiplo")
+st.caption("V0.8.5 — First Mile + Booking/execução EDI em validação")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -853,7 +897,94 @@ if file_sao12 or file_tres1 or files_edi:
         )
 
         if not edi_base.empty:
-            with st.expander("Ver base EDI consolidada"):
+            edi_base = edi_base.copy()
+            edi_base["CLIENTE_EDI"] = edi_base.apply(edi_client_name, axis=1)
+            edi_base["STATUS_EDI_GERENCIAL"] = edi_base.apply(classify_edi_status, axis=1)
+
+            edi_counts = edi_base["STATUS_EDI_GERENCIAL"].value_counts()
+            booking_total = int(
+                edi_base["STATUS_EDI_GERENCIAL"].isin(
+                    ["BOOKING", "NÃO EXECUTADO"]
+                ).sum()
+            )
+
+            st.markdown("### Booking e execução EDI")
+            b1, b2, b3 = st.columns(3)
+            b1.metric("Booking", int(edi_counts.get("BOOKING", 0)))
+            b2.metric("Não executado", int(edi_counts.get("NÃO EXECUTADO", 0)))
+            b3.metric("Booking / não executado", booking_total)
+
+            st.caption(
+                "Regra inicial em validação: Booking = última ocorrência BKD/Booking Confirmation. "
+                "Não executado = sem AWB e sem emissão de CTe."
+            )
+
+            booking_matrix = (
+                edi_base[
+                    edi_base["STATUS_EDI_GERENCIAL"].isin(
+                        ["BOOKING", "NÃO EXECUTADO"]
+                    )
+                ]
+                .pivot_table(
+                    index="CLIENTE_EDI",
+                    columns="STATUS_EDI_GERENCIAL",
+                    values="ID",
+                    aggfunc="count",
+                    fill_value=0,
+                )
+                .reset_index()
+            )
+
+            for expected_col in ["BOOKING", "NÃO EXECUTADO"]:
+                if expected_col not in booking_matrix.columns:
+                    booking_matrix[expected_col] = 0
+
+            booking_matrix["TOTAL"] = (
+                booking_matrix["BOOKING"] + booking_matrix["NÃO EXECUTADO"]
+            )
+            booking_matrix = booking_matrix[
+                ["CLIENTE_EDI", "BOOKING", "NÃO EXECUTADO", "TOTAL"]
+            ].sort_values("TOTAL", ascending=False)
+
+            st.dataframe(
+                booking_matrix,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            edi_detail_status = st.selectbox(
+                "Detalhar situação EDI",
+                ["BOOKING", "NÃO EXECUTADO", "BOOKING + NÃO EXECUTADO", "TODOS"],
+            )
+
+            if edi_detail_status == "BOOKING + NÃO EXECUTADO":
+                edi_detail = edi_base[
+                    edi_base["STATUS_EDI_GERENCIAL"].isin(
+                        ["BOOKING", "NÃO EXECUTADO"]
+                    )
+                ]
+            elif edi_detail_status == "TODOS":
+                edi_detail = edi_base
+            else:
+                edi_detail = edi_base[
+                    edi_base["STATUS_EDI_GERENCIAL"] == edi_detail_status
+                ]
+
+            edi_cols = [
+                "CLIENTE_EDI", "STATUS_EDI_GERENCIAL", "Pedido", "Numero",
+                "Nº AWB", "Origem", "Destino", "Recebimento", "Integracao",
+                "EmissaoCTe", "CTeGerado", "UltimaOcorrencia",
+                "EmbarqueVoo", "EntregaCarga", "ARQUIVO_EDI",
+            ]
+            edi_cols = [c for c in edi_cols if c in edi_detail.columns]
+
+            st.dataframe(
+                safe_dataframe_for_streamlit(edi_detail[edi_cols]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            with st.expander("Ver base EDI consolidada completa"):
                 st.dataframe(
                     safe_dataframe_for_streamlit(edi_base),
                     use_container_width=True,
