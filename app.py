@@ -555,7 +555,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.1 — Last Mile + First Mile filtrado + EDI múltiplo")
+st.caption("V0.8.4 — Last Mile + First Mile por trecho/destino + EDI múltiplo")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -749,6 +749,57 @@ if file_sao12 or file_tres1 or files_edi:
                     use_container_width=True,
                     hide_index=True,
                 )
+
+        st.subheader("Onde estão as pendências do First Mile")
+
+        # Pendente de Embarque: visão por trecho do voo.
+        pend_emb = fm_view[
+            fm_view["GRUPO_FIRST_MILE"] == "PENDENTE DE EMBARQUE"
+        ].copy()
+
+        if not pend_emb.empty:
+            pend_emb["TRECHO"] = (
+                pend_emb.get("FltOrigin", "").fillna("").astype(str).str.strip()
+                + " → "
+                + pend_emb.get("FltDestination", "").fillna("").astype(str).str.strip()
+            )
+            trecho_rank = (
+                pend_emb.groupby("TRECHO")["AWB"]
+                .nunique()
+                .reset_index(name="AWBS")
+                .sort_values("AWBS", ascending=False)
+            )
+
+            st.markdown("**Pendente de Embarque — por trecho**")
+            st.dataframe(
+                trecho_rank,
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Nenhuma carga pendente de embarque na visão selecionada.")
+
+        # Pendente de Desembarque: visão pelo destino do voo.
+        pend_des = fm_view[
+            fm_view["GRUPO_FIRST_MILE"] == "PENDENTE DE DESEMBARQUE"
+        ].copy()
+
+        if not pend_des.empty:
+            destino_rank = (
+                pend_des.groupby("FltDestination")["AWB"]
+                .nunique()
+                .reset_index(name="AWBS")
+                .sort_values("AWBS", ascending=False)
+            )
+
+            st.markdown("**Pendente de Desembarque — por destino do voo**")
+            st.dataframe(
+                destino_rank,
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Nenhuma carga pendente de desembarque na visão selecionada.")
 
         fm_detail_option = st.selectbox(
             "Detalhar First Mile",
