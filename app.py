@@ -548,9 +548,13 @@ master["SEGUNDA_TENTATIVA_RISCO"] = (
     & (~master["EM_TORRE_ATIVA"])
 )
 
-master["TERCEIRA_TENTATIVA_SEM_PENDENCIA"] = (
+master["TERCEIRA_TENTATIVA_RISCO_ALTO"] = (
     (status_norm == "PENDENTE ENTREGA")
     & (master["QT_TENTATIVAS_INSUCESSO"] >= 3)
+)
+
+master["TERCEIRA_TENTATIVA_FALHA_PROCESSO"] = (
+    master["TERCEIRA_TENTATIVA_RISCO_ALTO"]
     & (~master["EM_TORRE_ATIVA"])
 )
 
@@ -561,22 +565,45 @@ p1, p2, p3, p4 = st.columns(4)
 p1.metric("SLA do dia no piso", int(master["SLA_DO_DIA_NO_PISO"].sum()))
 p2.metric("SLA vencido sem rota", int(master["SLA_VENCIDO_SEM_ROTA"].sum()))
 p3.metric("2ª tentativa — risco", int(master["SEGUNDA_TENTATIVA_RISCO"].sum()))
-p4.metric("3ª tentativa sem pendência", int(master["TERCEIRA_TENTATIVA_SEM_PENDENCIA"].sum()))
+p4.metric("3ª tentativa — risco alto", int(master["TERCEIRA_TENTATIVA_RISCO_ALTO"].sum()))
+
+f1, f2 = st.columns(2)
+f1.metric(
+    "3ª tentativa sem Pendência — falha de processo",
+    int(master["TERCEIRA_TENTATIVA_FALHA_PROCESSO"].sum())
+)
+f2.metric(
+    "3ª tentativa já direcionada à Torre",
+    int(
+        (
+            master["TERCEIRA_TENTATIVA_RISCO_ALTO"]
+            & master["EM_TORRE_ATIVA"]
+        ).sum()
+    )
+)
 
 st.caption(
     "SLA do dia no piso = Pendente Entrega, SLA vencendo na data de análise, "
-    "sem entregador alocado no dia e sem pendência ativa na Torre. Planejada sem entregador continua no piso."
+    "sem entregador alocado no dia e sem pendência ativa na Torre. "
+    "3ª tentativa concluída sem sucesso e ainda fora da Torre = cobrar time operacional para direcionar a carga."
 )
 
 alerta = st.selectbox(
     "Detalhar alerta preventivo",
-    ["SLA do dia no piso", "SLA vencido sem rota", "2ª tentativa — risco", "3ª tentativa sem pendência"]
+    [
+        "SLA do dia no piso",
+        "SLA vencido sem rota",
+        "2ª tentativa — risco",
+        "3ª tentativa — risco alto",
+        "3ª tentativa sem Pendência — falha de processo",
+    ]
 )
 alert_map = {
     "SLA do dia no piso": "SLA_DO_DIA_NO_PISO",
     "SLA vencido sem rota": "SLA_VENCIDO_SEM_ROTA",
     "2ª tentativa — risco": "SEGUNDA_TENTATIVA_RISCO",
-    "3ª tentativa sem pendência": "TERCEIRA_TENTATIVA_SEM_PENDENCIA",
+    "3ª tentativa — risco alto": "TERCEIRA_TENTATIVA_RISCO_ALTO",
+    "3ª tentativa sem Pendência — falha de processo": "TERCEIRA_TENTATIVA_FALHA_PROCESSO",
 }
 det = master[master[alert_map[alerta]]].copy()
 cols = [
