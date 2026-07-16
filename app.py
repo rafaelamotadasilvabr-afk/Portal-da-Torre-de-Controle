@@ -480,6 +480,107 @@ except Exception as exc:
 
 
 
+
+# =========================
+# CAMADA PREVENTIVA V0.7
+# =========================
+master["EM_TORRE_ATIVA"] = master["EVENTO_TORRE"].isin(["PENDENCIA", "PENDENCIA_CORP"])
+master["TEM_ROTA_HOJE"] = master["TEVE_ROTA_HOJE"].fillna(False).astype(bool)
+sla_dates = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.date
+status_norm = master["STATUS_SISTEMA"].map(normalize_text)
+
+master["SLA_DO_DIA_NO_PISO"] = (
+    (status_norm == "PENDENTE ENTREGA")
+    & (sla_dates == analysis_date)
+    & (~master["TEM_ROTA_HOJE"])
+    & (~master["EM_TORRE_ATIVA"])
+)
+
+master["SLA_VENCIDO_SEM_ROTA"] = (
+    (status_norm == "PENDENTE ENTREGA")
+    & (sla_dates < analysis_date)
+    & (~master["TEM_ROTA_HOJE"])
+    & (~master["EM_TORRE_ATIVA"])
+)
+
+# Quantidade de dias distintos com insucesso/devolvido no histórico do Eu Entrego.
+attempt_source = eu.copy()
+attempt_source["AWB"] = attempt_source["AWB"].map(normalize_awb)
+attempt_source["ROTA_DATA"] = pd.to_datetime(
+    attempt_source.get("Data", pd.Series(index=attempt_source.index, dtype="object")),
+    errors="coerce"
+).dt.date
+status_col = next(
+    (c for c in ["Status", "STATUS", "Situacao", "Situação"] if c in attempt_source.columns),
+    None
+)
+
+if status_col:
+    attempt_source["STATUS_TENTATIVA"] = attempt_source[status_col].map(normalize_text)
+    attempt_source = attempt_source[
+        attempt_source["STATUS_TENTATIVA"].isin(["INSUCESSO", "DEVOLVIDO"])
+        & attempt_source["ROTA_DATA"].notna()
+        & attempt_source["AWB"].notna()
+    ]
+    attempt_count = (
+        attempt_source.groupby("AWB")["ROTA_DATA"]
+        .nunique()
+        .rename("QT_TENTATIVAS_INSUCESSO")
+    )
+    master = master.merge(attempt_count, on="AWB", how="left")
+else:
+    master["QT_TENTATIVAS_INSUCESSO"] = 0
+
+master["QT_TENTATIVAS_INSUCESSO"] = master["QT_TENTATIVAS_INSUCESSO"].fillna(0).astype(int)
+
+master["SEGUNDA_TENTATIVA_RISCO"] = (
+    (status_norm == "PENDENTE ENTREGA")
+    & (master["QT_TENTATIVAS_INSUCESSO"] == 2)
+    & (~master["EM_TORRE_ATIVA"])
+)
+
+master["TERCEIRA_TENTATIVA_SEM_PENDENCIA"] = (
+    (status_norm == "PENDENTE ENTREGA")
+    & (master["QT_TENTATIVAS_INSUCESSO"] >= 3)
+    & (~master["EM_TORRE_ATIVA"])
+)
+
+st.divider()
+st.subheader("Radar preventivo — Last Mile")
+
+p1, p2, p3, p4 = st.columns(4)
+p1.metric("SLA do dia no piso", int(master["SLA_DO_DIA_NO_PISO"].sum()))
+p2.metric("SLA vencido sem rota", int(master["SLA_VENCIDO_SEM_ROTA"].sum()))
+p3.metric("2ª tentativa — risco", int(master["SEGUNDA_TENTATIVA_RISCO"].sum()))
+p4.metric("3ª tentativa sem pendência", int(master["TERCEIRA_TENTATIVA_SEM_PENDENCIA"].sum()))
+
+st.caption(
+    "SLA do dia no piso = Pendente Entrega, SLA vencendo na data de análise, "
+    "sem rota criada no dia e sem pendência ativa na Torre."
+)
+
+alerta = st.selectbox(
+    "Detalhar alerta preventivo",
+    ["SLA do dia no piso", "SLA vencido sem rota", "2ª tentativa — risco", "3ª tentativa sem pendência"]
+)
+alert_map = {
+    "SLA do dia no piso": "SLA_DO_DIA_NO_PISO",
+    "SLA vencido sem rota": "SLA_VENCIDO_SEM_ROTA",
+    "2ª tentativa — risco": "SEGUNDA_TENTATIVA_RISCO",
+    "3ª tentativa sem pendência": "TERCEIRA_TENTATIVA_SEM_PENDENCIA",
+}
+det = master[master[alert_map[alerta]]].copy()
+cols = [
+    "AWB", "STATUS_SISTEMA", "SLA_DATA", "ULTIMA_ROTA",
+    "STATUS_ULTIMA_ROTA", "QT_TENTATIVAS_INSUCESSO",
+    "EVENTO_TORRE", "BillTo", "OriginCode"
+]
+cols = [c for c in cols if c in det.columns]
+st.dataframe(det[cols], use_container_width=True, hide_index=True)
+
+# Carga parcial permanece como indicador planejado até validarmos
+# quais colunas do AWBStatus Piece Level representam total e peças processadas.
+
 # Conciliação dos retornos colados
 st.divider()
 st.subheader("Conciliação dos retornos físicos")
