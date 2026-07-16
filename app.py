@@ -491,14 +491,14 @@ status_norm = master["STATUS_SISTEMA"].map(normalize_text)
 
 master["SLA_DO_DIA_NO_PISO"] = (
     (status_norm == "PENDENTE ENTREGA")
-    & (sla_dates == analysis_date)
+    & (sla_dates == reference_date)
     & (~master["TEM_ROTA_HOJE"])
     & (~master["EM_TORRE_ATIVA"])
 )
 
 master["SLA_VENCIDO_SEM_ROTA"] = (
     (status_norm == "PENDENTE ENTREGA")
-    & (sla_dates < analysis_date)
+    & (sla_dates < reference_date)
     & (~master["TEM_ROTA_HOJE"])
     & (~master["EM_TORRE_ATIVA"])
 )
