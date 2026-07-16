@@ -248,6 +248,94 @@ def read_torre(file_bytes):
     return latest, history
 
 
+
+@st.cache_data(show_spinner=False)
+def read_first_mile_awbstatus(file_bytes, base_name):
+    df = pd.read_excel(io.BytesIO(file_bytes))
+    df = clean_columns(df)
+
+    required = ["AWBNumber", "StatusDescription"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"{base_name}: colunas obrigatórias ausentes: {', '.join(missing)}"
+        )
+
+    df["AWB"] = df["AWBNumber"].apply(normalize_awb)
+    df["BASE_EMISSORA"] = base_name
+    df["STATUS_SISTEMA"] = df["StatusDescription"].astype(str).str.strip()
+    df["STATUS_NORMALIZADO"] = df["STATUS_SISTEMA"].apply(normalize_text)
+
+    if "ApproxSLA" in df.columns:
+        df["SLA_DATA"] = parse_date(df["ApproxSLA"]).dt.date
+    else:
+        df["SLA_DATA"] = pd.NaT
+
+    if "ExecutionDateTime" in df.columns:
+        df["_DT_ORDEM"] = parse_date(df["ExecutionDateTime"])
+    else:
+        df["_DT_ORDEM"] = pd.NaT
+
+    df = (
+        df.sort_values(["AWB", "_DT_ORDEM"])
+          .drop_duplicates("AWB", keep="last")
+          .copy()
+    )
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def read_edi_files(files_payload):
+    """
+    Consolida vários relatórios EDI de uma só vez.
+    Cada item de files_payload = (nome_arquivo, bytes).
+    Arquivo inválido não interrompe os demais.
+    """
+    frames = []
+    audit = []
+
+    for file_name, file_bytes in files_payload:
+        try:
+            df = pd.read_excel(io.BytesIO(file_bytes))
+            df = clean_columns(df)
+            df["ARQUIVO_EDI"] = file_name
+            frames.append(df)
+            audit.append({
+                "ARQUIVO": file_name,
+                "REGISTROS": len(df),
+                "STATUS": "OK",
+                "ERRO": "",
+            })
+        except Exception as exc:
+            audit.append({
+                "ARQUIVO": file_name,
+                "REGISTROS": 0,
+                "STATUS": "ERRO",
+                "ERRO": str(exc),
+            })
+
+    consolidated = (
+        pd.concat(frames, ignore_index=True, sort=False)
+        if frames else pd.DataFrame()
+    )
+    return consolidated, pd.DataFrame(audit)
+
+
+def first_mile_status_group(value):
+    status = normalize_text(value)
+    if status == "PENDENTE EMBARQUE":
+        return "PENDENTE DE EMBARQUE"
+    if status == "PENDENTE DESEMBARQUE":
+        return "PENDENTE DE DESEMBARQUE"
+    if status == "MISSING CARGO":
+        return "MISSING"
+    if "DISCREP" in status:
+        return "DISCREPÂNCIA"
+    if status == "BAIXADO":
+        return "BAIXADO"
+    return "OUTROS"
+
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -422,7 +510,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0 — Last Mile CDSP2 + Eu Entrego + Pendências da Torre")
+st.caption("V0.8 — Last Mile validado + módulo inicial First Mile + EDI múltiplo")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -441,6 +529,28 @@ with st.sidebar:
         "3. Planilha da Torre",
         type=["xlsx", "xls"],
         help="Usa PENDENCIAS, PENDENCIA CORP e FINALIZADAS. Página81 é ignorada."
+    )
+
+
+    st.divider()
+    st.subheader("First Mile")
+
+    file_sao12 = st.file_uploader(
+        "4. Emissões SAO12",
+        type=["xlsx", "xls"],
+        key="fm_sao12",
+    )
+    file_tres1 = st.file_uploader(
+        "5. Emissões TRES1",
+        type=["xlsx", "xls"],
+        key="fm_tres1",
+    )
+    files_edi = st.file_uploader(
+        "6. Notas Integradas (EDI) — múltiplos arquivos",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key="fm_edi",
+        help="Selecione todos os relatórios EDI dos clientes de uma só vez."
     )
 
     reference_date = st.date_input(
@@ -490,6 +600,102 @@ except Exception as exc:
     st.stop()
 
 
+
+
+
+# =========================
+# FIRST MILE — V0.8
+# =========================
+if file_sao12 or file_tres1 or files_edi:
+    st.divider()
+    st.header("First Mile")
+
+    fm_frames = []
+    fm_errors = []
+
+    if file_sao12:
+        try:
+            fm_frames.append(read_first_mile_awbstatus(file_sao12.getvalue(), "SAO12"))
+        except Exception as exc:
+            fm_errors.append(f"SAO12: {exc}")
+
+    if file_tres1:
+        try:
+            fm_frames.append(read_first_mile_awbstatus(file_tres1.getvalue(), "TRES1"))
+        except Exception as exc:
+            fm_errors.append(f"TRES1: {exc}")
+
+    first_mile = (
+        pd.concat(fm_frames, ignore_index=True, sort=False)
+        if fm_frames else pd.DataFrame()
+    )
+
+    if not first_mile.empty:
+        first_mile["GRUPO_FIRST_MILE"] = first_mile["STATUS_SISTEMA"].apply(first_mile_status_group)
+
+        base_filter = st.radio(
+            "Visão First Mile",
+            ["CONSOLIDADO", "SAO12", "TRES1"],
+            horizontal=True,
+        )
+        fm_view = (
+            first_mile
+            if base_filter == "CONSOLIDADO"
+            else first_mile[first_mile["BASE_EMISSORA"] == base_filter]
+        )
+
+        fm_counts = fm_view["GRUPO_FIRST_MILE"].value_counts()
+
+        fm1, fm2, fm3, fm4, fm5 = st.columns(5)
+        fm1.metric("Pendente de Embarque", int(fm_counts.get("PENDENTE DE EMBARQUE", 0)))
+        fm2.metric("Pendente de Desembarque", int(fm_counts.get("PENDENTE DE DESEMBARQUE", 0)))
+        fm3.metric("Missing", int(fm_counts.get("MISSING", 0)))
+        fm4.metric("Discrepância", int(fm_counts.get("DISCREPÂNCIA", 0)))
+        fm5.metric("Baixado", int(fm_counts.get("BAIXADO", 0)))
+
+        fm_detail_option = st.selectbox(
+            "Detalhar First Mile",
+            ["TODOS"] + [
+                "PENDENTE DE EMBARQUE",
+                "PENDENTE DE DESEMBARQUE",
+                "MISSING",
+                "DISCREPÂNCIA",
+                "BAIXADO",
+                "OUTROS",
+            ],
+        )
+        fm_detail = (
+            fm_view
+            if fm_detail_option == "TODOS"
+            else fm_view[fm_view["GRUPO_FIRST_MILE"] == fm_detail_option]
+        )
+        fm_cols = [
+            "BASE_EMISSORA", "AWB", "STATUS_SISTEMA", "SLA_DATA",
+            "OriginCode", "DestinationCode", "OPSStation",
+            "FltNo", "FltDt", "FltOrigin", "FltDestination", "BillTo",
+        ]
+        fm_cols = [c for c in fm_cols if c in fm_detail.columns]
+        st.dataframe(fm_detail[fm_cols], use_container_width=True, hide_index=True)
+
+    for err in fm_errors:
+        st.warning(err)
+
+    # EDI: upload múltiplo e processamento independente por arquivo.
+    if files_edi:
+        edi_payload = tuple((f.name, f.getvalue()) for f in files_edi)
+        edi_base, edi_audit = read_edi_files(edi_payload)
+
+        st.subheader("Notas Integradas (EDI)")
+        e1, e2, e3 = st.columns(3)
+        e1.metric("Arquivos enviados", len(files_edi))
+        e2.metric("Arquivos processados", int((edi_audit["STATUS"] == "OK").sum()) if not edi_audit.empty else 0)
+        e3.metric("Registros consolidados", len(edi_base))
+
+        st.dataframe(edi_audit, use_container_width=True, hide_index=True)
+
+        if not edi_base.empty:
+            with st.expander("Ver base EDI consolidada"):
+                st.dataframe(edi_base, use_container_width=True, hide_index=True)
 
 
 # =========================
