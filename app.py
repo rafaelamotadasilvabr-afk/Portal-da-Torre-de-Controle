@@ -83,6 +83,31 @@ def find_column(df, candidates):
     return None
 
 
+def classify_sao12_client(value):
+    """
+    Mantém somente os clientes corporativos de interesse no SAO12.
+    Retorna nome padronizado ou None para descartar.
+    """
+    text = normalize_text(value)
+
+    if "RIACHUELO" in text:
+        return "Riachuelo"
+    if "JJGC" in text or "JJC" in text or "NEODENT" in text:
+        return "Neodent"
+    if "DELLA VIA" in text:
+        return "Della Via"
+    if "STONE" in text:
+        return "Stone"
+    if "TB COMERCIO" in text or "TANIA BULHOES" in text or "TANIA BULHÕES" in text:
+        return "Tania Bulhões"
+    if "ATS VIAGENS" in text or text.startswith("ATS"):
+        return "ATS"
+    if "INBRANDS" in text:
+        return "Inbrands"
+
+    return None
+
+
 # =========================
 # LEITURA DAS FONTES
 # =========================
@@ -276,6 +301,19 @@ def read_first_mile_awbstatus(file_bytes, base_name):
     else:
         df["_DT_ORDEM"] = pd.NaT
 
+    # Regra SAO12: manter somente clientes corporativos selecionados.
+    if base_name == "SAO12":
+        if "BillTo" not in df.columns:
+            raise ValueError("SAO12: coluna BillTo não encontrada para filtrar clientes.")
+
+        df["CLIENTE_PADRONIZADO"] = df["BillTo"].apply(classify_sao12_client)
+        df = df[df["CLIENTE_PADRONIZADO"].notna()].copy()
+    else:
+        # TRES1: por enquanto mantém toda a carteira.
+        df["CLIENTE_PADRONIZADO"] = df.get("BillTo", "").apply(
+            lambda x: str(x).strip() if pd.notna(x) else ""
+        )
+
     df = (
         df.sort_values(["AWB", "_DT_ORDEM"])
           .drop_duplicates("AWB", keep="last")
@@ -286,11 +324,6 @@ def read_first_mile_awbstatus(file_bytes, base_name):
 
 @st.cache_data(show_spinner=False)
 def read_edi_files(files_payload):
-    """
-    Consolida vários relatórios EDI de uma só vez.
-    Cada item de files_payload = (nome_arquivo, bytes).
-    Arquivo inválido não interrompe os demais.
-    """
     frames = []
     audit = []
 
@@ -336,6 +369,18 @@ def first_mile_status_group(value):
     return "OUTROS"
 
 
+def safe_dataframe_for_streamlit(df):
+    """
+    Evita erro do PyArrow em colunas EDI com tipos misturados.
+    Mantém números/datas quando homogêneos e converte colunas object problemáticas para texto.
+    """
+    safe = df.copy()
+    for col in safe.columns:
+        if safe[col].dtype == "object":
+            safe[col] = safe[col].apply(
+                lambda x: "" if pd.isna(x) else str(x)
+            )
+    return safe
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -510,7 +555,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8 — Last Mile validado + módulo inicial First Mile + EDI múltiplo")
+st.caption("V0.8.1 — Last Mile + First Mile filtrado + EDI múltiplo")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -539,6 +584,7 @@ with st.sidebar:
         "4. Emissões SAO12",
         type=["xlsx", "xls"],
         key="fm_sao12",
+        help="Será filtrado automaticamente para Riachuelo, Neodent, Della Via, Stone, Tania Bulhões e ATS."
     )
     file_tres1 = st.file_uploader(
         "5. Emissões TRES1",
@@ -653,6 +699,18 @@ if file_sao12 or file_tres1 or files_edi:
         fm4.metric("Discrepância", int(fm_counts.get("DISCREPÂNCIA", 0)))
         fm5.metric("Baixado", int(fm_counts.get("BAIXADO", 0)))
 
+        if base_filter in {"CONSOLIDADO", "SAO12"}:
+            sao12_view = fm_view[fm_view["BASE_EMISSORA"] == "SAO12"]
+            if not sao12_view.empty:
+                st.subheader("Clientes SAO12 monitorados")
+                cliente_counts = (
+                    sao12_view["CLIENTE_PADRONIZADO"]
+                    .value_counts()
+                    .rename_axis("CLIENTE")
+                    .reset_index(name="AWBS")
+                )
+                st.dataframe(cliente_counts, use_container_width=True, hide_index=True)
+
         fm_detail_option = st.selectbox(
             "Detalhar First Mile",
             ["TODOS"] + [
@@ -670,17 +728,21 @@ if file_sao12 or file_tres1 or files_edi:
             else fm_view[fm_view["GRUPO_FIRST_MILE"] == fm_detail_option]
         )
         fm_cols = [
-            "BASE_EMISSORA", "AWB", "STATUS_SISTEMA", "SLA_DATA",
-            "OriginCode", "DestinationCode", "OPSStation",
-            "FltNo", "FltDt", "FltOrigin", "FltDestination", "BillTo",
+            "BASE_EMISSORA", "CLIENTE_PADRONIZADO", "AWB",
+            "STATUS_SISTEMA", "SLA_DATA", "OriginCode",
+            "DestinationCode", "OPSStation", "FltNo", "FltDt",
+            "FltOrigin", "FltDestination", "BillTo",
         ]
         fm_cols = [c for c in fm_cols if c in fm_detail.columns]
-        st.dataframe(fm_detail[fm_cols], use_container_width=True, hide_index=True)
+        st.dataframe(
+            safe_dataframe_for_streamlit(fm_detail[fm_cols]),
+            use_container_width=True,
+            hide_index=True
+        )
 
     for err in fm_errors:
         st.warning(err)
 
-    # EDI: upload múltiplo e processamento independente por arquivo.
     if files_edi:
         edi_payload = tuple((f.name, f.getvalue()) for f in files_edi)
         edi_base, edi_audit = read_edi_files(edi_payload)
@@ -688,14 +750,25 @@ if file_sao12 or file_tres1 or files_edi:
         st.subheader("Notas Integradas (EDI)")
         e1, e2, e3 = st.columns(3)
         e1.metric("Arquivos enviados", len(files_edi))
-        e2.metric("Arquivos processados", int((edi_audit["STATUS"] == "OK").sum()) if not edi_audit.empty else 0)
+        e2.metric(
+            "Arquivos processados",
+            int((edi_audit["STATUS"] == "OK").sum()) if not edi_audit.empty else 0
+        )
         e3.metric("Registros consolidados", len(edi_base))
 
-        st.dataframe(edi_audit, use_container_width=True, hide_index=True)
+        st.dataframe(
+            safe_dataframe_for_streamlit(edi_audit),
+            use_container_width=True,
+            hide_index=True
+        )
 
         if not edi_base.empty:
             with st.expander("Ver base EDI consolidada"):
-                st.dataframe(edi_base, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    safe_dataframe_for_streamlit(edi_base),
+                    use_container_width=True,
+                    hide_index=True
+                )
 
 
 # =========================
