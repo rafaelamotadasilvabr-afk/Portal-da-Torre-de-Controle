@@ -703,13 +703,52 @@ if file_sao12 or file_tres1 or files_edi:
             sao12_view = fm_view[fm_view["BASE_EMISSORA"] == "SAO12"]
             if not sao12_view.empty:
                 st.subheader("Clientes SAO12 monitorados")
-                cliente_counts = (
-                    sao12_view["CLIENTE_PADRONIZADO"]
-                    .value_counts()
-                    .rename_axis("CLIENTE")
-                    .reset_index(name="AWBS")
+                # Matriz operacional por cliente e status.
+                client_matrix = (
+                    sao12_view
+                    .pivot_table(
+                        index="CLIENTE_PADRONIZADO",
+                        columns="GRUPO_FIRST_MILE",
+                        values="AWB",
+                        aggfunc="nunique",
+                        fill_value=0,
+                    )
+                    .reset_index()
+                    .rename(columns={"CLIENTE_PADRONIZADO": "CLIENTE"})
                 )
-                st.dataframe(cliente_counts, use_container_width=True, hide_index=True)
+
+                expected_cols = [
+                    "PENDENTE DE EMBARQUE",
+                    "PENDENTE DE DESEMBARQUE",
+                    "MISSING",
+                    "DISCREPÂNCIA",
+                    "BAIXADO",
+                    "OUTROS",
+                ]
+                for col in expected_cols:
+                    if col not in client_matrix.columns:
+                        client_matrix[col] = 0
+
+                client_matrix["TOTAL"] = client_matrix[expected_cols].sum(axis=1)
+
+                client_matrix = client_matrix[
+                    [
+                        "CLIENTE",
+                        "PENDENTE DE EMBARQUE",
+                        "PENDENTE DE DESEMBARQUE",
+                        "MISSING",
+                        "DISCREPÂNCIA",
+                        "BAIXADO",
+                        "OUTROS",
+                        "TOTAL",
+                    ]
+                ].sort_values("TOTAL", ascending=False)
+
+                st.dataframe(
+                    client_matrix,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
         fm_detail_option = st.selectbox(
             "Detalhar First Mile",
