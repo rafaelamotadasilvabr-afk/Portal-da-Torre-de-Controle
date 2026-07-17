@@ -461,24 +461,61 @@ def normalize_cross_key(value):
 
 def mark_edi_execution_from_first_mile(edi_df, first_mile_df):
     """
-    Mantém o cruzamento EDI x Emissões apenas como evidência diagnóstica.
+    Cruza pendências EDI com o First Mile.
 
-    Estar presente em SAO12/TRES1 não encerra automaticamente o Booking,
-    porque uma AWB pode já existir e a carga ainda não ter sido recebida/executada.
+    Regra:
+    - Se uma AWB classificada como BOOKING REAL ou AGUARDANDO BOOKING
+      já existe em SAO12/TRES1, ela não deve continuar como pendência EDI.
+    - A carga passa a ser tratada pelo status operacional atual do First Mile.
     """
     result = edi_df.copy()
 
-    if first_mile_df is None or first_mile_df.empty:
-        result["ENCONTRADO_EMISSOES"] = False
-        return result
-
-    emission_awbs = set(first_mile_df["AWB"].dropna().astype(str))
     result["_AWB_CRUZAMENTO"] = result.get(
         "Nº AWB",
         pd.Series(index=result.index, dtype=object)
     ).apply(normalize_cross_key)
 
-    result["ENCONTRADO_EMISSOES"] = result["_AWB_CRUZAMENTO"].isin(emission_awbs)
+    result["ENCONTRADO_EMISSOES"] = False
+    result["STATUS_FIRST_MILE_ATUAL"] = ""
+    result["BASE_FIRST_MILE"] = ""
+
+    if first_mile_df is None or first_mile_df.empty:
+        return result
+
+    fm_lookup = (
+        first_mile_df[
+            ["AWB", "BASE_EMISSORA", "STATUS_SISTEMA"]
+        ]
+        .dropna(subset=["AWB"])
+        .drop_duplicates("AWB", keep="last")
+        .copy()
+    )
+
+    fm_lookup["AWB"] = fm_lookup["AWB"].astype(str)
+
+    status_map = fm_lookup.set_index("AWB")["STATUS_SISTEMA"].to_dict()
+    base_map = fm_lookup.set_index("AWB")["BASE_EMISSORA"].to_dict()
+
+    result["ENCONTRADO_EMISSOES"] = result["_AWB_CRUZAMENTO"].isin(status_map)
+    result["STATUS_FIRST_MILE_ATUAL"] = (
+        result["_AWB_CRUZAMENTO"].map(status_map).fillna("")
+    )
+    result["BASE_FIRST_MILE"] = (
+        result["_AWB_CRUZAMENTO"].map(base_map).fillna("")
+    )
+
+    mask_advanced = (
+        result["ENCONTRADO_EMISSOES"]
+        & result["STATUS_EDI_GERENCIAL"].isin(
+            ["BOOKING REAL", "AGUARDANDO BOOKING"]
+        )
+    )
+
+    result.loc[
+        mask_advanced,
+        "STATUS_EDI_GERENCIAL"
+    ] = "JÁ AVANÇOU NO FIRST MILE"
+
     return result
 
 
@@ -656,7 +693,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.12 — EDI com leitura operacional simplificada")
+st.caption("V0.8.13 — EDI cruzado com First Mile")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -967,11 +1004,12 @@ if file_sao12 or file_tres1 or files_edi:
             )
 
             st.markdown("### Booking e execução EDI")
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3, b4, b5 = st.columns(5)
             b1.metric("Booking aguardando execução", int(edi_counts.get("BOOKING REAL", 0)))
             b2.metric("Ainda sem Booking", int(edi_counts.get("AGUARDANDO BOOKING", 0)))
-            b3.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
-            b4.metric(
+            b3.metric("Já avançou no First Mile", int(edi_counts.get("JÁ AVANÇOU NO FIRST MILE", 0)))
+            b4.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
+            b5.metric(
                 "Pendência EDI total",
                 int(edi_counts.get("BOOKING REAL", 0)) + int(edi_counts.get("AGUARDANDO BOOKING", 0))
             )
@@ -984,7 +1022,8 @@ if file_sao12 or file_tres1 or files_edi:
 
             st.caption(
                 "Leitura operacional: Booking aguardando execução = booking confirmado, mas ainda sem emissão/CTe, embarque ou entrega. "
-                "Ainda sem Booking = integração recebida, porém o processo ainda não chegou ao booking."
+                "Ainda sem Booking = integração recebida, porém o processo ainda não chegou ao booking. "
+                "Se a AWB já aparecer em SAO12/TRES1, ela sai da pendência EDI e passa a ser tratada no First Mile."
             )
 
             # Diagnóstico das etapas do EDI para validar qual campo representa avanço real.
@@ -1157,7 +1196,7 @@ if file_sao12 or file_tres1 or files_edi:
 
             edi_detail_status = st.selectbox(
                 "Detalhar situação EDI",
-                ["BOOKING REAL", "AGUARDANDO BOOKING", "AWB ANULADA", "BOOKING JÁ EXECUTADO", "BOOKING + AGUARDANDO", "TODOS"],
+                ["BOOKING REAL", "AGUARDANDO BOOKING", "JÁ AVANÇOU NO FIRST MILE", "AWB ANULADA", "BOOKING JÁ EXECUTADO", "BOOKING + AGUARDANDO", "TODOS"],
             )
 
             if edi_detail_status == "BOOKING + AGUARDANDO":
@@ -1177,7 +1216,8 @@ if file_sao12 or file_tres1 or files_edi:
                 "CLIENTE_EDI", "STATUS_EDI_GERENCIAL", "Pedido", "Numero",
                 "Nº AWB", "Origem", "Destino", "Recebimento", "Integracao",
                 "EmissaoCTe", "CTeGerado", "UltimaOcorrencia",
-                "EmbarqueVoo", "EntregaCarga", "ARQUIVO_EDI",
+                "EmbarqueVoo", "EntregaCarga", "ENCONTRADO_EMISSOES",
+                "BASE_FIRST_MILE", "STATUS_FIRST_MILE_ATUAL", "ARQUIVO_EDI",
             ]
             edi_cols = [c for c in edi_cols if c in edi_detail.columns]
 
