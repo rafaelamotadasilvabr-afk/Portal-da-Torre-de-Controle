@@ -654,7 +654,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.10 — Booking EDI validado + Della Via mapeada")
+st.caption("V0.8.11 — Diagnóstico da etapa anterior ao Booking")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1046,6 +1046,66 @@ if file_sao12 or file_tres1 or files_edi:
                     st.dataframe(
                         safe_dataframe_for_streamlit(
                             edi_booking_diag[sample_cols].head(100)
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            # Diagnóstico específico da etapa anterior ao Booking.
+            nao_executado_df = edi_base[
+                edi_base["STATUS_EDI_GERENCIAL"] == "NÃO EXECUTADO"
+            ].copy()
+
+            if not nao_executado_df.empty:
+                st.markdown("### Diagnóstico — ainda não chegou ao Booking")
+                st.caption(
+                    "Registros sem ocorrência de Booking e sem evidência de emissão/CTe, "
+                    "embarque ou entrega. Esta visão identifica em qual ocorrência o processo parou."
+                )
+
+                nao_executado_df["OCORRENCIA_ATUAL"] = (
+                    nao_executado_df["UltimaOcorrencia"]
+                    .fillna("SEM OCORRÊNCIA")
+                    .astype(str)
+                    .str.strip()
+                    .replace("", "SEM OCORRÊNCIA")
+                )
+
+                occurrence_summary = (
+                    nao_executado_df
+                    .groupby(["CLIENTE_EDI", "OCORRENCIA_ATUAL"], dropna=False)
+                    .size()
+                    .reset_index(name="REGISTROS")
+                    .sort_values("REGISTROS", ascending=False)
+                )
+
+                st.dataframe(
+                    safe_dataframe_for_streamlit(occurrence_summary),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                with st.expander("Ver registros ainda não executados"):
+                    detail_cols = [
+                        "CLIENTE_EDI",
+                        "Pedido",
+                        "Numero",
+                        "Nº AWB",
+                        "Origem",
+                        "Destino",
+                        "Recebimento",
+                        "Integracao",
+                        "EmissaoCTe",
+                        "CTeGerado",
+                        "UltimaOcorrencia",
+                        "ARQUIVO_EDI",
+                    ]
+                    detail_cols = [
+                        c for c in detail_cols if c in nao_executado_df.columns
+                    ]
+                    st.dataframe(
+                        safe_dataframe_for_streamlit(
+                            nao_executado_df[detail_cols]
                         ),
                         use_container_width=True,
                         hide_index=True,
