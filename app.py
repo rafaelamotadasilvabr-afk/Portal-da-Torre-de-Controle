@@ -398,31 +398,86 @@ def edi_client_name(row):
 
 def classify_edi_status(row):
     """
-    Classificação inicial para validação operacional.
+    Classificação operacional refinada do EDI.
 
-    BOOKING:
-    - Última ocorrência indica BKD / Booking Confirmation.
+    BOOKING REAL:
+    - possui ocorrência de booking;
+    - ainda não possui evidência de execução posterior
+      (AWB, emissão de CTe, CTe gerado, embarque ou entrega).
+
+    BOOKING JÁ EXECUTADO:
+    - possui ocorrência de booking;
+    - mas já avançou para alguma etapa operacional posterior.
 
     NÃO EXECUTADO:
-    - Não possui AWB e também não há emissão de CTe.
-
-    Os dois grupos formam a carteira 'Booking / não executado'.
+    - não está em booking;
+    - e continua sem AWB, sem CTe e sem evidência de avanço operacional.
     """
     occurrence = normalize_text(row.get("UltimaOcorrencia", ""))
-    awb = row.get("Nº AWB")
-    emission = row.get("EmissaoCTe")
-    cte_generated = normalize_text(row.get("CTeGerado", ""))
 
-    if "BOOK" in occurrence or occurrence.startswith("BKD"):
-        return "BOOKING"
+    def filled(value):
+        if pd.isna(value):
+            return False
+        return str(value).strip().upper() not in {"", "NAN", "NONE", "NAT"}
 
-    awb_missing = pd.isna(awb) or str(awb).strip() in {"", "NAN", "NONE"}
-    emission_missing = pd.isna(emission) or str(emission).strip() in {"", "NAN", "NONE"}
+    awb_ok = filled(row.get("Nº AWB"))
+    emissao_ok = filled(row.get("EmissaoCTe"))
+    embarque_ok = filled(row.get("EmbarqueVoo"))
+    entrega_ok = filled(row.get("EntregaCarga"))
 
-    if awb_missing and emission_missing and cte_generated in {"", "NO", "NAO", "NÃO"}:
+    cte_value = normalize_text(row.get("CTeGerado", ""))
+    cte_ok = cte_value in {"SIM", "YES", "S", "TRUE", "1"}
+
+    is_booking = (
+        "BOOKING" in occurrence
+        or "BOOKED" in occurrence
+        or occurrence.startswith("BKD")
+    )
+
+    avancou = awb_ok or emissao_ok or cte_ok or embarque_ok or entrega_ok
+
+    if is_booking and not avancou:
+        return "BOOKING REAL"
+
+    if is_booking and avancou:
+        return "BOOKING JÁ EXECUTADO"
+
+    if not avancou:
         return "NÃO EXECUTADO"
 
     return "FORA DO BOOKING"
+
+
+def normalize_cross_key(value):
+    """Normaliza AWB para cruzamento EDI x Emissões."""
+    return normalize_awb(value)
+
+
+def mark_edi_execution_from_first_mile(edi_df, first_mile_df):
+    """
+    Cruza o EDI com SAO12/TRES1 pela AWB quando disponível.
+    Se a AWB já existe nas emissões, a carga possui evidência operacional
+    e não permanece como Booking Real/Não Executado.
+    """
+    result = edi_df.copy()
+
+    if first_mile_df is None or first_mile_df.empty:
+        result["ENCONTRADO_EMISSOES"] = False
+        return result
+
+    emission_awbs = set(first_mile_df["AWB"].dropna().astype(str))
+    result["_AWB_CRUZAMENTO"] = result.get("Nº AWB", pd.Series(index=result.index, dtype=object)).apply(
+        normalize_cross_key
+    )
+    result["ENCONTRADO_EMISSOES"] = result["_AWB_CRUZAMENTO"].isin(emission_awbs)
+
+    mask_advanced = (
+        result["ENCONTRADO_EMISSOES"]
+        & result["STATUS_EDI_GERENCIAL"].isin(["BOOKING REAL", "NÃO EXECUTADO"])
+    )
+    result.loc[mask_advanced, "STATUS_EDI_GERENCIAL"] = "JÁ EXECUTADO NAS EMISSÕES"
+
+    return result
 
 
 # =========================
@@ -599,7 +654,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.5 — First Mile + Booking/execução EDI em validação")
+st.caption("V0.8.6 — Booking refinado + cruzamento inicial EDI x Emissões")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -900,29 +955,32 @@ if file_sao12 or file_tres1 or files_edi:
             edi_base = edi_base.copy()
             edi_base["CLIENTE_EDI"] = edi_base.apply(edi_client_name, axis=1)
             edi_base["STATUS_EDI_GERENCIAL"] = edi_base.apply(classify_edi_status, axis=1)
+            edi_base = mark_edi_execution_from_first_mile(edi_base, first_mile)
 
             edi_counts = edi_base["STATUS_EDI_GERENCIAL"].value_counts()
             booking_total = int(
                 edi_base["STATUS_EDI_GERENCIAL"].isin(
-                    ["BOOKING", "NÃO EXECUTADO"]
+                    ["BOOKING REAL", "NÃO EXECUTADO"]
                 ).sum()
             )
 
             st.markdown("### Booking e execução EDI")
-            b1, b2, b3 = st.columns(3)
-            b1.metric("Booking", int(edi_counts.get("BOOKING", 0)))
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Booking real", int(edi_counts.get("BOOKING REAL", 0)))
             b2.metric("Não executado", int(edi_counts.get("NÃO EXECUTADO", 0)))
-            b3.metric("Booking / não executado", booking_total)
+            b3.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
+            b4.metric("Booking / não executado", booking_total)
 
             st.caption(
-                "Regra inicial em validação: Booking = última ocorrência BKD/Booking Confirmation. "
-                "Não executado = sem AWB e sem emissão de CTe."
+                "Booking real = ocorrência de booking sem evidência de avanço posterior. "
+                "Se houver AWB, emissão de CTe, CTe gerado, embarque, entrega ou correspondência nas emissões, "
+                "a carga deixa a pendência de Booking."
             )
 
             booking_matrix = (
                 edi_base[
                     edi_base["STATUS_EDI_GERENCIAL"].isin(
-                        ["BOOKING", "NÃO EXECUTADO"]
+                        ["BOOKING REAL", "NÃO EXECUTADO"]
                     )
                 ]
                 .pivot_table(
@@ -935,15 +993,15 @@ if file_sao12 or file_tres1 or files_edi:
                 .reset_index()
             )
 
-            for expected_col in ["BOOKING", "NÃO EXECUTADO"]:
+            for expected_col in ["BOOKING REAL", "NÃO EXECUTADO"]:
                 if expected_col not in booking_matrix.columns:
                     booking_matrix[expected_col] = 0
 
             booking_matrix["TOTAL"] = (
-                booking_matrix["BOOKING"] + booking_matrix["NÃO EXECUTADO"]
+                booking_matrix["BOOKING REAL"] + booking_matrix["NÃO EXECUTADO"]
             )
             booking_matrix = booking_matrix[
-                ["CLIENTE_EDI", "BOOKING", "NÃO EXECUTADO", "TOTAL"]
+                ["CLIENTE_EDI", "BOOKING REAL", "NÃO EXECUTADO", "TOTAL"]
             ].sort_values("TOTAL", ascending=False)
 
             st.dataframe(
@@ -954,13 +1012,13 @@ if file_sao12 or file_tres1 or files_edi:
 
             edi_detail_status = st.selectbox(
                 "Detalhar situação EDI",
-                ["BOOKING", "NÃO EXECUTADO", "BOOKING + NÃO EXECUTADO", "TODOS"],
+                ["BOOKING REAL", "NÃO EXECUTADO", "BOOKING JÁ EXECUTADO", "JÁ EXECUTADO NAS EMISSÕES", "BOOKING + NÃO EXECUTADO", "TODOS"],
             )
 
             if edi_detail_status == "BOOKING + NÃO EXECUTADO":
                 edi_detail = edi_base[
                     edi_base["STATUS_EDI_GERENCIAL"].isin(
-                        ["BOOKING", "NÃO EXECUTADO"]
+                        ["BOOKING REAL", "NÃO EXECUTADO"]
                     )
                 ]
             elif edi_detail_status == "TODOS":
