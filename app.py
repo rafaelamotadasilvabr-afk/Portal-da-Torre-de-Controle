@@ -448,7 +448,9 @@ def classify_edi_status(row):
         return "BOOKING JÁ EXECUTADO"
 
     if not avancou:
-        return "NÃO EXECUTADO"
+        if "VOID" in occurrence or occurrence.startswith("107"):
+            return "AWB ANULADA"
+        return "AGUARDANDO BOOKING"
 
     return "FORA DO BOOKING"
 
@@ -654,7 +656,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.11 — Diagnóstico da etapa anterior ao Booking")
+st.caption("V0.8.12 — EDI com leitura operacional simplificada")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -960,20 +962,29 @@ if file_sao12 or file_tres1 or files_edi:
             edi_counts = edi_base["STATUS_EDI_GERENCIAL"].value_counts()
             booking_total = int(
                 edi_base["STATUS_EDI_GERENCIAL"].isin(
-                    ["BOOKING REAL", "NÃO EXECUTADO"]
+                    ["BOOKING REAL", "AGUARDANDO BOOKING"]
                 ).sum()
             )
 
             st.markdown("### Booking e execução EDI")
             b1, b2, b3, b4 = st.columns(4)
-            b1.metric("Booking real", int(edi_counts.get("BOOKING REAL", 0)))
-            b2.metric("Não executado", int(edi_counts.get("NÃO EXECUTADO", 0)))
+            b1.metric("Booking aguardando execução", int(edi_counts.get("BOOKING REAL", 0)))
+            b2.metric("Ainda sem Booking", int(edi_counts.get("AGUARDANDO BOOKING", 0)))
             b3.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
-            b4.metric("Booking / não executado", booking_total)
+            b4.metric(
+                "Pendência EDI total",
+                int(edi_counts.get("BOOKING REAL", 0)) + int(edi_counts.get("AGUARDANDO BOOKING", 0))
+            )
+
+            anuladas_total = int(edi_counts.get("AWB ANULADA", 0))
+            if anuladas_total:
+                st.caption(
+                    f"{anuladas_total} AWB(s) anulada(s) identificada(s) e retirada(s) da pendência operacional."
+                )
 
             st.caption(
-                "Booking real = Booking confirmado sem emissão/CTe, embarque ou entrega. "
-                "AWB, Recebimento e Integração são etapas sistêmicas e não encerram o Booking."
+                "Leitura operacional: Booking aguardando execução = booking confirmado, mas ainda sem emissão/CTe, embarque ou entrega. "
+                "Ainda sem Booking = integração recebida, porém o processo ainda não chegou ao booking."
             )
 
             # Diagnóstico das etapas do EDI para validar qual campo representa avanço real.
@@ -1015,9 +1026,9 @@ if file_sao12 or file_tres1 or files_edi:
                             ) if len(edi_booking_diag) else 0,
                         })
 
-                st.markdown("### Diagnóstico das etapas do Booking")
+                st.markdown("### Validação técnica do Booking")
                 st.caption(
-                    "Esta tabela serve apenas para validar quais campos realmente significam avanço operacional."
+                    "Visão técnica de apoio. Não é um indicador operacional principal."
                 )
                 st.dataframe(
                     pd.DataFrame(diag_rows),
@@ -1053,14 +1064,14 @@ if file_sao12 or file_tres1 or files_edi:
 
             # Diagnóstico específico da etapa anterior ao Booking.
             nao_executado_df = edi_base[
-                edi_base["STATUS_EDI_GERENCIAL"] == "NÃO EXECUTADO"
+                edi_base["STATUS_EDI_GERENCIAL"] == "AGUARDANDO BOOKING"
             ].copy()
 
             if not nao_executado_df.empty:
-                st.markdown("### Diagnóstico — ainda não chegou ao Booking")
+                st.markdown("### Aguardando Booking — onde o processo parou")
                 st.caption(
-                    "Registros sem ocorrência de Booking e sem evidência de emissão/CTe, "
-                    "embarque ou entrega. Esta visão identifica em qual ocorrência o processo parou."
+                    "Cargas recebidas no EDI que ainda não chegaram ao Booking. "
+                    "AWBs anuladas ficam separadas e não entram na pendência operacional."
                 )
 
                 nao_executado_df["OCORRENCIA_ATUAL"] = (
@@ -1114,7 +1125,7 @@ if file_sao12 or file_tres1 or files_edi:
             booking_matrix = (
                 edi_base[
                     edi_base["STATUS_EDI_GERENCIAL"].isin(
-                        ["BOOKING REAL", "NÃO EXECUTADO"]
+                        ["BOOKING REAL", "AGUARDANDO BOOKING"]
                     )
                 ]
                 .pivot_table(
@@ -1127,15 +1138,15 @@ if file_sao12 or file_tres1 or files_edi:
                 .reset_index()
             )
 
-            for expected_col in ["BOOKING REAL", "NÃO EXECUTADO"]:
+            for expected_col in ["BOOKING REAL", "AGUARDANDO BOOKING"]:
                 if expected_col not in booking_matrix.columns:
                     booking_matrix[expected_col] = 0
 
             booking_matrix["TOTAL"] = (
-                booking_matrix["BOOKING REAL"] + booking_matrix["NÃO EXECUTADO"]
+                booking_matrix["BOOKING REAL"] + booking_matrix["AGUARDANDO BOOKING"]
             )
             booking_matrix = booking_matrix[
-                ["CLIENTE_EDI", "BOOKING REAL", "NÃO EXECUTADO", "TOTAL"]
+                ["CLIENTE_EDI", "BOOKING REAL", "AGUARDANDO BOOKING", "TOTAL"]
             ].sort_values("TOTAL", ascending=False)
 
             st.dataframe(
@@ -1146,13 +1157,13 @@ if file_sao12 or file_tres1 or files_edi:
 
             edi_detail_status = st.selectbox(
                 "Detalhar situação EDI",
-                ["BOOKING REAL", "NÃO EXECUTADO", "BOOKING JÁ EXECUTADO", "JÁ EXECUTADO NAS EMISSÕES", "BOOKING + NÃO EXECUTADO", "TODOS"],
+                ["BOOKING REAL", "AGUARDANDO BOOKING", "AWB ANULADA", "BOOKING JÁ EXECUTADO", "BOOKING + AGUARDANDO", "TODOS"],
             )
 
-            if edi_detail_status == "BOOKING + NÃO EXECUTADO":
+            if edi_detail_status == "BOOKING + AGUARDANDO":
                 edi_detail = edi_base[
                     edi_base["STATUS_EDI_GERENCIAL"].isin(
-                        ["BOOKING REAL", "NÃO EXECUTADO"]
+                        ["BOOKING REAL", "AGUARDANDO BOOKING"]
                     )
                 ]
             elif edi_detail_status == "TODOS":
