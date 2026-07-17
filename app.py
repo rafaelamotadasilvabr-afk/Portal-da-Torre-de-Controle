@@ -739,22 +739,31 @@ def build_unique_action_queue(master_df, edi_loaded=False):
 
         return 99, "MONITORAR", txt(row, situacao_col) or "SEM AÇÃO DEFINIDA", "Monitorar evolução operacional"
 
-    classified = df.apply(classify, axis=1, result_type="expand")
-    classified.columns = ["_ORDEM_FILA", "PRIORIDADE", "PROBLEMA", "PROXIMA_ACAO"]
+    # Usa nomes internos exclusivos para evitar conflito com colunas já existentes no master.
+    classified_rows = [classify(row) for _, row in df.iterrows()]
+    classified = pd.DataFrame(
+        classified_rows,
+        index=df.index,
+        columns=[
+            "_FILA_ORDEM",
+            "_FILA_PRIORIDADE",
+            "_FILA_PROBLEMA",
+            "_FILA_PROXIMA_ACAO",
+        ],
+    )
     df = pd.concat([df, classified], axis=1)
 
     # Uma linha por AWB: mantém a ocorrência de maior prioridade.
     df["_AWB_FILA"] = df["AWB"].apply(normalize_awb)
     df = (
-        df.sort_values(["_ORDEM_FILA", "_AWB_FILA"])
+        df.sort_values(["_FILA_ORDEM", "_AWB_FILA"])
           .drop_duplicates("_AWB_FILA", keep="first")
           .copy()
     )
 
-    # Monta a fila preservando exatamente o índice do dataframe já deduplicado.
+    # Monta a fila sem reutilizar nomes que possam existir no master.
     queue = pd.DataFrame(index=df.index)
-
-    queue["PRIORIDADE"] = df["PRIORIDADE"]
+    queue["PRIORIDADE"] = df["_FILA_PRIORIDADE"].astype(str)
     queue["AWB"] = df["AWB"]
     queue["CLIENTE"] = df[cliente_col] if cliente_col else ""
     queue["ETAPA ATUAL"] = df[etapa_col] if etapa_col else ""
@@ -763,9 +772,9 @@ def build_unique_action_queue(master_df, edi_loaded=False):
     queue["SLA"] = df[sla_col] if sla_col else ""
     queue["DIAS EM ATRASO"] = df[atraso_col] if atraso_col else ""
     queue["TRATATIVA ESPECIAL"] = df[controle_col] if controle_col else ""
-    queue["PROBLEMA"] = df["PROBLEMA"]
-    queue["PRÓXIMA AÇÃO"] = df["PROXIMA_ACAO"]
-    queue["_ORDEM_FILA"] = df["_ORDEM_FILA"]
+    queue["PROBLEMA"] = df["_FILA_PROBLEMA"].astype(str)
+    queue["PRÓXIMA AÇÃO"] = df["_FILA_PROXIMA_ACAO"].astype(str)
+    queue["_ORDEM_FILA"] = df["_FILA_ORDEM"]
 
     return queue.sort_values(
         ["_ORDEM_FILA", "DIAS EM ATRASO"],
@@ -949,7 +958,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.0.1 — Correção da Fila Única de Ação")
+st.caption("V1.0.2 — Fila Única sem conflito de colunas")
 
 with st.sidebar:
     st.header("Atualização das bases")
