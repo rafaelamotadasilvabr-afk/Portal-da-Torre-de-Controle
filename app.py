@@ -392,6 +392,7 @@ def edi_client_name(row):
         "1422": "Riachuelo",
         "1708": "Três Corações",
         "3608": "Neodent",
+        "4358": "Della Via",
     }
     return mapping.get(company_id, f"Cliente {company_id}" if company_id else "Não identificado")
 
@@ -653,7 +654,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.9 — Booking EDI com regra operacional validada")
+st.caption("V0.8.10 — Booking EDI validado + Della Via mapeada")
 
 with st.sidebar:
     st.header("Atualização das bases")
