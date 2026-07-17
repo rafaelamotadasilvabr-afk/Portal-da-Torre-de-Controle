@@ -828,7 +828,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.3 — Acareação aberta e passíveis CDSP2/SAO12")
+st.caption("V0.9.5 — Detalhamento completo de Acareação")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1849,15 +1849,37 @@ def _brl(v):
     return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
 
 acar=acareacao_ressalva_link.copy()
-sc=_col(acar,["STATUS","SITUAÇÃO","SITUACAO"])
+
+def _status_acareacao_col(df):
+    # Primeiro tenta nomes explícitos.
+    explicit = _col(df, ["STATUS ACAREAÇÃO", "STATUS ACAREACAO", "STATUS", "SITUAÇÃO", "SITUACAO"])
+    if explicit:
+        vals = df[explicit].astype(str).map(normalize_text)
+        if vals.str.contains("EM ANDAMENTO|CONCLUID", regex=True, na=False).any():
+            return explicit
+
+    # A planilha atual possui a coluna de status sem título (Unnamed).
+    # Identifica pela presença dos valores operacionais.
+    for c in df.columns:
+        vals = df[c].astype(str).map(normalize_text)
+        if vals.str.contains("EM ANDAMENTO", regex=False, na=False).any():
+            return c
+        if vals.str.contains("CONCLUID", regex=False, na=False).any():
+            return c
+    return None
+
+sc=_status_acareacao_col(acar)
 vc=_col(acar,["VALOR DA CARGA","VALOR"])
 ec=_col(acar,["ENTREGADOR"])
 ac=_col(acar,["AWB"])
-aberta=acar.copy()
+
 if sc:
-    s=acar[sc].astype(str).map(normalize_text)
-    fechada=s.str.contains("CONCLUID|FINALIZ|ENCERR|RESOLVID",regex=True,na=False)
-    aberta=acar.loc[~fechada].copy()
+    status_acar_norm = acar[sc].astype(str).map(normalize_text)
+    aberta = acar[status_acar_norm.eq("EM ANDAMENTO")].copy()
+else:
+    # Sem status confiável, não contabiliza para evitar valor incorreto.
+    aberta = acar.iloc[0:0].copy()
+
 aberta["_VALOR"]=_num_money(aberta[vc]) if vc else 0.0
 
 inden=debito_indenizacao_link.copy()
@@ -1887,10 +1909,45 @@ if not aberta.empty and ec:
     r["VALOR_TOTAL"]=r["VALOR_TOTAL"].apply(_brl)
     st.dataframe(r,use_container_width=True,hide_index=True)
 
-with st.expander("Ver acareações em aberto"):
-    cols=[c for c in [ac,ec,sc,vc,_col(acar,["TIPO DE ACAREAÇÃO","TIPO DE ACAREACAO"]),
-        _col(acar,["PRAZO DE DEVOLUTIVA","PRAZO"]),_col(acar,["OBSERVAÇÃO","OBSERVACAO","OBS"])] if c]
-    if cols: st.dataframe(aberta[cols],use_container_width=True,hide_index=True)
+with st.expander("Ver acareações em andamento"):
+    cliente_col = _col(acar, ["CLIENTE"])
+    tipo_acar_col = _col(acar, ["TIPO DE ACAREAÇÃO", "TIPO DE ACAREACAO"])
+    prazo_col = _col(acar, ["PRAZO DE DEVOLUTIVA", "PRAZO"])
+    obs_col = _col(acar, ["OBSERVAÇÃO", "OBSERVACAO", "OBS"])
+
+    cols = [
+        c for c in [
+            ac,
+            cliente_col,
+            sc,
+            tipo_acar_col,
+            ec,
+            vc,
+            prazo_col,
+            obs_col,
+        ]
+        if c
+    ]
+
+    detalhe_acar = aberta[cols].copy() if cols else aberta.copy()
+
+    rename_map = {}
+    if ac: rename_map[ac] = "AWB"
+    if cliente_col: rename_map[cliente_col] = "CLIENTE"
+    if sc: rename_map[sc] = "STATUS"
+    if tipo_acar_col: rename_map[tipo_acar_col] = "TIPO DE ACAREAÇÃO"
+    if ec: rename_map[ec] = "ENTREGADOR"
+    if vc: rename_map[vc] = "VALOR DA CARGA"
+    if prazo_col: rename_map[prazo_col] = "PRAZO DE DEVOLUTIVA"
+    if obs_col: rename_map[obs_col] = "OBSERVAÇÃO"
+
+    detalhe_acar = detalhe_acar.rename(columns=rename_map)
+
+    st.dataframe(
+        detalhe_acar,
+        use_container_width=True,
+        hide_index=True
+    )
 
 st.subheader("Passíveis de indenização — CDSP2 e SAO12")
 pv=pd.concat([cdsp2,sao12],ignore_index=True)
@@ -1950,25 +2007,26 @@ st.dataframe(detail.drop(columns=["_ORDEM"], errors="ignore"), use_container_wid
 
 # Performance da Torre
 st.subheader("Performance da Torre")
+
 if not tower_history.empty:
-    event_dates = tower_history["DATA_EVENTO_TORRE"].dt.date
-    entries_today = (
-        event_dates.eq(reference_date)
-        & tower_history["EVENTO_TORRE"].isin(["PENDENCIA", "PENDENCIA_CORP"])
-    ).sum()
-    exits_today = (
-        event_dates.eq(reference_date)
-        & tower_history["EVENTO_TORRE"].eq("FINALIZADO")
-    ).sum()
-    current_backlog = tower_latest[
-        tower_latest["EVENTO_TORRE"].isin(["PENDENCIA", "PENDENCIA_CORP"])
-    ]["AWB"].nunique()
+    event_dates = pd.to_datetime(
+        tower_history["DATA_EVENTO_TORRE"],
+        errors="coerce"
+    ).dt.date
+
+    entries_today = int(event_dates.eq(reference_date).sum())
+    current_backlog = int(tower_latest["AWB"].nunique()) if not tower_latest.empty else 0
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Entradas na Torre", int(entries_today))
-    c2.metric("Saídas da Torre", int(exits_today))
-    c3.metric("Backlog atual", int(current_backlog))
+    c1.metric("Entradas na Torre hoje", entries_today)
+    c2.metric("Saídas da Torre hoje", "—")
+    c3.metric("Backlog atual", current_backlog)
 
+    st.caption(
+        "Entradas de hoje são calculadas pela Data da Tratativa da planilha viva. "
+        "O backlog é a quantidade atual de AWBs únicas na base de Pendências. "
+        "Saídas do dia não podem ser calculadas com segurança enquanto a fonte por link não trouxer o histórico de finalizadas."
+    )
 
 # Download
 st.subheader("Exportação")
