@@ -614,6 +614,46 @@ def load_live_control_bases():
     return bases
 
 
+
+def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_df):
+    if master_df is None or master_df.empty:
+        return master_df
+
+    result = master_df.copy()
+    result["_AWB_CONTROLE"] = result["AWB"].astype(str).map(normalize_awb)
+
+    def keyset(df, names):
+        if df is None or df.empty:
+            return set()
+        col = find_column(df, names)
+        if not col:
+            return set()
+        return {
+            k for k in df[col].apply(normalize_awb).dropna().astype(str)
+            if k
+        }
+
+    pend = keyset(pendencias_df, ["awb", "AWB"])
+    acar = keyset(acareacao_df, ["awb", "AWB"])
+    inden = keyset(indenizacao_df, ["AWB", "awb"])
+
+    result["NA_PENDENCIA_TORRE_LINK"] = result["_AWB_CONTROLE"].isin(pend)
+    result["EM_ACAREACAO_RESSALVA"] = result["_AWB_CONTROLE"].isin(acar)
+    result["EM_DEBITO_INDENIZACAO"] = result["_AWB_CONTROLE"].isin(inden)
+
+    def tags(row):
+        out = []
+        if row["NA_PENDENCIA_TORRE_LINK"]:
+            out.append("PENDÊNCIA TORRE")
+        if row["EM_ACAREACAO_RESSALVA"]:
+            out.append("ACAREAÇÃO / RESSALVA")
+        if row["EM_DEBITO_INDENIZACAO"]:
+            out.append("DÉBITO / INDENIZAÇÃO")
+        return " | ".join(out)
+
+    result["CONTROLE_ESPECIAL"] = result.apply(tags, axis=1)
+    return result
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -788,7 +828,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.1.2 — Pendências da Torre processadas pelo Google Sheets")
+st.caption("V0.9.2 — Cruzamento operacional com bases vivas")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1742,6 +1782,14 @@ with st.expander("Ver diagnóstico detalhado"):
 # KPIs
 st.divider()
 
+
+master = add_live_control_flags(
+    master,
+    pendencias_torre_link,
+    acareacao_ressalva_link,
+    debito_indenizacao_link,
+)
+
 st.subheader("Visão operacional V0")
 
 priority_classes = [
@@ -1775,6 +1823,38 @@ st.caption(
 
 
 # Fila de ação
+
+st.header("Tratativas especiais")
+c1, c2, c3 = st.columns(3)
+c1.metric("Na Pendência da Torre", int(master["NA_PENDENCIA_TORRE_LINK"].sum()))
+c2.metric("Acareação / Ressalva", int(master["EM_ACAREACAO_RESSALVA"].sum()))
+c3.metric("Débito / Indenização", int(master["EM_DEBITO_INDENIZACAO"].sum()))
+
+st.caption(
+    "AWBs da carteira atual que também constam nas bases vivas de controle."
+)
+
+opcao_controle = st.selectbox(
+    "Detalhar tratativa especial",
+    ["TODAS", "PENDÊNCIA TORRE", "ACAREAÇÃO / RESSALVA", "DÉBITO / INDENIZAÇÃO"],
+    key="opcao_controle_especial",
+)
+
+controle_view = master[master["CONTROLE_ESPECIAL"].astype(str).str.strip().ne("")].copy()
+if opcao_controle == "PENDÊNCIA TORRE":
+    controle_view = controle_view[controle_view["NA_PENDENCIA_TORRE_LINK"]]
+elif opcao_controle == "ACAREAÇÃO / RESSALVA":
+    controle_view = controle_view[controle_view["EM_ACAREACAO_RESSALVA"]]
+elif opcao_controle == "DÉBITO / INDENIZAÇÃO":
+    controle_view = controle_view[controle_view["EM_DEBITO_INDENIZACAO"]]
+
+cols_controle = [
+    "AWB", "SITUACAO_GERENCIAL", "STATUS_SISTEMA", "SLA_DATA", "CONTROLE_ESPECIAL"
+]
+cols_controle = [c for c in cols_controle if c in controle_view.columns]
+st.dataframe(controle_view[cols_controle], use_container_width=True, hide_index=True)
+st.divider()
+
 st.subheader("Fila de ação")
 action_df = master[
     master["SITUACAO_GERENCIAL"].isin([
