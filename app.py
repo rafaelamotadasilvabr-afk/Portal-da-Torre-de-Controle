@@ -599,6 +599,26 @@ def read_public_google_sheet(url):
     response.raise_for_status()
     return pd.read_csv(BytesIO(response.content))
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def read_public_google_workbook_bytes(url):
+    """
+    Baixa o Google Sheets completo em XLSX para preservar todas as abas.
+    Necessário para Pendências da Torre, pois a Performance usa:
+    PENDENCIAS, PENDENCIA CORP e FINALIZADAS.
+    """
+    sheet_id = extract_google_sheet_id(url)
+    if not sheet_id:
+        raise ValueError("Link do Google Sheets inválido.")
+
+    xlsx_url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        "/export?format=xlsx"
+    )
+    response = requests.get(xlsx_url, timeout=60)
+    response.raise_for_status()
+    return response.content
+
 def load_live_control_bases():
     st.sidebar.markdown("### Bases vivas — Google Sheets")
     st.sidebar.caption("Links preenchidos por padrão. Altere somente se a planilha mudar.")
@@ -828,7 +848,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.5 — Detalhamento completo de Acareação")
+st.caption("V0.9.6 — Performance da Torre online + Passíveis 2026")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -866,6 +886,14 @@ with st.sidebar:
     pendencias_torre_link = live_control_bases["Pendências da Torre"]
     acareacao_ressalva_link = live_control_bases["Acareação e Ressalva"]
     debito_indenizacao_link = live_control_bases["Passível a Débito e Indenização"]
+
+    # Arquivo completo da planilha de Pendências, preservando todas as abas.
+    try:
+        pendencias_torre_workbook = read_public_google_workbook_bytes(
+            url_pendencias_torre
+        )
+    except Exception:
+        pendencias_torre_workbook = None
 
 
     st.divider()
@@ -922,7 +950,11 @@ try:
     with st.spinner("Processando bases e aplicando regras da V0..."):
         lm = read_last_mile(file_lm.getvalue())
         eu_latest, route_dates = read_eu_entrego(file_eu.getvalue())
-        tower_latest, tower_history = read_torre_from_dataframe(pendencias_torre_link)
+        tower_latest, tower_history = (
+            read_torre(pendencias_torre_workbook)
+            if pendencias_torre_workbook
+            else read_torre_from_dataframe(pendencias_torre_link)
+        )
 
         master = build_master(
             lm,
@@ -1883,6 +1915,20 @@ else:
 aberta["_VALOR"]=_num_money(aberta[vc]) if vc else 0.0
 
 inden=debito_indenizacao_link.copy()
+
+# Somente processos/claims de 2026.
+data_claim_col = _col(inden, ["DATA DE CLAIM", "DATA CLAIM"])
+data_emissao_col = _col(inden, ["DATA DE EMISSÃO", "DATA DE EMISSAO"])
+
+if data_claim_col:
+    _ano_ref = pd.to_datetime(inden[data_claim_col], errors="coerce").dt.year
+elif data_emissao_col:
+    _ano_ref = pd.to_datetime(inden[data_emissao_col], errors="coerce").dt.year
+else:
+    _ano_ref = pd.Series(pd.NA, index=inden.index)
+
+inden = inden[_ano_ref.eq(2026)].copy()
+
 vi=_col(inden,["VALOR INDENIZAÇÃO","VALOR INDENIZACAO","VALOR DO CLAIM","VALOR CLAIM","VALOR"])
 bi=_col(inden,["BASE OFENSORA","OFENSOR","BASE","ORIGEM","ESTAÇÃO","ESTACAO"])
 ai=_col(inden,["AWB"])
@@ -2009,23 +2055,39 @@ st.dataframe(detail.drop(columns=["_ORDEM"], errors="ignore"), use_container_wid
 st.subheader("Performance da Torre")
 
 if not tower_history.empty:
-    event_dates = pd.to_datetime(
-        tower_history["DATA_EVENTO_TORRE"],
+    perf = tower_history.copy()
+    perf["DATA_EVENTO_DIA"] = pd.to_datetime(
+        perf["DATA_EVENTO_TORRE"],
         errors="coerce"
     ).dt.date
 
-    entries_today = int(event_dates.eq(reference_date).sum())
-    current_backlog = int(tower_latest["AWB"].nunique()) if not tower_latest.empty else 0
+    entradas_hoje = perf[
+        perf["EVENTO_TORRE"].isin(["PENDENCIA", "PENDENCIA_CORP"])
+        & perf["DATA_EVENTO_DIA"].eq(reference_date)
+    ]["AWB"].nunique()
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Entradas na Torre hoje", entries_today)
-    c2.metric("Saídas da Torre hoje", "—")
-    c3.metric("Backlog atual", current_backlog)
+    saidas_hoje = perf[
+        perf["EVENTO_TORRE"].eq("FINALIZADO")
+        & perf["DATA_EVENTO_DIA"].eq(reference_date)
+    ]["AWB"].nunique()
+
+    backlog_atual = (
+        tower_latest[
+            ~tower_latest["EVENTO_TORRE"].eq("FINALIZADO")
+        ]["AWB"].nunique()
+        if not tower_latest.empty
+        else 0
+    )
+
+    p1, p2, p3 = st.columns(3)
+    p1.metric("Entradas na Torre hoje", int(entradas_hoje))
+    p2.metric("Saídas da Torre hoje", int(saidas_hoje))
+    p3.metric("Backlog atual", int(backlog_atual))
 
     st.caption(
-        "Entradas de hoje são calculadas pela Data da Tratativa da planilha viva. "
-        "O backlog é a quantidade atual de AWBs únicas na base de Pendências. "
-        "Saídas do dia não podem ser calculadas com segurança enquanto a fonte por link não trouxer o histórico de finalizadas."
+        "Entradas = AWBs incluídas hoje nas abas PENDENCIAS/PENDENCIA CORP. "
+        "Saídas = AWBs finalizadas hoje na aba FINALIZADAS. "
+        "Backlog = AWBs cujo evento mais recente ainda não é FINALIZADO."
     )
 
 # Download
