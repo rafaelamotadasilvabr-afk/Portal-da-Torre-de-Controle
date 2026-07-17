@@ -400,18 +400,27 @@ def classify_edi_status(row):
     """
     Classificação operacional refinada do EDI.
 
+    REGRA PRINCIPAL:
+    A existência de AWB, sozinha, NÃO significa que a carga foi recebida/executada.
+
     BOOKING REAL:
     - possui ocorrência de booking;
-    - ainda não possui evidência de execução posterior
-      (AWB, emissão de CTe, CTe gerado, embarque ou entrega).
+    - ainda não possui evidência real de avanço operacional.
 
     BOOKING JÁ EXECUTADO:
     - possui ocorrência de booking;
-    - mas já avançou para alguma etapa operacional posterior.
+    - já possui evidência de avanço operacional.
 
     NÃO EXECUTADO:
-    - não está em booking;
-    - e continua sem AWB, sem CTe e sem evidência de avanço operacional.
+    - não está identificado como booking;
+    - e ainda não possui evidência real de avanço operacional.
+
+    Evidências de avanço consideradas:
+    - Recebimento preenchido;
+    - Emissão de CTe;
+    - CTe gerado;
+    - Embarque em voo;
+    - Entrega da carga.
     """
     occurrence = normalize_text(row.get("UltimaOcorrencia", ""))
 
@@ -420,7 +429,7 @@ def classify_edi_status(row):
             return False
         return str(value).strip().upper() not in {"", "NAN", "NONE", "NAT"}
 
-    awb_ok = filled(row.get("Nº AWB"))
+    recebimento_ok = filled(row.get("Recebimento"))
     emissao_ok = filled(row.get("EmissaoCTe"))
     embarque_ok = filled(row.get("EmbarqueVoo"))
     entrega_ok = filled(row.get("EntregaCarga"))
@@ -434,7 +443,13 @@ def classify_edi_status(row):
         or occurrence.startswith("BKD")
     )
 
-    avancou = awb_ok or emissao_ok or cte_ok or embarque_ok or entrega_ok
+    avancou = (
+        recebimento_ok
+        or emissao_ok
+        or cte_ok
+        or embarque_ok
+        or entrega_ok
+    )
 
     if is_booking and not avancou:
         return "BOOKING REAL"
@@ -447,7 +462,6 @@ def classify_edi_status(row):
 
     return "FORA DO BOOKING"
 
-
 def normalize_cross_key(value):
     """Normaliza AWB para cruzamento EDI x Emissões."""
     return normalize_awb(value)
@@ -455,9 +469,10 @@ def normalize_cross_key(value):
 
 def mark_edi_execution_from_first_mile(edi_df, first_mile_df):
     """
-    Cruza o EDI com SAO12/TRES1 pela AWB quando disponível.
-    Se a AWB já existe nas emissões, a carga possui evidência operacional
-    e não permanece como Booking Real/Não Executado.
+    Mantém o cruzamento EDI x Emissões apenas como evidência diagnóstica.
+
+    Estar presente em SAO12/TRES1 não encerra automaticamente o Booking,
+    porque uma AWB pode já existir e a carga ainda não ter sido recebida/executada.
     """
     result = edi_df.copy()
 
@@ -466,17 +481,12 @@ def mark_edi_execution_from_first_mile(edi_df, first_mile_df):
         return result
 
     emission_awbs = set(first_mile_df["AWB"].dropna().astype(str))
-    result["_AWB_CRUZAMENTO"] = result.get("Nº AWB", pd.Series(index=result.index, dtype=object)).apply(
-        normalize_cross_key
-    )
+    result["_AWB_CRUZAMENTO"] = result.get(
+        "Nº AWB",
+        pd.Series(index=result.index, dtype=object)
+    ).apply(normalize_cross_key)
+
     result["ENCONTRADO_EMISSOES"] = result["_AWB_CRUZAMENTO"].isin(emission_awbs)
-
-    mask_advanced = (
-        result["ENCONTRADO_EMISSOES"]
-        & result["STATUS_EDI_GERENCIAL"].isin(["BOOKING REAL", "NÃO EXECUTADO"])
-    )
-    result.loc[mask_advanced, "STATUS_EDI_GERENCIAL"] = "JÁ EXECUTADO NAS EMISSÕES"
-
     return result
 
 
@@ -654,7 +664,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.6 — Booking refinado + cruzamento inicial EDI x Emissões")
+st.caption("V0.8.7 — Booking por evidência operacional real")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -973,8 +983,8 @@ if file_sao12 or file_tres1 or files_edi:
 
             st.caption(
                 "Booking real = ocorrência de booking sem evidência de avanço posterior. "
-                "Se houver AWB, emissão de CTe, CTe gerado, embarque, entrega ou correspondência nas emissões, "
-                "a carga deixa a pendência de Booking."
+                "AWB criada, sozinha, não encerra o Booking. A saída da pendência depende de recebimento, "
+                "emissão/CTe, embarque ou entrega."
             )
 
             booking_matrix = (
