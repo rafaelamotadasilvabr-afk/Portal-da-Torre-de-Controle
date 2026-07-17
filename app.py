@@ -674,6 +674,106 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     result["CONTROLE_ESPECIAL"] = result.apply(tags, axis=1)
     return result
 
+
+def build_unique_action_queue(master_df, edi_loaded=False):
+    """
+    Gera uma fila única: uma linha por AWB, priorizando a ação operacional mais crítica.
+    O EDI é opcional e nunca bloqueia a fila.
+    """
+    if master_df is None or master_df.empty:
+        return pd.DataFrame()
+
+    df = master_df.copy()
+
+    def first_existing(*cols):
+        return next((c for c in cols if c in df.columns), None)
+
+    situacao_col = first_existing("SITUACAO_GERENCIAL", "SITUACAO", "STATUS_SISTEMA")
+    cliente_col = first_existing("CLIENTE", "CLIENTE_NOME", "NOME_CLIENTE")
+    etapa_col = first_existing("ETAPA", "ETAPA_ATUAL", "FASE_OPERACIONAL")
+    local_col = first_existing(
+        "LOCALIZACAO_ATUAL", "BASE_RESPONSAVEL", "OPSSTATION",
+        "FltDestination", "FLTDESTINATION", "BASE"
+    )
+    sla_col = first_existing("SLA_DATA", "SLA", "DATA_SLA")
+    atraso_col = first_existing("DIAS_ATRASO", "DIAS EM ATRASO", "DIAS_EM_ATRASO")
+    controle_col = first_existing("CONTROLE_ESPECIAL")
+
+    def txt(row, col):
+        if not col:
+            return ""
+        value = row.get(col, "")
+        return "" if pd.isna(value) else str(value).strip()
+
+    def classify(row):
+        situacao = normalize_text(txt(row, situacao_col))
+        controle = normalize_text(txt(row, controle_col))
+        atraso = pd.to_numeric(row.get(atraso_col), errors="coerce") if atraso_col else 0
+        atraso = 0 if pd.isna(atraso) else float(atraso)
+
+        # Ordem de criticidade operacional.
+        if "MISSING" in situacao or "DISCREP" in situacao:
+            return 1, "CRÍTICA", "MISSING / DISCREPÂNCIA", "Localizar carga e validar evidências imediatamente"
+
+        if atraso > 0 and ("ENTREGA" in situacao or "ATRAS" in situacao):
+            return 2, "CRÍTICA", "ENTREGA EM ATRASO", "Atuar com a base responsável e cobrar regularização"
+
+        if "PENDENTE DE ENTREGA" in situacao or "PENDENCIA DE ENTREGA" in situacao:
+            return 3, "ALTA", "PENDENTE DE ENTREGA", "Validar SLA, motivo da pendência e próxima tentativa"
+
+        if "DESEMBAR" in situacao:
+            return 4, "ALTA", "PENDENTE DE DESEMBARQUE", "Cobrar desembarque na estação de destino"
+
+        if "EMBAR" in situacao:
+            return 5, "ALTA", "PENDENTE DE EMBARQUE", "Identificar trecho/local e cobrar execução do embarque"
+
+        if "ACAREACAO" in controle:
+            return 6, "MÉDIA", "ACAREAÇÃO", "Acompanhar devolutiva da acareação"
+
+        if "INDENIZA" in controle or "DEBITO" in controle:
+            return 7, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", "Acompanhar andamento do processo"
+
+        # Booking só entra se o EDI estiver carregado.
+        if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
+            return 8, "MÉDIA", "BOOKING / EDI", "Validar recebimento e execução do booking"
+
+        return 99, "MONITORAR", txt(row, situacao_col) or "SEM AÇÃO DEFINIDA", "Monitorar evolução operacional"
+
+    classified = df.apply(classify, axis=1, result_type="expand")
+    classified.columns = ["_ORDEM_FILA", "PRIORIDADE", "PROBLEMA", "PROXIMA_ACAO"]
+    df = pd.concat([df, classified], axis=1)
+
+    # Uma linha por AWB: mantém a ocorrência de maior prioridade.
+    df["_AWB_FILA"] = df["AWB"].apply(normalize_awb)
+    df = (
+        df.sort_values(["_ORDEM_FILA", "_AWB_FILA"])
+          .drop_duplicates("_AWB_FILA", keep="first")
+          .copy()
+    )
+
+    queue = pd.DataFrame({
+        "PRIORIDADE": df["PRIORIDADE"],
+        "AWB": df["AWB"],
+        "CLIENTE": df[cliente_col] if cliente_col else "",
+        "ETAPA ATUAL": df[etapa_col] if etapa_col else "",
+        "SITUAÇÃO": df[situacao_col] if situacao_col else "",
+        "LOCALIZAÇÃO / RESPONSÁVEL": df[local_col] if local_col else "",
+        "SLA": df[sla_col] if sla_col else "",
+        "DIAS EM ATRASO": df[atraso_col] if atraso_col else "",
+        "TRATATIVA ESPECIAL": df[controle_col] if controle_col else "",
+        "PROBLEMA": df["PROBLEMA"],
+        "PRÓXIMA AÇÃO": df["PROXIMA_ACAO"],
+        "_ORDEM_FILA": df["_ORDEM_FILA"],
+    })
+
+    return queue.sort_values(
+        ["_ORDEM_FILA", "DIAS EM ATRASO"],
+        ascending=[True, False],
+        na_position="last"
+    ).reset_index(drop=True)
+
+
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -848,7 +948,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.6 — Performance da Torre online + Passíveis 2026")
+st.caption("V1.0.0 — Fila Única de Ação da Torre")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -2004,6 +2104,70 @@ if not pv.empty:
     if cols: st.dataframe(pv[cols],use_container_width=True,hide_index=True)
 else:
     st.info("Nenhum registro identificado para CDSP2 ou SAO12 na coluna de base/ofensor.")
+
+st.divider()
+
+
+st.header("Fila Única de Ação da Torre")
+
+# EDI é opcional. Detecta se existe algum arquivo EDI carregado na sessão.
+edi_loaded_for_queue = False
+for _edi_var in ["files_edi", "file_edi", "uploaded_edi", "edi_files"]:
+    if _edi_var in locals():
+        _edi_value = locals()[_edi_var]
+        if isinstance(_edi_value, (list, tuple)):
+            edi_loaded_for_queue = len(_edi_value) > 0
+        else:
+            edi_loaded_for_queue = _edi_value is not None
+        if edi_loaded_for_queue:
+            break
+
+fila_unica = build_unique_action_queue(
+    master,
+    edi_loaded=edi_loaded_for_queue
+)
+
+if not fila_unica.empty:
+    f1, f2, f3, f4 = st.columns(4)
+    f1.metric("Ações críticas", int((fila_unica["PRIORIDADE"] == "CRÍTICA").sum()))
+    f2.metric("Prioridade alta", int((fila_unica["PRIORIDADE"] == "ALTA").sum()))
+    f3.metric("Prioridade média", int((fila_unica["PRIORIDADE"] == "MÉDIA").sum()))
+    f4.metric("AWBs na fila", int(len(fila_unica)))
+
+    filtro_prioridade = st.multiselect(
+        "Prioridade",
+        ["CRÍTICA", "ALTA", "MÉDIA", "MONITORAR"],
+        default=["CRÍTICA", "ALTA", "MÉDIA"],
+        key="filtro_fila_unica_prioridade",
+    )
+
+    fila_exibicao = fila_unica[
+        fila_unica["PRIORIDADE"].isin(filtro_prioridade)
+    ].copy()
+
+    st.dataframe(
+        fila_exibicao.drop(columns=["_ORDEM_FILA"], errors="ignore"),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        "Baixar Fila Única de Ação",
+        data=fila_exibicao.drop(
+            columns=["_ORDEM_FILA"], errors="ignore"
+        ).to_csv(index=False, sep=";").encode("utf-8-sig"),
+        file_name="fila_unica_acao_torre.csv",
+        mime="text/csv",
+        key="download_fila_unica",
+    )
+
+    if not edi_loaded_for_queue:
+        st.info(
+            "EDI não carregado nesta atualização. A fila continua operacional; "
+            "apenas validações específicas de Booking/EDI não são aplicadas."
+        )
+else:
+    st.info("Não há registros disponíveis para montar a Fila Única de Ação.")
 
 st.divider()
 
