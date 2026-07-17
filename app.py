@@ -207,6 +207,60 @@ def read_eu_entrego(file_bytes):
     return latest, route_dates
 
 
+
+@st.cache_data(show_spinner=False)
+def read_torre_from_dataframe(source_df):
+    """
+    Lê a planilha viva de Pendências da Torre vinda do Google Sheets.
+    Retorna a mesma estrutura esperada pelo motor atual: latest, history.
+    """
+    if source_df is None or source_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    df = clean_columns(source_df.copy())
+
+    awb_col = find_column(df, ["AWB", "awb"])
+    if not awb_col:
+        return pd.DataFrame(), pd.DataFrame()
+
+    df["AWB"] = df[awb_col].apply(normalize_awb)
+
+    treatment_col = find_column(df, ["DATA DA TRATATIVA"])
+    status_col = find_column(df, ["STATUS", " STATUS"])
+    origin_col = find_column(df, ["ORIGEM", " ORIGEM ", "BASE DE ORIGEM"])
+    reason_col = find_column(df, ["OBS", "OBSERVAÇÃO", "MOTIVO DA PENDENCIA"])
+    email_col = find_column(df, ["STATUS EMAIL"])
+
+    history = pd.DataFrame({
+        "AWB": df["AWB"],
+        "EVENTO_TORRE": "PENDENCIA",
+        "DATA_EVENTO_TORRE": (
+            parse_date(df[treatment_col])
+            if treatment_col else pd.Series(pd.NaT, index=df.index)
+        ),
+        "STATUS_TRATATIVA": df[status_col] if status_col else "",
+        "ORIGEM_TORRE": df[origin_col] if origin_col else "",
+        "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
+        "ABA_ORIGEM": "PENDENCIAS",
+    })
+
+    if email_col:
+        history["STATUS_EMAIL"] = df[email_col]
+
+    history = history[history["AWB"].notna()].copy()
+
+    if history.empty:
+        return pd.DataFrame(), history
+
+    latest = (
+        history.sort_values(["AWB", "DATA_EVENTO_TORRE"])
+               .drop_duplicates("AWB", keep="last")
+               .copy()
+    )
+
+    return latest, history
+
+
 @st.cache_data(show_spinner=False)
 def read_torre(file_bytes):
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
@@ -734,7 +788,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.1.1 — Correção da dependência do upload antigo da Torre")
+st.caption("V0.9.1.2 — Pendências da Torre processadas pelo Google Sheets")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -821,14 +875,14 @@ if return_awbs:
         st.write(", ".join(return_awbs))
 
 if not (file_lm and file_eu):
-    st.info("Envie os três arquivos na barra lateral para processar a V0.")
+    st.info("Envie AWBStatus e Eu Entrego para processar o Last Mile. A Pendência da Torre é carregada pelo link.")
     st.stop()
 
 try:
     with st.spinner("Processando bases e aplicando regras da V0..."):
         lm = read_last_mile(file_lm.getvalue())
         eu_latest, route_dates = read_eu_entrego(file_eu.getvalue())
-        tower_latest, tower_history = read_torre(file_torre.getvalue())
+        tower_latest, tower_history = read_torre_from_dataframe(pendencias_torre_link)
 
         master = build_master(
             lm,
