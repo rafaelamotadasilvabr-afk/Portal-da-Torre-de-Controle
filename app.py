@@ -828,7 +828,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.2 — Cruzamento operacional com bases vivas")
+st.caption("V0.9.3 — Acareação aberta e passíveis CDSP2/SAO12")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1824,35 +1824,84 @@ st.caption(
 
 # Fila de ação
 
+
 st.header("Tratativas especiais")
-c1, c2, c3 = st.columns(3)
-c1.metric("Na Pendência da Torre", int(master["NA_PENDENCIA_TORRE_LINK"].sum()))
-c2.metric("Acareação / Ressalva", int(master["EM_ACAREACAO_RESSALVA"].sum()))
-c3.metric("Débito / Indenização", int(master["EM_DEBITO_INDENIZACAO"].sum()))
 
-st.caption(
-    "AWBs da carteira atual que também constam nas bases vivas de controle."
-)
+def _col(df, termos):
+    if df is None or df.empty: return None
+    mapa={normalize_text(c):c for c in df.columns}
+    for t in termos:
+        n=normalize_text(t)
+        if n in mapa:return mapa[n]
+    for t in termos:
+        n=normalize_text(t)
+        for k,v in mapa.items():
+            if n in k:return v
+    return None
 
-opcao_controle = st.selectbox(
-    "Detalhar tratativa especial",
-    ["TODAS", "PENDÊNCIA TORRE", "ACAREAÇÃO / RESSALVA", "DÉBITO / INDENIZAÇÃO"],
-    key="opcao_controle_especial",
-)
+def _num_money(s):
+    x=s.astype(str).str.replace("R$","",regex=False).str.replace(" ","",regex=False)
+    m=x.str.contains(",",regex=False)
+    x.loc[m]=x.loc[m].str.replace(".","",regex=False).str.replace(",",".",regex=False)
+    return pd.to_numeric(x,errors="coerce").fillna(0)
 
-controle_view = master[master["CONTROLE_ESPECIAL"].astype(str).str.strip().ne("")].copy()
-if opcao_controle == "PENDÊNCIA TORRE":
-    controle_view = controle_view[controle_view["NA_PENDENCIA_TORRE_LINK"]]
-elif opcao_controle == "ACAREAÇÃO / RESSALVA":
-    controle_view = controle_view[controle_view["EM_ACAREACAO_RESSALVA"]]
-elif opcao_controle == "DÉBITO / INDENIZAÇÃO":
-    controle_view = controle_view[controle_view["EM_DEBITO_INDENIZACAO"]]
+def _brl(v):
+    return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
 
-cols_controle = [
-    "AWB", "SITUACAO_GERENCIAL", "STATUS_SISTEMA", "SLA_DATA", "CONTROLE_ESPECIAL"
-]
-cols_controle = [c for c in cols_controle if c in controle_view.columns]
-st.dataframe(controle_view[cols_controle], use_container_width=True, hide_index=True)
+acar=acareacao_ressalva_link.copy()
+sc=_col(acar,["STATUS","SITUAÇÃO","SITUACAO"])
+vc=_col(acar,["VALOR DA CARGA","VALOR"])
+ec=_col(acar,["ENTREGADOR"])
+ac=_col(acar,["AWB"])
+aberta=acar.copy()
+if sc:
+    s=acar[sc].astype(str).map(normalize_text)
+    fechada=s.str.contains("CONCLUID|FINALIZ|ENCERR|RESOLVID",regex=True,na=False)
+    aberta=acar.loc[~fechada].copy()
+aberta["_VALOR"]=_num_money(aberta[vc]) if vc else 0.0
+
+inden=debito_indenizacao_link.copy()
+vi=_col(inden,["VALOR INDENIZAÇÃO","VALOR INDENIZACAO","VALOR DO CLAIM","VALOR CLAIM","VALOR"])
+bi=_col(inden,["BASE OFENSORA","OFENSOR","BASE","ORIGEM","ESTAÇÃO","ESTACAO"])
+ai=_col(inden,["AWB"])
+inden["_VALOR"]=_num_money(inden[vi]) if vi else 0.0
+if bi:
+    bn=inden[bi].astype(str).map(normalize_text)
+    cdsp2=inden[bn.str.contains("CDSP2",na=False)].copy()
+    sao12=inden[bn.str.contains("SAO12",na=False)].copy()
+else:
+    cdsp2=inden.iloc[0:0].copy(); sao12=inden.iloc[0:0].copy()
+
+c1,c2,c3,c4=st.columns(4)
+c1.metric("Acareações em aberto",len(aberta))
+c2.metric("Valor em acareação",_brl(aberta["_VALOR"].sum()))
+c3.metric("Passível de indenização — CDSP2",_brl(cdsp2["_VALOR"].sum()))
+c4.metric("Passível de indenização — SAO12",_brl(sao12["_VALOR"].sum()))
+
+if not aberta.empty and ec:
+    st.subheader("Acareação em aberto por entregador")
+    r=(aberta.assign(ENTREGADOR=aberta[ec].fillna("NÃO INFORMADO").astype(str).str.strip())
+       .groupby("ENTREGADOR",dropna=False)
+       .agg(ACAREACOES=("_VALOR","size"),VALOR_TOTAL=("_VALOR","sum"))
+       .reset_index().sort_values(["VALOR_TOTAL","ACAREACOES"],ascending=False))
+    r["VALOR_TOTAL"]=r["VALOR_TOTAL"].apply(_brl)
+    st.dataframe(r,use_container_width=True,hide_index=True)
+
+with st.expander("Ver acareações em aberto"):
+    cols=[c for c in [ac,ec,sc,vc,_col(acar,["TIPO DE ACAREAÇÃO","TIPO DE ACAREACAO"]),
+        _col(acar,["PRAZO DE DEVOLUTIVA","PRAZO"]),_col(acar,["OBSERVAÇÃO","OBSERVACAO","OBS"])] if c]
+    if cols: st.dataframe(aberta[cols],use_container_width=True,hide_index=True)
+
+st.subheader("Passíveis de indenização — CDSP2 e SAO12")
+pv=pd.concat([cdsp2,sao12],ignore_index=True)
+if not pv.empty:
+    cols=[c for c in [ai,bi,vi,_col(inden,["STATUS DO PROCESSO","STATUS"]),_col(inden,["ANDAMENTO"]),
+        _col(inden,["TIPO DO CLAIM","TIPO CLAIM"]),_col(inden,["MOTIVO"]),
+        _col(inden,["NÚMERO DO PROCESSO","NUMERO DO PROCESSO","PROCESSO"])] if c]
+    if cols: st.dataframe(pv[cols],use_container_width=True,hide_index=True)
+else:
+    st.info("Nenhum registro identificado para CDSP2 ou SAO12 na coluna de base/ofensor.")
+
 st.divider()
 
 st.subheader("Fila de ação")
