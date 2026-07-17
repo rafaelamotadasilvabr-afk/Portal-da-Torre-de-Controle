@@ -693,7 +693,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.13 — EDI cruzado com First Mile")
+st.caption("V0.8.14 — Validação das chaves EDI x First Mile")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1025,6 +1025,57 @@ if file_sao12 or file_tres1 or files_edi:
                 "Ainda sem Booking = integração recebida, porém o processo ainda não chegou ao booking. "
                 "Se a AWB já aparecer em SAO12/TRES1, ela sai da pendência EDI e passa a ser tratada no First Mile."
             )
+
+            # Validação do cruzamento EDI x First Mile.
+            edi_pending_cross = edi_base[
+                edi_base["STATUS_EDI_GERENCIAL"].isin(
+                    ["BOOKING REAL", "AGUARDANDO BOOKING"]
+                )
+            ].copy()
+
+            edi_keys = set(
+                edi_pending_cross["_AWB_CRUZAMENTO"]
+                .dropna()
+                .astype(str)
+                .loc[lambda s: s.str.strip().ne("")]
+            )
+
+            fm_keys = set()
+            if first_mile is not None and not first_mile.empty and "AWB" in first_mile.columns:
+                fm_keys = set(
+                    first_mile["AWB"]
+                    .dropna()
+                    .astype(str)
+                    .map(normalize_cross_key)
+                    .loc[lambda s: s.str.strip().ne("")]
+                )
+
+            common_keys = edi_keys.intersection(fm_keys)
+
+            with st.expander("Validar cruzamento EDI × First Mile"):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("AWBs pendentes no EDI", len(edi_keys))
+                c2.metric("AWBs disponíveis no First Mile", len(fm_keys))
+                c3.metric("AWBs encontradas nos dois", len(common_keys))
+
+                st.caption(
+                    "Esta validação confirma se o zero do cruzamento é real ou se existe diferença de formato entre as AWBs."
+                )
+
+                sample_edi = sorted(list(edi_keys))[:20]
+                sample_fm = sorted(list(fm_keys))[:20]
+
+                max_len = max(len(sample_edi), len(sample_fm), 1)
+                sample_df = pd.DataFrame({
+                    "EXEMPLO_AWB_EDI": sample_edi + [""] * (max_len - len(sample_edi)),
+                    "EXEMPLO_AWB_FIRST_MILE": sample_fm + [""] * (max_len - len(sample_fm)),
+                })
+
+                st.dataframe(
+                    safe_dataframe_for_streamlit(sample_df),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
             # Diagnóstico das etapas do EDI para validar qual campo representa avanço real.
             booking_occ_mask = edi_base["UltimaOcorrencia"].map(normalize_text).apply(
