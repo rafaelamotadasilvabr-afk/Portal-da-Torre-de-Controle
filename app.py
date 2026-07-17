@@ -1219,7 +1219,7 @@ if file_sao12 or file_tres1 or files_edi:
             ].copy()
 
             if not edi_priority.empty:
-                analysis_date = pd.to_datetime(data_analise, errors="coerce")
+                analysis_date = pd.to_datetime(reference_date, errors="coerce")
 
                 # Para Booking, usa a data de integração como referência operacional.
                 # Se não houver, utiliza Recebimento.
