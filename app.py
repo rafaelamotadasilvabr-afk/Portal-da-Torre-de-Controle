@@ -751,20 +751,21 @@ def build_unique_action_queue(master_df, edi_loaded=False):
           .copy()
     )
 
-    queue = pd.DataFrame({
-        "PRIORIDADE": df["PRIORIDADE"],
-        "AWB": df["AWB"],
-        "CLIENTE": df[cliente_col] if cliente_col else "",
-        "ETAPA ATUAL": df[etapa_col] if etapa_col else "",
-        "SITUAÇÃO": df[situacao_col] if situacao_col else "",
-        "LOCALIZAÇÃO / RESPONSÁVEL": df[local_col] if local_col else "",
-        "SLA": df[sla_col] if sla_col else "",
-        "DIAS EM ATRASO": df[atraso_col] if atraso_col else "",
-        "TRATATIVA ESPECIAL": df[controle_col] if controle_col else "",
-        "PROBLEMA": df["PROBLEMA"],
-        "PRÓXIMA AÇÃO": df["PROXIMA_ACAO"],
-        "_ORDEM_FILA": df["_ORDEM_FILA"],
-    })
+    # Monta a fila preservando exatamente o índice do dataframe já deduplicado.
+    queue = pd.DataFrame(index=df.index)
+
+    queue["PRIORIDADE"] = df["PRIORIDADE"]
+    queue["AWB"] = df["AWB"]
+    queue["CLIENTE"] = df[cliente_col] if cliente_col else ""
+    queue["ETAPA ATUAL"] = df[etapa_col] if etapa_col else ""
+    queue["SITUAÇÃO"] = df[situacao_col] if situacao_col else ""
+    queue["LOCALIZAÇÃO / RESPONSÁVEL"] = df[local_col] if local_col else ""
+    queue["SLA"] = df[sla_col] if sla_col else ""
+    queue["DIAS EM ATRASO"] = df[atraso_col] if atraso_col else ""
+    queue["TRATATIVA ESPECIAL"] = df[controle_col] if controle_col else ""
+    queue["PROBLEMA"] = df["PROBLEMA"]
+    queue["PRÓXIMA AÇÃO"] = df["PROXIMA_ACAO"]
+    queue["_ORDEM_FILA"] = df["_ORDEM_FILA"]
 
     return queue.sort_values(
         ["_ORDEM_FILA", "DIAS EM ATRASO"],
@@ -948,7 +949,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.0.0 — Fila Única de Ação da Torre")
+st.caption("V1.0.1 — Correção da Fila Única de Ação")
 
 with st.sidebar:
     st.header("Atualização das bases")
