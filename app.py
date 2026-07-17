@@ -398,29 +398,25 @@ def edi_client_name(row):
 
 def classify_edi_status(row):
     """
-    Classificação operacional refinada do EDI.
+    Regra operacional validada para Booking EDI.
 
-    REGRA PRINCIPAL:
-    A existência de AWB, sozinha, NÃO significa que a carga foi recebida/executada.
+    Recebimento e Integracao são etapas sistêmicas e NÃO encerram Booking.
+    A existência de AWB também NÃO encerra Booking.
 
     BOOKING REAL:
-    - possui ocorrência de booking;
-    - ainda não possui evidência real de avanço operacional.
+    - última ocorrência indica Booking;
+    - sem CTe efetivamente gerado;
+    - sem emissão de CTe;
+    - sem embarque;
+    - sem entrega.
 
     BOOKING JÁ EXECUTADO:
-    - possui ocorrência de booking;
-    - já possui evidência de avanço operacional.
+    - registro de Booking que já avançou para emissão/CTe,
+      embarque ou entrega.
 
     NÃO EXECUTADO:
-    - não está identificado como booking;
-    - e ainda não possui evidência real de avanço operacional.
-
-    Evidências de avanço consideradas:
-    - Recebimento preenchido;
-    - Emissão de CTe;
-    - CTe gerado;
-    - Embarque em voo;
-    - Entrega da carga.
+    - não está classificado como Booking;
+    - e não possui evidência de execução operacional.
     """
     occurrence = normalize_text(row.get("UltimaOcorrencia", ""))
 
@@ -429,7 +425,6 @@ def classify_edi_status(row):
             return False
         return str(value).strip().upper() not in {"", "NAN", "NONE", "NAT"}
 
-    recebimento_ok = filled(row.get("Recebimento"))
     emissao_ok = filled(row.get("EmissaoCTe"))
     embarque_ok = filled(row.get("EmbarqueVoo"))
     entrega_ok = filled(row.get("EntregaCarga"))
@@ -443,13 +438,7 @@ def classify_edi_status(row):
         or occurrence.startswith("BKD")
     )
 
-    avancou = (
-        recebimento_ok
-        or emissao_ok
-        or cte_ok
-        or embarque_ok
-        or entrega_ok
-    )
+    avancou = emissao_ok or cte_ok or embarque_ok or entrega_ok
 
     if is_booking and not avancou:
         return "BOOKING REAL"
@@ -664,7 +653,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.8 — Diagnóstico das etapas do Booking EDI")
+st.caption("V0.8.9 — Booking EDI com regra operacional validada")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -982,9 +971,8 @@ if file_sao12 or file_tres1 or files_edi:
             b4.metric("Booking / não executado", booking_total)
 
             st.caption(
-                "Booking real = ocorrência de booking sem evidência de avanço posterior. "
-                "AWB criada, sozinha, não encerra o Booking. A saída da pendência depende de recebimento, "
-                "emissão/CTe, embarque ou entrega."
+                "Booking real = Booking confirmado sem emissão/CTe, embarque ou entrega. "
+                "AWB, Recebimento e Integração são etapas sistêmicas e não encerram o Booking."
             )
 
             # Diagnóstico das etapas do EDI para validar qual campo representa avanço real.
