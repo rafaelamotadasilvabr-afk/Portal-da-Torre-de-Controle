@@ -664,7 +664,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.7 — Booking por evidência operacional real")
+st.caption("V0.8.8 — Diagnóstico das etapas do Booking EDI")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -986,6 +986,81 @@ if file_sao12 or file_tres1 or files_edi:
                 "AWB criada, sozinha, não encerra o Booking. A saída da pendência depende de recebimento, "
                 "emissão/CTe, embarque ou entrega."
             )
+
+            # Diagnóstico das etapas do EDI para validar qual campo representa avanço real.
+            booking_occ_mask = edi_base["UltimaOcorrencia"].map(normalize_text).apply(
+                lambda x: ("BOOKING" in x) or ("BOOKED" in x) or x.startswith("BKD")
+            )
+            edi_booking_diag = edi_base[booking_occ_mask].copy()
+
+            if not edi_booking_diag.empty:
+                def field_filled(series):
+                    return (
+                        series.notna()
+                        & series.astype(str).str.strip().str.upper().ne("")
+                        & series.astype(str).str.strip().str.upper().ne("NAN")
+                        & series.astype(str).str.strip().str.upper().ne("NONE")
+                        & series.astype(str).str.strip().str.upper().ne("NAT")
+                    )
+
+                diag_rows = []
+                diag_fields = [
+                    "Nº AWB",
+                    "Recebimento",
+                    "Integracao",
+                    "EmissaoCTe",
+                    "CTeGerado",
+                    "EmbarqueVoo",
+                    "EntregaCarga",
+                ]
+
+                for field in diag_fields:
+                    if field in edi_booking_diag.columns:
+                        filled_count = int(field_filled(edi_booking_diag[field]).sum())
+                        diag_rows.append({
+                            "CAMPO": field,
+                            "PREENCHIDOS": filled_count,
+                            "VAZIOS": int(len(edi_booking_diag) - filled_count),
+                            "% PREENCHIDO": round(
+                                (filled_count / len(edi_booking_diag)) * 100, 1
+                            ) if len(edi_booking_diag) else 0,
+                        })
+
+                st.markdown("### Diagnóstico das etapas do Booking")
+                st.caption(
+                    "Esta tabela serve apenas para validar quais campos realmente significam avanço operacional."
+                )
+                st.dataframe(
+                    pd.DataFrame(diag_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                with st.expander("Ver amostra dos registros de Booking"):
+                    sample_cols = [
+                        "CLIENTE_EDI",
+                        "Pedido",
+                        "Numero",
+                        "Nº AWB",
+                        "Recebimento",
+                        "Integracao",
+                        "EmissaoCTe",
+                        "CTeGerado",
+                        "EmbarqueVoo",
+                        "EntregaCarga",
+                        "UltimaOcorrencia",
+                        "ARQUIVO_EDI",
+                    ]
+                    sample_cols = [
+                        c for c in sample_cols if c in edi_booking_diag.columns
+                    ]
+                    st.dataframe(
+                        safe_dataframe_for_streamlit(
+                            edi_booking_diag[sample_cols].head(100)
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
             booking_matrix = (
                 edi_base[
