@@ -734,7 +734,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.1 — Links das bases na seção Atualização das bases")
+st.caption("V0.9.1.1 — Correção da dependência do upload antigo da Torre")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -820,7 +820,7 @@ if return_awbs:
     with st.expander("Ver AWBs extraídas"):
         st.write(", ".join(return_awbs))
 
-if not (file_lm and file_eu and file_torre):
+if not (file_lm and file_eu):
     st.info("Envie os três arquivos na barra lateral para processar a V0.")
     st.stop()
 
