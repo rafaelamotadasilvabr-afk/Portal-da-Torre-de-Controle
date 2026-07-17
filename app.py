@@ -734,7 +734,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.9.0 — Bases vivas Google Sheets + arquitetura consolidada")
+st.caption("V0.9.1 — Links das bases na seção Atualização das bases")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -749,24 +749,42 @@ with st.sidebar:
         type=["xlsx", "xls"],
         help="Pedido será tratado como AWB."
     )
-    file_torre = st.file_uploader(
-        "3. Planilha da Torre",
-        type=["xlsx", "xls"],
-        help="Usa PENDENCIAS, PENDENCIA CORP e FINALIZADAS. Página81 é ignorada."
-    )
+    st.markdown("**3. Pendências da Torre — Google Sheets**")
+    url_pendencias_torre = st.text_input("Link da planilha de Pendências", value=DEFAULT_GOOGLE_SHEETS["Pendências da Torre"], key="url_pendencias_torre")
+    st.markdown("**4. Acareação e Ressalva — Google Sheets**")
+    url_acareacao = st.text_input("Link da planilha de Acareação", value=DEFAULT_GOOGLE_SHEETS["Acareação e Ressalva"], key="url_acareacao")
+    st.markdown("**5. Passível a Débito e Indenização — Google Sheets**")
+    url_indenizacao = st.text_input("Link da planilha de Indenização", value=DEFAULT_GOOGLE_SHEETS["Passível a Débito e Indenização"], key="url_indenizacao")
+
+    live_control_bases = {}
+    for _nome, _url in {
+        "Pendências da Torre": url_pendencias_torre,
+        "Acareação e Ressalva": url_acareacao,
+        "Passível a Débito e Indenização": url_indenizacao,
+    }.items():
+        try:
+            live_control_bases[_nome] = read_public_google_sheet(_url) if _url.strip() else pd.DataFrame()
+            st.success(f"{_nome}: conectado")
+        except Exception:
+            live_control_bases[_nome] = pd.DataFrame()
+            st.warning(f"{_nome}: falha na atualização")
+
+    pendencias_torre_link = live_control_bases["Pendências da Torre"]
+    acareacao_ressalva_link = live_control_bases["Acareação e Ressalva"]
+    debito_indenizacao_link = live_control_bases["Passível a Débito e Indenização"]
 
 
     st.divider()
     st.subheader("First Mile")
 
     file_sao12 = st.file_uploader(
-        "4. Emissões SAO12",
+        "6. Emissões SAO12",
         type=["xlsx", "xls"],
         key="fm_sao12",
         help="Será filtrado automaticamente para Riachuelo, Neodent, Della Via, Stone, Tania Bulhões e ATS."
     )
     file_tres1 = st.file_uploader(
-        "5. Emissões TRES1",
+        "7. Emissões TRES1",
         type=["xlsx", "xls"],
         key="fm_tres1",
     )
@@ -1633,18 +1651,6 @@ d3.metric("Torre fora do CDSP2", len(tower_out_lm))
 d4.metric("Retornos com outra situação", len(returns_other_class))
 
 with st.expander("Ver diagnóstico detalhado"):
-    # Bases de controle atualizadas diretamente pelos links do Google Sheets.
-    live_control_bases = load_live_control_bases()
-    pendencias_torre_link = live_control_bases.get("Pendências da Torre", pd.DataFrame())
-    acareacao_ressalva_link = live_control_bases.get("Acareação e Ressalva", pd.DataFrame())
-    debito_indenizacao_link = live_control_bases.get("Passível a Débito e Indenização", pd.DataFrame())
-
-    st.markdown("### Bases de controle conectadas")
-    lc1, lc2, lc3 = st.columns(3)
-    lc1.metric("Pendências da Torre", len(pendencias_torre_link))
-    lc2.metric("Acareação / Ressalva", len(acareacao_ressalva_link))
-    lc3.metric("Débito / Indenização", len(debito_indenizacao_link))
-    st.caption("Bases vivas via Google Sheets. Relatórios dos sistemas continuam por upload.")
 
     tab1, tab2, tab3 = st.tabs([
         "Torre x CDSP2",
