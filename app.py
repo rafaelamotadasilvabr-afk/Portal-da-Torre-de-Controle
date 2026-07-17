@@ -693,7 +693,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V0.8.14 — Validação das chaves EDI x First Mile")
+st.caption("V0.8.15 — Priorização das pendências EDI por idade")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1004,12 +1004,11 @@ if file_sao12 or file_tres1 or files_edi:
             )
 
             st.markdown("### Booking e execução EDI")
-            b1, b2, b3, b4, b5 = st.columns(5)
+            b1, b2, b3, b4 = st.columns(4)
             b1.metric("Booking aguardando execução", int(edi_counts.get("BOOKING REAL", 0)))
             b2.metric("Ainda sem Booking", int(edi_counts.get("AGUARDANDO BOOKING", 0)))
-            b3.metric("Já avançou no First Mile", int(edi_counts.get("JÁ AVANÇOU NO FIRST MILE", 0)))
-            b4.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
-            b5.metric(
+            b3.metric("Booking já executado", int(edi_counts.get("BOOKING JÁ EXECUTADO", 0)))
+            b4.metric(
                 "Pendência EDI total",
                 int(edi_counts.get("BOOKING REAL", 0)) + int(edi_counts.get("AGUARDANDO BOOKING", 0))
             )
@@ -1023,7 +1022,7 @@ if file_sao12 or file_tres1 or files_edi:
             st.caption(
                 "Leitura operacional: Booking aguardando execução = booking confirmado, mas ainda sem emissão/CTe, embarque ou entrega. "
                 "Ainda sem Booking = integração recebida, porém o processo ainda não chegou ao booking. "
-                "Se a AWB já aparecer em SAO12/TRES1, ela sai da pendência EDI e passa a ser tratada no First Mile."
+                "O cruzamento com First Mile permanece como validação técnica e não altera a pendência sem correspondência confirmada."
             )
 
             # Validação do cruzamento EDI x First Mile.
@@ -1207,6 +1206,142 @@ if file_sao12 or file_tres1 or files_edi:
                     st.dataframe(
                         safe_dataframe_for_streamlit(
                             nao_executado_df[detail_cols]
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            # Priorização operacional das pendências EDI por idade.
+            edi_priority = edi_base[
+                edi_base["STATUS_EDI_GERENCIAL"].isin(
+                    ["BOOKING REAL", "AGUARDANDO BOOKING"]
+                )
+            ].copy()
+
+            if not edi_priority.empty:
+                analysis_date = pd.to_datetime(data_analise, errors="coerce")
+
+                # Para Booking, usa a data de integração como referência operacional.
+                # Se não houver, utiliza Recebimento.
+                edi_priority["DATA_REFERENCIA_EDI"] = pd.to_datetime(
+                    edi_priority.get("Integracao"), errors="coerce"
+                )
+                fallback_date = pd.to_datetime(
+                    edi_priority.get("Recebimento"), errors="coerce"
+                )
+                edi_priority["DATA_REFERENCIA_EDI"] = (
+                    edi_priority["DATA_REFERENCIA_EDI"].fillna(fallback_date)
+                )
+
+                edi_priority["DIAS_EM_ABERTO"] = (
+                    analysis_date.normalize()
+                    - edi_priority["DATA_REFERENCIA_EDI"].dt.normalize()
+                ).dt.days
+
+                def faixa_idade_edi(dias):
+                    if pd.isna(dias):
+                        return "SEM DATA"
+                    if dias <= 0:
+                        return "HOJE"
+                    if dias == 1:
+                        return "1 DIA"
+                    if dias <= 3:
+                        return "2 A 3 DIAS"
+                    if dias <= 7:
+                        return "4 A 7 DIAS"
+                    return "MAIS DE 7 DIAS"
+
+                edi_priority["FAIXA_IDADE"] = edi_priority["DIAS_EM_ABERTO"].apply(
+                    faixa_idade_edi
+                )
+
+                st.markdown("### Prioridade das pendências EDI")
+                st.caption(
+                    "A fila é priorizada pelo tempo desde a integração do registro. "
+                    "Quanto mais antiga a pendência, maior a prioridade de atuação."
+                )
+
+                p1, p2, p3, p4 = st.columns(4)
+                p1.metric(
+                    "Mais de 7 dias",
+                    int((edi_priority["DIAS_EM_ABERTO"] > 7).sum())
+                )
+                p2.metric(
+                    "4 a 7 dias",
+                    int(edi_priority["DIAS_EM_ABERTO"].between(4, 7).sum())
+                )
+                p3.metric(
+                    "2 a 3 dias",
+                    int(edi_priority["DIAS_EM_ABERTO"].between(2, 3).sum())
+                )
+                p4.metric(
+                    "Até 1 dia",
+                    int((edi_priority["DIAS_EM_ABERTO"] <= 1).sum())
+                )
+
+                priority_summary = (
+                    edi_priority
+                    .groupby(
+                        ["CLIENTE_EDI", "STATUS_EDI_GERENCIAL", "FAIXA_IDADE"],
+                        dropna=False
+                    )
+                    .size()
+                    .reset_index(name="AWBS")
+                )
+
+                faixa_order = {
+                    "MAIS DE 7 DIAS": 1,
+                    "4 A 7 DIAS": 2,
+                    "2 A 3 DIAS": 3,
+                    "1 DIA": 4,
+                    "HOJE": 5,
+                    "SEM DATA": 6,
+                }
+                priority_summary["_ORDEM"] = (
+                    priority_summary["FAIXA_IDADE"]
+                    .map(faixa_order)
+                    .fillna(99)
+                )
+                priority_summary = (
+                    priority_summary
+                    .sort_values(
+                        ["_ORDEM", "AWBS"],
+                        ascending=[True, False]
+                    )
+                    .drop(columns="_ORDEM")
+                )
+
+                st.dataframe(
+                    safe_dataframe_for_streamlit(priority_summary),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                with st.expander("Ver fila priorizada das pendências EDI"):
+                    priority_cols = [
+                        "CLIENTE_EDI",
+                        "STATUS_EDI_GERENCIAL",
+                        "DIAS_EM_ABERTO",
+                        "FAIXA_IDADE",
+                        "Pedido",
+                        "Numero",
+                        "Nº AWB",
+                        "Origem",
+                        "Destino",
+                        "DATA_REFERENCIA_EDI",
+                        "UltimaOcorrencia",
+                    ]
+                    priority_cols = [
+                        c for c in priority_cols if c in edi_priority.columns
+                    ]
+                    priority_detail = edi_priority.sort_values(
+                        ["DIAS_EM_ABERTO"],
+                        ascending=False,
+                        na_position="last"
+                    )
+                    st.dataframe(
+                        safe_dataframe_for_streamlit(
+                            priority_detail[priority_cols]
                         ),
                         use_container_width=True,
                         hide_index=True,
