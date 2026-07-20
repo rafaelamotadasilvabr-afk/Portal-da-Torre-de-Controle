@@ -1033,7 +1033,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.2.0 — Painel Gerencial + Operacional")
+st.caption("V1.2.1 — Painel Gerencial corrigido")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1170,6 +1170,14 @@ try:
             else read_torre_from_dataframe(pendencias_torre_link)
         )
 
+        master = build_master(
+            lm,
+            eu_latest,
+            route_dates,
+            tower_latest,
+            returns_set,
+            reference_date,
+        )
 
         # =========================
         # PAINEL GERENCIAL
@@ -1272,6 +1280,9 @@ try:
             st.dataframe(local_resumo, use_container_width=True, hide_index=True)
 
         st.divider()
+
+
+
 
 except Exception as exc:
     st.error(f"Não foi possível processar os arquivos: {exc}")
