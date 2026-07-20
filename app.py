@@ -689,11 +689,15 @@ def build_unique_action_queue(master_df, edi_loaded=False):
         return next((c for c in cols if c in df.columns), None)
 
     situacao_col = first_existing("SITUACAO_GERENCIAL", "SITUACAO", "STATUS_SISTEMA")
-    cliente_col = first_existing("CLIENTE", "CLIENTE_NOME", "NOME_CLIENTE")
-    etapa_col = first_existing("ETAPA", "ETAPA_ATUAL", "FASE_OPERACIONAL")
+    cliente_col = first_existing(
+        "CLIENTE", "CLIENTE_EDI", "CLIENTE_NOME", "NOME_CLIENTE",
+        "RAZAO_SOCIAL", "SHIPPER_NAME"
+    )
+    etapa_col = first_existing("ETAPA_ATUAL", "ETAPA", "FASE_OPERACIONAL")
     local_col = first_existing(
-        "LOCALIZACAO_ATUAL", "BASE_RESPONSAVEL", "OPSSTATION",
-        "FltDestination", "FLTDESTINATION", "BASE"
+        "LOCALIZACAO_ATUAL", "BASE_RESPONSAVEL", "BASE_ATUAL",
+        "ULTIMA_BASE", "ESTACAO_ATUAL", "OPSSTATION",
+        "FltDestination", "FLTDESTINATION", "DESTINO", "ORIGEM", "BASE"
     )
     sla_col = first_existing("SLA_DATA", "SLA", "DATA_SLA")
     atraso_col = first_existing("DIAS_ATRASO", "DIAS EM ATRASO", "DIAS_EM_ATRASO")
@@ -740,6 +744,22 @@ def build_unique_action_queue(master_df, edi_loaded=False):
         return 99, "MONITORAR", txt(row, situacao_col) or "SEM AÇÃO DEFINIDA", "Monitorar evolução operacional"
 
     # Usa nomes internos exclusivos para evitar conflito com colunas já existentes no master.
+    if not etapa_col:
+        def infer_etapa(row):
+            situacao = normalize_text(txt(row, situacao_col))
+            controle = normalize_text(txt(row, controle_col))
+            if "ACAREACAO" in controle or "INDENIZA" in controle or "DEBITO" in controle:
+                return "TRATATIVA DA TORRE"
+            if any(x in situacao for x in ["ENTREGA", "ENTREGUE", "DISCREP", "MISSING", "DESEMBAR"]):
+                return "LAST MILE"
+            if "EMBAR" in situacao:
+                return "FIRST MILE"
+            if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
+                return "EDI"
+            return "OPERAÇÃO"
+        df["_FILA_ETAPA_ATUAL"] = df.apply(infer_etapa, axis=1)
+        etapa_col = "_FILA_ETAPA_ATUAL"
+
     classified_rows = [classify(row) for _, row in df.iterrows()]
     classified = pd.DataFrame(
         classified_rows,
@@ -958,7 +978,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.0.2 — Fila Única sem conflito de colunas")
+st.caption("V1.0.3 — Fila Única operacional corrigida")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -2132,21 +2152,25 @@ for _edi_var in ["files_edi", "file_edi", "uploaded_edi", "edi_files"]:
         if edi_loaded_for_queue:
             break
 
-fila_unica = build_unique_action_queue(
+fila_unica_completa = build_unique_action_queue(
     master,
     edi_loaded=edi_loaded_for_queue
 )
+
+fila_unica = fila_unica_completa[
+    fila_unica_completa["PRIORIDADE"].isin(["CRÍTICA", "ALTA", "MÉDIA"])
+].copy()
 
 if not fila_unica.empty:
     f1, f2, f3, f4 = st.columns(4)
     f1.metric("Ações críticas", int((fila_unica["PRIORIDADE"] == "CRÍTICA").sum()))
     f2.metric("Prioridade alta", int((fila_unica["PRIORIDADE"] == "ALTA").sum()))
     f3.metric("Prioridade média", int((fila_unica["PRIORIDADE"] == "MÉDIA").sum()))
-    f4.metric("AWBs na fila", int(len(fila_unica)))
+    f4.metric("AWBs com ação", int(len(fila_unica)))
 
     filtro_prioridade = st.multiselect(
         "Prioridade",
-        ["CRÍTICA", "ALTA", "MÉDIA", "MONITORAR"],
+        ["CRÍTICA", "ALTA", "MÉDIA"],
         default=["CRÍTICA", "ALTA", "MÉDIA"],
         key="filtro_fila_unica_prioridade",
     )
