@@ -675,134 +675,156 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
-def build_unique_action_queue(master_df, edi_loaded=False):
+def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     """
-    Gera uma fila única: uma linha por AWB, priorizando a ação operacional mais crítica.
-    O EDI é opcional e nunca bloqueia a fila.
+    Fila operacional única do Last Mile.
+    Usa diretamente as colunas reais do master e mantém uma linha por AWB.
     """
     if master_df is None or master_df.empty:
         return pd.DataFrame()
 
     df = master_df.copy()
+    analysis_ts = pd.Timestamp(analysis_date or date.today()).normalize()
 
-    def first_existing(*cols):
-        return next((c for c in cols if c in df.columns), None)
-
-    situacao_col = first_existing("SITUACAO_GERENCIAL", "SITUACAO", "STATUS_SISTEMA")
-    cliente_col = first_existing(
-        "CLIENTE", "CLIENTE_EDI", "CLIENTE_NOME", "NOME_CLIENTE",
-        "RAZAO_SOCIAL", "SHIPPER_NAME"
-    )
-    etapa_col = first_existing("ETAPA_ATUAL", "ETAPA", "FASE_OPERACIONAL")
-    local_col = first_existing(
-        "LOCALIZACAO_ATUAL", "BASE_RESPONSAVEL", "BASE_ATUAL",
-        "ULTIMA_BASE", "ESTACAO_ATUAL", "OPSSTATION",
-        "FltDestination", "FLTDESTINATION", "DESTINO", "ORIGEM", "BASE"
-    )
-    sla_col = first_existing("SLA_DATA", "SLA", "DATA_SLA")
-    atraso_col = first_existing("DIAS_ATRASO", "DIAS EM ATRASO", "DIAS_EM_ATRASO")
-    controle_col = first_existing("CONTROLE_ESPECIAL")
-
-    def txt(row, col):
-        if not col:
+    def value(row, col):
+        if col not in df.columns:
             return ""
-        value = row.get(col, "")
-        return "" if pd.isna(value) else str(value).strip()
+        v = row.get(col, "")
+        return "" if pd.isna(v) else str(v).strip()
+
+    def first_non_empty(row, columns):
+        for col in columns:
+            if col in df.columns:
+                v = row.get(col)
+                if pd.notna(v) and str(v).strip() not in {"", "nan", "None"}:
+                    return str(v).strip()
+        return ""
+
+    # Campos operacionais reais.
+    df["_FILA_CLIENTE"] = df.apply(
+        lambda r: first_non_empty(
+            r, ["BillTo", "CLIENTE", "CLIENTE_NOME", "CLIENTE_EDI"]
+        ),
+        axis=1,
+    )
+
+    def infer_etapa(row):
+        controle = normalize_text(value(row, "CONTROLE_ESPECIAL"))
+        if "ACAREACAO" in controle or "INDENIZA" in controle or "DEBITO" in controle:
+            return "LAST MILE + TRATATIVA ESPECIAL"
+        return "LAST MILE"
+
+    df["_FILA_ETAPA"] = df.apply(infer_etapa, axis=1)
+
+    def infer_local_responsavel(row):
+        # Quando existe uma ação já definida, ela é o melhor direcionador.
+        resp = first_non_empty(row, ["RESPONSAVEL_ACAO"])
+        origem_torre = first_non_empty(row, ["ORIGEM_TORRE"])
+        ops = first_non_empty(row, ["OPSStation"])
+        destino = first_non_empty(row, ["DestinationCode", "FltDestination"])
+        entregador = first_non_empty(row, ["ULTIMO_ENTREGADOR"])
+
+        if origem_torre:
+            return origem_torre
+        if resp:
+            return resp
+        if entregador:
+            return entregador
+        if ops:
+            return ops
+        return destino
+
+    df["_FILA_LOCAL_RESP"] = df.apply(infer_local_responsavel, axis=1)
+
+    # SLA e atraso calculados com a data de análise escolhida no portal.
+    if "SLA_DATA" in df.columns:
+        sla_dt = pd.to_datetime(df["SLA_DATA"], errors="coerce")
+        df["_FILA_DIAS_ATRASO"] = (analysis_ts - sla_dt.dt.normalize()).dt.days
+        df["_FILA_DIAS_ATRASO"] = df["_FILA_DIAS_ATRASO"].where(
+            df["_FILA_DIAS_ATRASO"] > 0, 0
+        )
+    else:
+        df["_FILA_DIAS_ATRASO"] = 0
 
     def classify(row):
-        situacao = normalize_text(txt(row, situacao_col))
-        controle = normalize_text(txt(row, controle_col))
-        atraso = pd.to_numeric(row.get(atraso_col), errors="coerce") if atraso_col else 0
+        situacao = normalize_text(value(row, "SITUACAO_GERENCIAL"))
+        controle = normalize_text(value(row, "CONTROLE_ESPECIAL"))
+        atraso = pd.to_numeric(row.get("_FILA_DIAS_ATRASO"), errors="coerce")
         atraso = 0 if pd.isna(atraso) else float(atraso)
 
-        # Ordem de criticidade operacional.
         if "MISSING" in situacao or "DISCREP" in situacao:
-            return 1, "CRÍTICA", "MISSING / DISCREPÂNCIA", "Localizar carga e validar evidências imediatamente"
+            return 1, "CRÍTICA", "MISSING / DISCREPÂNCIA", \
+                "Localizar a carga e validar a divergência imediatamente"
 
-        if atraso > 0 and ("ENTREGA" in situacao or "ATRAS" in situacao):
-            return 2, "CRÍTICA", "ENTREGA EM ATRASO", "Atuar com a base responsável e cobrar regularização"
+        if atraso > 0 and "ENTREGA" in situacao:
+            return 2, "CRÍTICA", "ENTREGA EM ATRASO", \
+                "Cobrar regularização da entrega e registrar a causa do atraso"
 
-        if "PENDENTE DE ENTREGA" in situacao or "PENDENCIA DE ENTREGA" in situacao:
-            return 3, "ALTA", "PENDENTE DE ENTREGA", "Validar SLA, motivo da pendência e próxima tentativa"
+        if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
+            return 3, "ALTA", "PENDENTE DE ENTREGA", \
+                "Validar SLA, última tentativa e próxima ação operacional"
 
-        if "DESEMBAR" in situacao:
-            return 4, "ALTA", "PENDENTE DE DESEMBARQUE", "Cobrar desembarque na estação de destino"
-
-        if "EMBAR" in situacao:
-            return 5, "ALTA", "PENDENTE DE EMBARQUE", "Identificar trecho/local e cobrar execução do embarque"
+        if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
+            return 4, "ALTA", "3ª TENTATIVA SEM SUCESSO", \
+                "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
-            return 6, "MÉDIA", "ACAREAÇÃO", "Acompanhar devolutiva da acareação"
+            return 5, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
+                "Acompanhar devolutiva e prazo da acareação"
 
         if "INDENIZA" in controle or "DEBITO" in controle:
-            return 7, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", "Acompanhar andamento do processo"
+            return 6, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
+                "Acompanhar o andamento do processo"
 
-        # Booking só entra se o EDI estiver carregado.
         if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-            return 8, "MÉDIA", "BOOKING / EDI", "Validar recebimento e execução do booking"
+            return 7, "MÉDIA", "BOOKING / EDI", \
+                "Validar execução do booking"
 
-        return 99, "MONITORAR", txt(row, situacao_col) or "SEM AÇÃO DEFINIDA", "Monitorar evolução operacional"
+        return 99, "MONITORAR", value(row, "SITUACAO_GERENCIAL") or "SEM AÇÃO", \
+            "Monitorar evolução operacional"
 
-    # Usa nomes internos exclusivos para evitar conflito com colunas já existentes no master.
-    if not etapa_col:
-        def infer_etapa(row):
-            situacao = normalize_text(txt(row, situacao_col))
-            controle = normalize_text(txt(row, controle_col))
-            if "ACAREACAO" in controle or "INDENIZA" in controle or "DEBITO" in controle:
-                return "TRATATIVA DA TORRE"
-            if any(x in situacao for x in ["ENTREGA", "ENTREGUE", "DISCREP", "MISSING", "DESEMBAR"]):
-                return "LAST MILE"
-            if "EMBAR" in situacao:
-                return "FIRST MILE"
-            if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-                return "EDI"
-            return "OPERAÇÃO"
-        df["_FILA_ETAPA_ATUAL"] = df.apply(infer_etapa, axis=1)
-        etapa_col = "_FILA_ETAPA_ATUAL"
-
-    classified_rows = [classify(row) for _, row in df.iterrows()]
     classified = pd.DataFrame(
-        classified_rows,
+        [classify(row) for _, row in df.iterrows()],
         index=df.index,
         columns=[
-            "_FILA_ORDEM",
-            "_FILA_PRIORIDADE",
-            "_FILA_PROBLEMA",
-            "_FILA_PROXIMA_ACAO",
+            "_FILA_ORDEM", "_FILA_PRIORIDADE",
+            "_FILA_PROBLEMA", "_FILA_ACAO"
         ],
     )
     df = pd.concat([df, classified], axis=1)
 
-    # Uma linha por AWB: mantém a ocorrência de maior prioridade.
     df["_AWB_FILA"] = df["AWB"].apply(normalize_awb)
     df = (
-        df.sort_values(["_FILA_ORDEM", "_AWB_FILA"])
-          .drop_duplicates("_AWB_FILA", keep="first")
-          .copy()
+        df.sort_values(
+            ["_FILA_ORDEM", "_FILA_DIAS_ATRASO"],
+            ascending=[True, False]
+        )
+        .drop_duplicates("_AWB_FILA", keep="first")
+        .copy()
     )
 
-    # Monta a fila sem reutilizar nomes que possam existir no master.
     queue = pd.DataFrame(index=df.index)
-    queue["PRIORIDADE"] = df["_FILA_PRIORIDADE"].astype(str)
+    queue["PRIORIDADE"] = df["_FILA_PRIORIDADE"]
     queue["AWB"] = df["AWB"]
-    queue["CLIENTE"] = df[cliente_col] if cliente_col else ""
-    queue["ETAPA ATUAL"] = df[etapa_col] if etapa_col else ""
-    queue["SITUAÇÃO"] = df[situacao_col] if situacao_col else ""
-    queue["LOCALIZAÇÃO / RESPONSÁVEL"] = df[local_col] if local_col else ""
-    queue["SLA"] = df[sla_col] if sla_col else ""
-    queue["DIAS EM ATRASO"] = df[atraso_col] if atraso_col else ""
-    queue["TRATATIVA ESPECIAL"] = df[controle_col] if controle_col else ""
-    queue["PROBLEMA"] = df["_FILA_PROBLEMA"].astype(str)
-    queue["PRÓXIMA AÇÃO"] = df["_FILA_PROXIMA_ACAO"].astype(str)
+    queue["CLIENTE"] = df["_FILA_CLIENTE"]
+    queue["ETAPA ATUAL"] = df["_FILA_ETAPA"]
+    queue["SITUAÇÃO"] = df["SITUACAO_GERENCIAL"] if "SITUACAO_GERENCIAL" in df.columns else ""
+    queue["LOCALIZAÇÃO / RESPONSÁVEL"] = df["_FILA_LOCAL_RESP"]
+    queue["SLA"] = df["SLA_DATA"] if "SLA_DATA" in df.columns else ""
+    queue["DIAS EM ATRASO"] = df["_FILA_DIAS_ATRASO"]
+    queue["TRATATIVA ESPECIAL"] = df["CONTROLE_ESPECIAL"] if "CONTROLE_ESPECIAL" in df.columns else ""
+    queue["PROBLEMA"] = df["_FILA_PROBLEMA"]
+    queue["PRÓXIMA AÇÃO"] = df["_FILA_ACAO"]
     queue["_ORDEM_FILA"] = df["_FILA_ORDEM"]
 
-    return queue.sort_values(
-        ["_ORDEM_FILA", "DIAS EM ATRASO"],
-        ascending=[True, False],
-        na_position="last"
-    ).reset_index(drop=True)
-
-
+    return (
+        queue.sort_values(
+            ["_ORDEM_FILA", "DIAS EM ATRASO"],
+            ascending=[True, False],
+            na_position="last",
+        )
+        .reset_index(drop=True)
+    )
 
 # =========================
 # RETORNOS DO WHATSAPP
@@ -978,7 +1000,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.0.4 — Retorno com fallback DEVOLVIDO do Eu Entrego")
+st.caption("V1.1.0 — Fila operacional consolidada")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -2183,7 +2205,8 @@ for _edi_var in ["files_edi", "file_edi", "uploaded_edi", "edi_files"]:
 
 fila_unica_completa = build_unique_action_queue(
     master,
-    edi_loaded=edi_loaded_for_queue
+    edi_loaded=edi_loaded_for_queue,
+    analysis_date=reference_date,
 )
 
 fila_unica = fila_unica_completa[
