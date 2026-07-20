@@ -978,7 +978,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.0.3 — Fila Única operacional corrigida")
+st.caption("V1.0.4 — Retorno com fallback DEVOLVIDO do Eu Entrego")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1080,6 +1080,35 @@ try:
     with st.spinner("Processando bases e aplicando regras da V0..."):
         lm = read_last_mile(file_lm.getvalue())
         eu_latest, route_dates = read_eu_entrego(file_eu.getvalue())
+
+        # Índice de retorno do entregador:
+        # WhatsApp prevalece; quando a AWB não estiver no WhatsApp,
+        # status DEVOLVIDO no Eu Entrego também conta como retorno confirmado.
+        returns_set = set(return_awbs)
+        _status_eu_retorno = next(
+            (
+                c for c in [
+                    "STATUS_ULTIMA_ROTA",
+                    "STATUS_EU_ENTREGO",
+                    "STATUS_ROTA",
+                    "STATUS"
+                ]
+                if c in eu_latest.columns
+            ),
+            None
+        )
+        if _status_eu_retorno:
+            _devolvidos_eu = set(
+                eu_latest.loc[
+                    eu_latest[_status_eu_retorno]
+                    .astype(str)
+                    .map(normalize_text)
+                    .eq("DEVOLVIDO"),
+                    "AWB"
+                ].dropna()
+            )
+            returns_set.update(_devolvidos_eu)
+
         tower_latest, tower_history = (
             read_torre(pendencias_torre_workbook)
             if pendencias_torre_workbook
@@ -1091,7 +1120,7 @@ try:
             eu_latest,
             route_dates,
             tower_latest,
-            set(return_awbs),
+            returns_set,
             reference_date,
         )
 except Exception as exc:
