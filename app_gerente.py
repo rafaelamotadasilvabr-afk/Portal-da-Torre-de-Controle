@@ -384,7 +384,7 @@ def render_kpis(resumo):
         card(
             "SLA DO DIA SEM ROTA",
             fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
-            "Cargas do dia ainda sem rota criada",
+            "SLA hoje sem rota criada no Eu Entrego",
             "▦",
             "#d97706",
             "#fff7e8",
@@ -768,8 +768,47 @@ elif menu == "alertas":
         "Itens críticos e de alta prioridade para ação gerencial.",
     )
 
+    a1, a2, a3 = st.columns(3)
+    with a1:
+        card(
+            "3ª TENTATIVA DE ENTREGA",
+            fmt_int(summary_value(resumo, "3ª tentativa de entrega", 0)),
+            "Cargas com 3 ou mais tentativas registradas",
+            "3ª",
+            "#d92d20",
+            "#fff0ef",
+            "#c9231a",
+        )
+    with a2:
+        card(
+            "ENTREGA EM ATRASO",
+            fmt_int(summary_value(resumo, "Entrega em atraso", 0)),
+            "Cargas com SLA vencido",
+            "◷",
+            "#d92d20",
+            "#fff0ef",
+            "#c9231a",
+        )
+    with a3:
+        card(
+            "SLA DO DIA SEM ROTA",
+            fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
+            "SLA hoje sem rota criada no Eu Entrego",
+            "▦",
+            "#d97706",
+            "#fff7e8",
+            "#b96804",
+        )
+
+    st.divider()
+    st.markdown("#### 3ª tentativa de entrega")
+    terceira = filtered_rows(fila, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
+    render_table(terceira if not terceira.empty else fila.head(0), height=300)
+
+    st.divider()
+    st.markdown("#### Demais alertas críticos")
     alertas = filtered_rows(fila, ["CRITICA", "CRÍTICA", "ALTA", "ATRASO", "SLA"])
-    render_table(alertas if not alertas.empty else fila.head(0), height=520)
+    render_table(alertas if not alertas.empty else fila.head(0), height=420)
 
 
 elif menu == "configuracoes":

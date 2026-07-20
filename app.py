@@ -754,20 +754,35 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
         atraso = pd.to_numeric(row.get("_FILA_DIAS_ATRASO"), errors="coerce")
         atraso = 0 if pd.isna(atraso) else float(atraso)
 
+        tentativas = pd.to_numeric(row.get("QT_TENTATIVAS_INSUCESSO", 0), errors="coerce")
+        tentativas = 0 if pd.isna(tentativas) else int(tentativas)
+
         if "MISSING" in situacao or "DISCREP" in situacao:
             return 1, "CRÍTICA", "MISSING / DISCREPÂNCIA", \
                 "Localizar a carga e validar a divergência imediatamente"
 
+        # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
+        # Entra antes de PENDENTE DE ENTREGA para não ficar escondido no grupo genérico.
+        if tentativas >= 3 and (
+            "ENTREGA" in situacao
+            or "PENDENTE" in situacao
+            or "INSUCESSO" in situacao
+            or "RETORNO" in situacao
+        ):
+            prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
+            return 2, prioridade, "3ª TENTATIVA DE ENTREGA", \
+                "Validar direcionamento para a Torre e definir nova tratativa de entrega"
+
         if atraso > 0 and "ENTREGA" in situacao:
-            return 2, "CRÍTICA", "ENTREGA EM ATRASO", \
+            return 3, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
-            return 3, "ALTA", "PENDENTE DE ENTREGA", \
+            return 4, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
 
         if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 4, "ALTA", "3ª TENTATIVA SEM SUCESSO", \
+            return 5, "ALTA", "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
@@ -1361,15 +1376,11 @@ try:
             else:
                 _sla_dt = pd.Series(pd.NaT, index=master.index)
 
-            _teve_rota = master["TEVE_ROTA_HOJE"].fillna(False) if "TEVE_ROTA_HOJE" in master.columns else False
-
-            if "ULTIMO_ENTREGADOR" in master.columns:
-                _sem_entregador = (
-                    master["ULTIMO_ENTREGADOR"].isna()
-                    | master["ULTIMO_ENTREGADOR"].astype(str).str.strip().isin(["", "nan", "None"])
-                )
-            else:
-                _sem_entregador = True
+            _teve_rota = (
+                master["TEVE_ROTA_HOJE"].fillna(False).astype(bool)
+                if "TEVE_ROTA_HOJE" in master.columns
+                else pd.Series(False, index=master.index)
+            )
 
             _situacao_norm = (
                 master["SITUACAO_GERENCIAL"].astype(str).map(normalize_text)
@@ -1377,14 +1388,36 @@ try:
                 else pd.Series("", index=master.index)
             )
 
+            _status_norm_panel = (
+                master["STATUS_SISTEMA"].astype(str).map(normalize_text)
+                if "STATUS_SISTEMA" in master.columns
+                else pd.Series("", index=master.index)
+            )
+
+            _tentativas_panel = (
+                pd.to_numeric(master["QT_TENTATIVAS_INSUCESSO"], errors="coerce").fillna(0).astype(int)
+                if "QT_TENTATIVAS_INSUCESSO" in master.columns
+                else pd.Series(0, index=master.index)
+            )
+
+            # Regra correta:
+            # SLA do dia sem rota = SLA vencendo hoje + pendente entrega + nenhuma rota criada hoje.
+            # Se teve rota hoje e voltou com insucesso, NÃO entra aqui.
             _piso_sem_rota_mask = (
                 _sla_dt.eq(pd.Timestamp(reference_date).normalize())
                 & ~_teve_rota
-                & _sem_entregador
-                & _situacao_norm.str.contains("ENTREGA|PENDENTE", regex=True, na=False)
+                & _status_norm_panel.eq("PENDENTE ENTREGA")
                 & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
             )
             sla_dia_piso_sem_rota = int(_piso_sem_rota_mask.sum())
+
+            terceira_tentativa_entrega = int(
+                (
+                    _tentativas_panel.ge(3)
+                    & _status_norm_panel.eq("PENDENTE ENTREGA")
+                    & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
+                ).sum()
+            )
 
             # Acareação em andamento
             acar = acareacao_ressalva_link.copy()
@@ -1427,9 +1460,15 @@ try:
 
             g5, g6, g7, g8 = st.columns(4)
             g5.metric("SLA do dia sem rota", sla_dia_piso_sem_rota)
-            g6.metric("Backlog da Torre", backlog_torre)
-            g7.metric("Acareações em andamento", int(len(acar_andamento)))
+            g6.metric("3ª tentativa de entrega", terceira_tentativa_entrega)
+            g7.metric("Backlog da Torre", backlog_torre)
             g8.metric(
+                "Acareações em andamento",
+                int(len(acar_andamento))
+            )
+
+            g9, _g10, _g11, _g12 = st.columns(4)
+            g9.metric(
                 "Valor em acareação",
                 _panel_brl(
                     _panel_money_to_num(
@@ -1486,6 +1525,7 @@ try:
                 {"METRICA": "Ações imediatas", "VALOR": criticas},
                 {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
+                {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
                 {"METRICA": "Backlog da Torre", "VALOR": backlog_torre},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
                 {"METRICA": "Valor em acareação", "VALOR": float(
@@ -1522,6 +1562,7 @@ try:
                 int(criticas),
                 int(entrega_atraso),
                 int(sla_dia_piso_sem_rota),
+                int(terceira_tentativa_entrega),
                 int(backlog_torre),
                 int(len(acar_andamento)),
             )
@@ -2219,10 +2260,10 @@ if entregador_col:
 else:
     master["TEM_ENTREGADOR"] = False
 
-master["TEM_ROTA_HOJE"] = (
-    master["TEVE_ROTA_HOJE"].fillna(False).astype(bool)
-    & master["TEM_ENTREGADOR"]
-)
+# Rota criada hoje precisa considerar a existência de rota no Eu Entrego,
+# independentemente de ter terminado com sucesso ou insucesso.
+# Se teve rota hoje e voltou com insucesso, NÃO é "sem rota".
+master["TEM_ROTA_HOJE"] = master["TEVE_ROTA_HOJE"].fillna(False).astype(bool)
 sla_dates = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.date
 status_norm = master["STATUS_SISTEMA"].map(normalize_text)
 
@@ -2258,57 +2299,36 @@ master["TERCEIRA_TENTATIVA_RISCO_ALTO"] = (
     & (master["QT_TENTATIVAS_INSUCESSO"] >= 3)
 )
 
-master["TERCEIRA_TENTATIVA_FALHA_PROCESSO"] = (
-    master["TERCEIRA_TENTATIVA_RISCO_ALTO"]
-    & (~master["EM_TORRE_ATIVA"])
-)
 
 st.divider()
 st.subheader("Radar preventivo — Last Mile")
 
 p1, p2, p3, p4 = st.columns(4)
-p1.metric("SLA do dia no piso", int(master["SLA_DO_DIA_NO_PISO"].sum()))
+p1.metric("SLA do dia sem rota", int(master["SLA_DO_DIA_NO_PISO"].sum()))
 p2.metric("SLA vencido sem rota", int(master["SLA_VENCIDO_SEM_ROTA"].sum()))
 p3.metric("2ª tentativa — risco", int(master["SEGUNDA_TENTATIVA_RISCO"].sum()))
-p4.metric("3ª tentativa — risco alto", int(master["TERCEIRA_TENTATIVA_RISCO_ALTO"].sum()))
-
-f1, f2 = st.columns(2)
-f1.metric(
-    "3ª tentativa sem Pendência — falha de processo",
-    int(master["TERCEIRA_TENTATIVA_FALHA_PROCESSO"].sum())
-)
-f2.metric(
-    "3ª tentativa já direcionada à Torre",
-    int(
-        (
-            master["TERCEIRA_TENTATIVA_RISCO_ALTO"]
-            & master["EM_TORRE_ATIVA"]
-        ).sum()
-    )
-)
+p4.metric("3ª tentativa de entrega", int(master["TERCEIRA_TENTATIVA_RISCO_ALTO"].sum()))
 
 st.caption(
-    "SLA do dia no piso = Pendente Entrega, SLA vencendo na data de análise, "
-    "sem entregador alocado no dia e sem pendência ativa na Torre. "
-    "3ª tentativa concluída sem sucesso e ainda fora da Torre = cobrar time operacional para direcionar a carga."
+    "SLA do dia sem rota = Pendente Entrega, SLA vencendo na data de análise, "
+    "sem rota criada no Eu Entrego na data analisada e sem pendência ativa na Torre. "
+    "Se houve rota no dia e voltou com insucesso, a carga deve sair de SLA sem rota e entrar como insucesso/tentativa."
 )
 
 alerta = st.selectbox(
     "Detalhar alerta preventivo",
     [
-        "SLA do dia no piso",
+        "SLA do dia sem rota",
         "SLA vencido sem rota",
         "2ª tentativa — risco",
-        "3ª tentativa — risco alto",
-        "3ª tentativa sem Pendência — falha de processo",
+        "3ª tentativa de entrega",
     ]
 )
 alert_map = {
-    "SLA do dia no piso": "SLA_DO_DIA_NO_PISO",
+    "SLA do dia sem rota": "SLA_DO_DIA_NO_PISO",
     "SLA vencido sem rota": "SLA_VENCIDO_SEM_ROTA",
     "2ª tentativa — risco": "SEGUNDA_TENTATIVA_RISCO",
-    "3ª tentativa — risco alto": "TERCEIRA_TENTATIVA_RISCO_ALTO",
-    "3ª tentativa sem Pendência — falha de processo": "TERCEIRA_TENTATIVA_FALHA_PROCESSO",
+    "3ª tentativa de entrega": "TERCEIRA_TENTATIVA_RISCO_ALTO",
 }
 det = master[master[alert_map[alerta]]].copy()
 cols = [
