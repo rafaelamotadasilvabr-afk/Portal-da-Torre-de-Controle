@@ -1033,7 +1033,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.2.2 — Dashboard Gerencial separado")
+st.caption("V1.3.0 — Dashboard do gerente separado")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1181,13 +1181,13 @@ try:
 
 
         portal_view_mode = st.radio(
-            "Painel",
-            ["Dashboard Gerencial", "Operação Detalhada"],
+            "Tela",
+            ["Minha operação", "Dashboard do gerente"],
             horizontal=True,
             key="portal_view_mode",
         )
 
-        if portal_view_mode == "Dashboard Gerencial":
+        if portal_view_mode == "Dashboard do gerente":
             # =========================
             # PAINEL GERENCIAL
             # =========================
@@ -1201,7 +1201,7 @@ try:
                 fila_gerencial["PRIORIDADE"].isin(["CRÍTICA", "ALTA", "MÉDIA"])
             ].copy()
 
-            st.header("Dashboard Gerencial")
+            st.header("Dashboard do gerente")
 
             carteira_total = int(master["AWB"].nunique()) if not master.empty else 0
             awbs_acao = int(len(fila_gerencial))
@@ -1247,7 +1247,7 @@ try:
             g1, g2, g3 = st.columns(3)
             g1.metric("AWBs monitoradas", carteira_total)
             g2.metric("AWBs com ação", awbs_acao)
-            g3.metric("Críticas", criticas)
+            g3.metric("Ações imediatas", criticas)
 
             g4, g5, g6 = st.columns(3)
             g4.metric("Entrega em atraso", entrega_atraso)
@@ -1288,14 +1288,24 @@ try:
                 )
                 st.dataframe(local_resumo, use_container_width=True, hide_index=True)
 
+            if not fila_gerencial.empty:
+                cliente_resumo = (
+                    fila_gerencial.groupby("CLIENTE", dropna=False)
+                    .size()
+                    .reset_index(name="AWBS")
+                    .sort_values(["AWBS"], ascending=False)
+                    .head(10)
+                )
+                st.subheader("Top clientes impactados")
+                st.dataframe(cliente_resumo, use_container_width=True, hide_index=True)
+
             st.divider()
 
             st.caption(
-                "AWBs monitoradas = total de AWBs únicas presentes na carteira operacional atual. "
+                "AWBs monitoradas = total de AWBs únicas na carteira atual. "
                 "Não representa entregas concluídas."
             )
             st.stop()
-
 
 
 
