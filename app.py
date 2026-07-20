@@ -9,6 +9,8 @@ import pandas as pd
 import requests
 from io import BytesIO
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 
 st.set_page_config(
@@ -1041,6 +1043,136 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
     return master
 
 
+
+def _google_service_account_info():
+    """
+    Lê as credenciais da conta de serviço do Streamlit Secrets.
+    Esperado:
+    [gcp_service_account]
+    type = "service_account"
+    project_id = "..."
+    private_key_id = "..."
+    private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+    client_email = "..."
+    client_id = "..."
+    auth_uri = "https://accounts.google.com/o/oauth2/auth"
+    token_uri = "https://oauth2.googleapis.com/token"
+    auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+    client_x509_cert_url = "..."
+    """
+    try:
+        return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        return None
+
+
+def _google_credentials():
+    info = _google_service_account_info()
+    if not info:
+        return None
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    return Credentials.from_service_account_info(info, scopes=scopes)
+
+
+def _google_sheet_client():
+    creds = _google_credentials()
+    if creds is None:
+        return None
+    return gspread.authorize(creds)
+
+
+def _sanitize_sheet_df(df):
+    if df is None:
+        return pd.DataFrame()
+
+    safe = df.copy()
+    for col in safe.columns:
+        if pd.api.types.is_datetime64_any_dtype(safe[col]):
+            safe[col] = safe[col].dt.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            safe[col] = safe[col].apply(
+                lambda x: (
+                    x.isoformat()
+                    if hasattr(x, "isoformat") and not isinstance(x, str)
+                    else x
+                )
+            )
+
+    return safe.fillna("").astype(str)
+
+
+def _write_df_to_worksheet(spreadsheet, sheet_name, df):
+    safe_df = _sanitize_sheet_df(df)
+
+    try:
+        ws = spreadsheet.worksheet(sheet_name)
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(
+            title=sheet_name,
+            rows=max(len(safe_df) + 10, 100),
+            cols=max(len(safe_df.columns) + 5, 20),
+        )
+
+    values = [list(safe_df.columns)] + safe_df.values.tolist()
+    if not values:
+        values = [["SEM_DADOS"]]
+
+    required_rows = max(len(values) + 5, 100)
+    required_cols = max(max((len(r) for r in values), default=1) + 2, 20)
+
+    if ws.row_count < required_rows or ws.col_count < required_cols:
+        ws.resize(
+            rows=max(ws.row_count, required_rows),
+            cols=max(ws.col_count, required_cols),
+        )
+
+    ws.clear()
+    ws.update(
+        values=values,
+        range_name="A1",
+        value_input_option="USER_ENTERED",
+    )
+
+
+def sync_manager_dashboard_to_google_sheet(
+    summary_df,
+    fila_df,
+    top_problemas_df,
+    top_bases_df,
+):
+    """
+    Sincroniza as quatro abas usadas pelo app do gerente.
+    Retorna (ok, mensagem).
+    """
+    try:
+        spreadsheet_url = st.secrets.get("MANAGER_SOURCE_URL", "")
+    except Exception:
+        spreadsheet_url = ""
+
+    if not spreadsheet_url:
+        return False, "MANAGER_SOURCE_URL não configurado no app operacional."
+
+    gc = _google_sheet_client()
+    if gc is None:
+        return False, "Credenciais gcp_service_account não configuradas."
+
+    try:
+        spreadsheet = gc.open_by_url(spreadsheet_url)
+
+        _write_df_to_worksheet(spreadsheet, "RESUMO", summary_df)
+        _write_df_to_worksheet(spreadsheet, "FILA", fila_df)
+        _write_df_to_worksheet(spreadsheet, "TOP_PROBLEMAS", top_problemas_df)
+        _write_df_to_worksheet(spreadsheet, "TOP_BASES", top_bases_df)
+
+        return True, "Base gerencial sincronizada com sucesso."
+    except Exception as exc:
+        return False, f"Falha ao sincronizar a base gerencial: {exc}"
+
+
 # =========================
 # INTERFACE
 # =========================
@@ -1370,7 +1502,7 @@ try:
                 fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
                 prob_resumo if 'prob_resumo' in locals() else pd.DataFrame(),
                 local_resumo if 'local_resumo' in locals() else pd.DataFrame(),
-                cliente_resumo if 'cliente_resumo' in locals() else pd.DataFrame(),
+                pd.DataFrame(),
             )
 
             st.download_button(
@@ -1381,9 +1513,43 @@ try:
                 key="download_pacote_gerente",
             )
 
-            st.info(
-                "O valor do passível a débito foi removido temporariamente do dashboard do gerente."
+
+            # Sincronização automática da base gerencial.
+            _sync_key = (
+                str(reference_date),
+                int(carteira_total),
+                int(awbs_acao),
+                int(criticas),
+                int(entrega_atraso),
+                int(sla_dia_piso_sem_rota),
+                int(backlog_torre),
+                int(len(acar_andamento)),
             )
+
+            if st.session_state.get("_manager_last_sync_key") != _sync_key:
+                _sync_ok, _sync_msg = sync_manager_dashboard_to_google_sheet(
+                    resumo_dashboard,
+                    fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
+                    prob_resumo if "prob_resumo" in locals() else pd.DataFrame(),
+                    local_resumo if "local_resumo" in locals() else pd.DataFrame(),
+                )
+                if _sync_ok:
+                    st.session_state["_manager_last_sync_key"] = _sync_key
+
+            with st.expander("Sincronização do dashboard gerencial"):
+                if st.button("Sincronizar agora", key="sync_manager_dashboard_now"):
+                    _sync_ok, _sync_msg = sync_manager_dashboard_to_google_sheet(
+                        resumo_dashboard,
+                        fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
+                        prob_resumo if "prob_resumo" in locals() else pd.DataFrame(),
+                        local_resumo if "local_resumo" in locals() else pd.DataFrame(),
+                    )
+                    if _sync_ok:
+                        st.success(_sync_msg)
+                        st.session_state["_manager_last_sync_key"] = _sync_key
+                    else:
+                        st.error(_sync_msg)
+
             st.stop()
 
 

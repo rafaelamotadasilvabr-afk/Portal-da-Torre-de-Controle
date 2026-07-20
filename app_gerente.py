@@ -3,6 +3,8 @@ import re
 import pandas as pd
 import requests
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 st.set_page_config(
     page_title="Dashboard Executivo da Torre",
@@ -117,31 +119,59 @@ st.markdown(
 )
 
 
+
 def extract_google_sheet_id(url):
     match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", str(url))
     return match.group(1) if match else None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+def _google_service_account_info():
+    try:
+        return dict(st.secrets["gcp_service_account"])
+    except Exception:
+        return None
+
+
+def _google_sheet_client():
+    info = _google_service_account_info()
+    if not info:
+        return None
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    creds = Credentials.from_service_account_info(info, scopes=scopes)
+    return gspread.authorize(creds)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
 def load_source(url):
-    sheet_id = extract_google_sheet_id(url)
-    fetch_url = (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-        if sheet_id
-        else url
-    )
-    response = requests.get(fetch_url, timeout=60)
-    response.raise_for_status()
-    return load_workbook(response.content)
+    gc = _google_sheet_client()
+    if gc is None:
+        raise RuntimeError(
+            "Credenciais gcp_service_account não configuradas no app do gerente."
+        )
 
+    spreadsheet = gc.open_by_url(url)
+    result = {}
 
-@st.cache_data(show_spinner=False)
-def load_workbook(content):
-    xls = pd.ExcelFile(io.BytesIO(content))
-    return {
-        sheet: pd.read_excel(xls, sheet_name=sheet)
-        for sheet in xls.sheet_names
-    }
+    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES"]:
+        try:
+            ws = spreadsheet.worksheet(sheet_name)
+            values = ws.get_all_values()
+
+            if not values:
+                result[sheet_name] = pd.DataFrame()
+                continue
+
+            headers = values[0]
+            rows = values[1:]
+            result[sheet_name] = pd.DataFrame(rows, columns=headers)
+        except gspread.WorksheetNotFound:
+            result[sheet_name] = pd.DataFrame()
+
+    return result
 
 
 def summary_value(df, metric, default=""):
