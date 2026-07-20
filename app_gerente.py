@@ -1,6 +1,6 @@
 import re
+import unicodedata
 import pandas as pd
-import requests
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -11,11 +11,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Fonte fixa opcional no próprio código.
-# Preferencialmente configure pelo Streamlit Secrets:
-# MANAGER_SOURCE_URL = "https://..."
 DEFAULT_MANAGER_SOURCE_URL = ""
 
+# =========================================================
+# CSS SEGURO
+# Não usamos DIVs abertas envolvendo charts/dataframes.
+# Isso evita erro visual do Streamlit no navegador.
+# =========================================================
 st.markdown(
     """
     <style>
@@ -38,9 +40,9 @@ st.markdown(
     }
 
     .brand-box {
-        padding: 8px 6px 20px 6px;
+        padding: 8px 6px 18px 6px;
         border-bottom: 1px solid rgba(255,255,255,.12);
-        margin-bottom: 16px;
+        margin-bottom: 14px;
     }
 
     .brand-main {
@@ -60,28 +62,32 @@ st.markdown(
         margin-top: 8px;
     }
 
-    .nav-item {
-        padding: 11px 13px;
-        border-radius: 11px;
-        margin-bottom: 8px;
-        color: #dbeafe;
-        font-size: .88rem;
-    }
-
-    .nav-active {
-        background: linear-gradient(90deg, #0b4ea7, #123b76);
-        font-weight: 800;
-        color: #ffffff;
-        box-shadow: 0 8px 18px rgba(0,0,0,.14);
-    }
-
     .side-note {
-        margin-top: 26px;
+        margin-top: 20px;
         border-top: 1px solid rgba(255,255,255,.12);
-        padding-top: 16px;
+        padding-top: 14px;
         color: #b9c8dc;
         font-size: .76rem;
         line-height: 1.5;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button {
+        width: 100%;
+        justify-content: flex-start;
+        text-align: left;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,.08);
+        background: transparent;
+        color: #e5edf8;
+        font-weight: 700;
+        padding: 0.65rem 0.8rem;
+        margin-bottom: 0.25rem;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(90deg, #0b4ea7, #123b76);
+        color: #ffffff;
+        box-shadow: 0 8px 18px rgba(0,0,0,.14);
     }
 
     .hero {
@@ -170,28 +176,6 @@ st.markdown(
         line-height: 1.35;
     }
 
-    .panel {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 16px 18px;
-        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
-        margin-bottom: 12px;
-    }
-
-    .panel-title {
-        font-size: 1.03rem;
-        font-weight: 850;
-        color: #10213d;
-        margin-bottom: 3px;
-    }
-
-    .panel-sub {
-        color: #718096;
-        font-size: 0.76rem;
-        margin-bottom: 12px;
-    }
-
     .info {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -203,31 +187,36 @@ st.markdown(
         box-shadow: 0 4px 12px rgba(15,23,42,.025);
     }
 
+    .soft-box {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 16px 18px;
+        box-shadow: 0 8px 22px rgba(15,23,42,.045);
+        margin-bottom: 12px;
+    }
+
     div[data-testid="stDataFrame"] {
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         overflow: hidden;
     }
 
-    div[data-testid="stButton"] button {
+    div[data-testid="stDownloadButton"] button {
         border-radius: 10px;
         border: 1px solid #cbd5e1;
         background: #ffffff;
         color: #10213d;
         font-weight: 750;
-        font-size: .78rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-def extract_google_sheet_id(url):
-    match = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", str(url))
-    return match.group(1) if match else None
-
-
+# =========================================================
+# GOOGLE SHEETS
+# =========================================================
 def _google_service_account_info():
     try:
         return dict(st.secrets["gcp_service_account"])
@@ -276,6 +265,17 @@ def load_source(url):
     return result
 
 
+# =========================================================
+# HELPERS
+# =========================================================
+def normalize_text(value):
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().upper()
+    text = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
 def summary_value(df, metric, default=""):
     if df is None or df.empty or "METRICA" not in df.columns:
         return default
@@ -300,7 +300,9 @@ def brl(value):
 
 def normalize_numeric_series(series):
     return pd.to_numeric(
-        series.astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False),
+        series.astype(str)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False),
         errors="coerce",
     ).fillna(0)
 
@@ -322,6 +324,17 @@ def chart_dataframe(df):
     return out.sort_values(value_col, ascending=False).head(10).set_index(label_col)
 
 
+def filtered_rows(df, terms):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    text = df.astype(str).agg(" ".join, axis=1).apply(normalize_text)
+    mask = False
+    for term in terms:
+        mask = mask | text.str.contains(normalize_text(term), na=False)
+    return df[mask].copy()
+
+
 def card(label, value, subtitle, icon, accent, soft, value_color=None):
     value_color = value_color or "#10213d"
     st.markdown(
@@ -337,6 +350,97 @@ def card(label, value, subtitle, icon, accent, soft, value_color=None):
     )
 
 
+def section_header(title, subtitle=None):
+    st.markdown(f"### {title}")
+    if subtitle:
+        st.caption(subtitle)
+
+
+def render_kpis(resumo):
+    cols = st.columns(6)
+
+    with cols[0]:
+        card(
+            "AWBs MONITORADAS",
+            fmt_int(summary_value(resumo, "AWBs monitoradas", 0)),
+            "Carteira única atualmente acompanhada",
+            "▣",
+            "#2f6fed",
+            "#edf4ff",
+        )
+
+    with cols[1]:
+        card(
+            "ENTREGA EM ATRASO",
+            fmt_int(summary_value(resumo, "Entrega em atraso", 0)),
+            "Cargas com SLA vencido",
+            "◷",
+            "#d92d20",
+            "#fff0ef",
+            "#c9231a",
+        )
+
+    with cols[2]:
+        card(
+            "SLA DO DIA SEM ROTA",
+            fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
+            "Cargas do dia ainda sem rota criada",
+            "▦",
+            "#d97706",
+            "#fff7e8",
+            "#b96804",
+        )
+
+    with cols[3]:
+        card(
+            "BACKLOG DA TORRE",
+            fmt_int(summary_value(resumo, "Backlog da Torre", 0)),
+            "Pendências ainda não finalizadas",
+            "≡",
+            "#6d3fd1",
+            "#f4efff",
+            "#5b2dbf",
+        )
+
+    with cols[4]:
+        card(
+            "ACAREAÇÕES EM ANDAMENTO",
+            fmt_int(summary_value(resumo, "Acareações em andamento", 0)),
+            "Tratativas ativas neste momento",
+            "⚖",
+            "#2459c4",
+            "#edf4ff",
+            "#16449f",
+        )
+
+    with cols[5]:
+        card(
+            "VALOR EM ACAREAÇÃO",
+            brl(summary_value(resumo, "Valor em acareação", 0)),
+            "Valor financeiro atualmente exposto",
+            "$",
+            "#17633a",
+            "#edf9f1",
+            "#14532d",
+        )
+
+
+def render_table(df, height=360):
+    if df is None or df.empty:
+        st.info("Sem dados para exibir.")
+        return
+
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        height=height,
+    )
+
+
+# =========================================================
+# FONTE
+# =========================================================
 try:
     SOURCE_URL = st.secrets.get("MANAGER_SOURCE_URL", "")
 except Exception:
@@ -353,6 +457,9 @@ if not SOURCE_URL:
     st.stop()
 
 
+# =========================================================
+# SIDEBAR FUNCIONAL
+# =========================================================
 with st.sidebar:
     st.markdown(
         """
@@ -360,19 +467,40 @@ with st.sidebar:
             <div class="brand-main">GDS</div>
             <div class="brand-sub">LOGÍSTICA</div>
         </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        <div class="nav-item nav-active">⌂ &nbsp; Visão Geral</div>
-        <div class="nav-item">↗ &nbsp; Monitoramento</div>
-        <div class="nav-item">▣ &nbsp; Pendências</div>
-        <div class="nav-item">⚖ &nbsp; Acareações</div>
-        <div class="nav-item">◔ &nbsp; Performance</div>
-        <div class="nav-item">▤ &nbsp; Relatórios</div>
-        <div class="nav-item">! &nbsp; Alertas</div>
-        <div class="nav-item">⚙ &nbsp; Configurações</div>
+    menu_items = [
+        ("visao", "⌂  Visão Geral"),
+        ("monitoramento", "↗  Monitoramento"),
+        ("pendencias", "▣  Pendências"),
+        ("acareacoes", "⚖  Acareações"),
+        ("performance", "◔  Performance"),
+        ("relatorios", "▤  Relatórios"),
+        ("alertas", "!  Alertas"),
+        ("configuracoes", "⚙  Configurações"),
+    ]
 
+    if "menu_gerente" not in st.session_state:
+        st.session_state["menu_gerente"] = "visao"
+
+    for key, label in menu_items:
+        active = st.session_state["menu_gerente"] == key
+        if st.button(
+            label,
+            key=f"menu_btn_{key}",
+            use_container_width=True,
+            type="primary" if active else "secondary",
+        ):
+            st.session_state["menu_gerente"] = key
+            st.rerun()
+
+    st.markdown(
+        """
         <div class="side-note">
             <b>Dashboard Gerencial</b><br>
-            Atualização automática<br>
+            Menu funcional<br>
             Fonte: Base Gerencial Torre
         </div>
         """,
@@ -380,6 +508,9 @@ with st.sidebar:
     )
 
 
+# =========================================================
+# CARREGAMENTO
+# =========================================================
 refresh_col, _ = st.columns([1, 8])
 with refresh_col:
     if st.button("↻ Atualizar", use_container_width=True):
@@ -402,6 +533,12 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
+menu = st.session_state["menu_gerente"]
+
+
+# =========================================================
+# HEADER
+# =========================================================
 st.markdown(
     f"""
     <div class="hero">
@@ -421,139 +558,240 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<div class="section-title">VISÃO EXECUTIVA</div>', unsafe_allow_html=True)
 
-r1 = st.columns(6)
+# =========================================================
+# PÁGINAS
+# =========================================================
+if menu == "visao":
+    st.markdown('<div class="section-title">VISÃO EXECUTIVA</div>', unsafe_allow_html=True)
+    render_kpis(resumo)
+    st.divider()
 
-with r1[0]:
-    card(
-        "AWBs MONITORADAS",
-        fmt_int(summary_value(resumo, "AWBs monitoradas", 0)),
-        "Carteira única atualmente acompanhada",
-        "▣",
-        "#2f6fed",
-        "#edf4ff",
+    c1, c2 = st.columns([1, 1.2])
+
+    with c1:
+        section_header(
+            "Onde está o problema?",
+            "Distribuição das pendências por categoria operacional.",
+        )
+        chart_df = chart_dataframe(top_problemas)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_problemas, height=260)
+
+    with c2:
+        section_header(
+            "Maiores concentrações de pendência",
+            "Bases ou responsáveis com maior volume de pendências em aberto.",
+        )
+        chart_df = chart_dataframe(top_bases)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_bases, height=260)
+
+    st.divider()
+    section_header(
+        "Fila executiva de atenção",
+        "Pendências críticas e de maior impacto que exigem acompanhamento gerencial.",
     )
-
-with r1[1]:
-    card(
-        "ENTREGA EM ATRASO",
-        fmt_int(summary_value(resumo, "Entrega em atraso", 0)),
-        "Cargas com SLA vencido",
-        "◷",
-        "#d92d20",
-        "#fff0ef",
-        "#c9231a",
-    )
-
-with r1[2]:
-    card(
-        "SLA DO DIA SEM ROTA",
-        fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
-        "Cargas do dia ainda sem rota criada",
-        "▦",
-        "#d97706",
-        "#fff7e8",
-        "#b96804",
-    )
-
-with r1[3]:
-    card(
-        "BACKLOG DA TORRE",
-        fmt_int(summary_value(resumo, "Backlog da Torre", 0)),
-        "Pendências ainda não finalizadas",
-        "≡",
-        "#6d3fd1",
-        "#f4efff",
-        "#5b2dbf",
-    )
-
-with r1[4]:
-    card(
-        "ACAREAÇÕES EM ANDAMENTO",
-        fmt_int(summary_value(resumo, "Acareações em andamento", 0)),
-        "Tratativas ativas neste momento",
-        "⚖",
-        "#2459c4",
-        "#edf4ff",
-        "#16449f",
-    )
-
-with r1[5]:
-    card(
-        "VALOR EM ACAREAÇÃO",
-        brl(summary_value(resumo, "Valor em acareação", 0)),
-        "Valor financeiro atualmente exposto",
-        "$",
-        "#17633a",
-        "#edf9f1",
-        "#14532d",
-    )
-
-st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-c1, c2 = st.columns([1, 1.2])
-
-with c1:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">ONDE ESTÁ O PROBLEMA?</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="panel-sub">Distribuição das pendências por categoria operacional.</div>',
-        unsafe_allow_html=True,
-    )
-
-    chart_df = chart_dataframe(top_problemas)
-    if not chart_df.empty:
-        st.bar_chart(chart_df)
-        st.dataframe(top_problemas, use_container_width=True, hide_index=True)
-    else:
-        st.info("Sem problemas priorizados.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with c2:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="panel-title">MAIORES CONCENTRAÇÕES DE PENDÊNCIA</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="panel-sub">Bases ou responsáveis com maior volume de pendências em aberto.</div>',
-        unsafe_allow_html=True,
-    )
-
-    chart_df = chart_dataframe(top_bases)
-    if not chart_df.empty:
-        st.bar_chart(chart_df)
-        st.dataframe(top_bases, use_container_width=True, hide_index=True)
-    else:
-        st.info("Sem concentrações de pendência para exibir.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown('<div class="panel">', unsafe_allow_html=True)
-st.markdown('<div class="panel-title">FILA EXECUTIVA DE ATENÇÃO</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="panel-sub">Pendências críticas e de maior impacto que exigem acompanhamento gerencial.</div>',
-    unsafe_allow_html=True,
-)
-
-if not fila.empty:
-    cols = [
-        c for c in [
-            "PRIORIDADE",
-            "PROBLEMA",
-            "CLIENTE",
-            "LOCALIZAÇÃO / RESPONSÁVEL",
-            "AWB",
-            "PRÓXIMA AÇÃO",
-        ]
-        if c in fila.columns
+    preferred_cols = [
+        "PRIORIDADE",
+        "PROBLEMA",
+        "CLIENTE",
+        "LOCALIZAÇÃO / RESPONSÁVEL",
+        "AWB",
+        "PRÓXIMA AÇÃO",
     ]
-    st.dataframe(
-        (fila[cols] if cols else fila).head(15),
-        use_container_width=True,
-        hide_index=True,
-        height=430,
-    )
-else:
-    st.info("Sem ações executivas para exibir.")
+    cols = [c for c in preferred_cols if c in fila.columns]
+    render_table((fila[cols] if cols else fila).head(15) if not fila.empty else fila, height=430)
 
-st.markdown('</div>', unsafe_allow_html=True)
+
+elif menu == "monitoramento":
+    section_header(
+        "Monitoramento",
+        "Visão operacional resumida dos principais indicadores do painel.",
+    )
+    render_kpis(resumo)
+    st.divider()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        section_header("Distribuição por problema")
+        chart_df = chart_dataframe(top_problemas)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_problemas, height=300)
+
+    with c2:
+        section_header("Concentração por base/responsável")
+        chart_df = chart_dataframe(top_bases)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_bases, height=300)
+
+
+elif menu == "pendencias":
+    section_header(
+        "Pendências",
+        "Fila e categorias de pendências para acompanhamento gerencial.",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        section_header("Onde está o problema?")
+        chart_df = chart_dataframe(top_problemas)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_problemas, height=320)
+
+    with c2:
+        section_header("Maiores concentrações de pendência")
+        chart_df = chart_dataframe(top_bases)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+        render_table(top_bases, height=320)
+
+    st.divider()
+    section_header("Fila de pendências")
+    render_table(fila, height=500)
+
+
+elif menu == "acareacoes":
+    section_header(
+        "Acareações",
+        "Resumo financeiro e operacional das acareações em andamento.",
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        card(
+            "ACAREAÇÕES EM ANDAMENTO",
+            fmt_int(summary_value(resumo, "Acareações em andamento", 0)),
+            "Tratativas ativas neste momento",
+            "⚖",
+            "#2459c4",
+            "#edf4ff",
+            "#16449f",
+        )
+
+    with c2:
+        card(
+            "VALOR EM ACAREAÇÃO",
+            brl(summary_value(resumo, "Valor em acareação", 0)),
+            "Valor financeiro atualmente exposto",
+            "$",
+            "#17633a",
+            "#edf9f1",
+            "#14532d",
+        )
+
+    st.divider()
+    section_header("Itens relacionados a acareação")
+    acareacao_df = filtered_rows(fila, ["ACAREACAO", "ACAREAÇÃO", "RESSALVA"])
+    render_table(acareacao_df if not acareacao_df.empty else fila.head(0), height=500)
+
+
+elif menu == "performance":
+    section_header(
+        "Performance",
+        "Indicadores para leitura executiva da operação.",
+    )
+    render_kpis(resumo)
+    st.divider()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        section_header("Problemas priorizados")
+        chart_df = chart_dataframe(top_problemas)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+
+    with c2:
+        section_header("Bases/responsáveis com maior concentração")
+        chart_df = chart_dataframe(top_bases)
+        if not chart_df.empty:
+            st.bar_chart(chart_df)
+
+
+elif menu == "relatorios":
+    section_header(
+        "Relatórios",
+        "Consulta e exportação dos dados sincronizados para o dashboard gerencial.",
+    )
+
+    tabs = st.tabs(["Resumo", "Fila", "Top problemas", "Top bases"])
+
+    with tabs[0]:
+        render_table(resumo, height=400)
+        st.download_button(
+            "Baixar RESUMO.csv",
+            resumo.to_csv(index=False).encode("utf-8-sig"),
+            file_name="resumo_gerencial.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with tabs[1]:
+        render_table(fila, height=500)
+        st.download_button(
+            "Baixar FILA.csv",
+            fila.to_csv(index=False).encode("utf-8-sig"),
+            file_name="fila_executiva.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with tabs[2]:
+        render_table(top_problemas, height=400)
+        st.download_button(
+            "Baixar TOP_PROBLEMAS.csv",
+            top_problemas.to_csv(index=False).encode("utf-8-sig"),
+            file_name="top_problemas.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with tabs[3]:
+        render_table(top_bases, height=400)
+        st.download_button(
+            "Baixar TOP_BASES.csv",
+            top_bases.to_csv(index=False).encode("utf-8-sig"),
+            file_name="top_bases.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+
+elif menu == "alertas":
+    section_header(
+        "Alertas",
+        "Itens críticos e de alta prioridade para ação gerencial.",
+    )
+
+    alertas = filtered_rows(fila, ["CRITICA", "CRÍTICA", "ALTA", "ATRASO", "SLA"])
+    render_table(alertas if not alertas.empty else fila.head(0), height=520)
+
+
+elif menu == "configuracoes":
+    section_header(
+        "Configurações",
+        "Status técnico da fonte de dados e conexão do dashboard.",
+    )
+
+    st.success("Dashboard carregado com sucesso.")
+    st.write("Fonte configurada:", SOURCE_URL)
+    st.write("Abas lidas da base gerencial:")
+
+    status_df = pd.DataFrame(
+        [
+            {"Aba": "RESUMO", "Linhas": len(resumo)},
+            {"Aba": "FILA", "Linhas": len(fila)},
+            {"Aba": "TOP_PROBLEMAS", "Linhas": len(top_problemas)},
+            {"Aba": "TOP_BASES", "Linhas": len(top_bases)},
+        ]
+    )
+    render_table(status_df, height=240)
+
+    st.info(
+        "Os Secrets necessários continuam sendo MANAGER_SOURCE_URL e [gcp_service_account]."
+    )
