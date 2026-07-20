@@ -826,6 +826,39 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
         .reset_index(drop=True)
     )
 
+
+def _panel_find_col(df, candidates):
+    if df is None or df.empty:
+        return None
+    normalized = {normalize_text(c): c for c in df.columns}
+    for cand in candidates:
+        key = normalize_text(cand)
+        if key in normalized:
+            return normalized[key]
+    for cand in candidates:
+        key = normalize_text(cand)
+        for norm_col, original in normalized.items():
+            if key in norm_col:
+                return original
+    return None
+
+def _panel_money_to_num(series):
+    if series is None:
+        return pd.Series(dtype=float)
+    s = series.astype(str).str.strip()
+    s = s.str.replace("R$", "", regex=False).str.replace(" ", "", regex=False)
+    mask = s.str.contains(",", regex=False)
+    s.loc[mask] = (
+        s.loc[mask]
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+    )
+    return pd.to_numeric(s, errors="coerce").fillna(0)
+
+def _panel_brl(value):
+    return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -1000,7 +1033,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.1.0 — Fila operacional consolidada")
+st.caption("V1.2.0 — Painel Gerencial + Operacional")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1137,14 +1170,109 @@ try:
             else read_torre_from_dataframe(pendencias_torre_link)
         )
 
-        master = build_master(
-            lm,
-            eu_latest,
-            route_dates,
-            tower_latest,
-            returns_set,
-            reference_date,
+
+        # =========================
+        # PAINEL GERENCIAL
+        # =========================
+        edi_loaded_for_panel = bool(files_edi) if "files_edi" in locals() else False
+        fila_gerencial = build_unique_action_queue(
+            master,
+            edi_loaded=edi_loaded_for_panel,
+            analysis_date=reference_date,
         )
+        fila_gerencial = fila_gerencial[
+            fila_gerencial["PRIORIDADE"].isin(["CRÍTICA", "ALTA", "MÉDIA"])
+        ].copy()
+
+        st.header("Painel Gerencial")
+
+        carteira_total = int(master["AWB"].nunique()) if not master.empty else 0
+        awbs_acao = int(len(fila_gerencial))
+        criticas = int((fila_gerencial["PRIORIDADE"] == "CRÍTICA").sum()) if not fila_gerencial.empty else 0
+        entrega_atraso = int((fila_gerencial["PROBLEMA"] == "ENTREGA EM ATRASO").sum()) if not fila_gerencial.empty else 0
+        backlog_torre = int(
+            tower_latest.loc[~tower_latest["EVENTO_TORRE"].eq("FINALIZADO"), "AWB"].nunique()
+        ) if not tower_latest.empty else 0
+
+        # Acareação em andamento
+        acar = acareacao_ressalva_link.copy()
+        acar_status_col = _panel_find_col(acar, ["STATUS ACAREACAO", "STATUS ACAREAÇÃO", "STATUS", "SITUACAO", "SITUAÇÃO"])
+        if acar_status_col:
+            acar_status_norm = acar[acar_status_col].astype(str).map(normalize_text)
+            acar_andamento = acar[acar_status_norm.eq("EM ANDAMENTO")].copy()
+        else:
+            acar_andamento = acar.iloc[0:0].copy()
+
+        # Passíveis 2026 (CDSP2 + SAO12)
+        inden = debito_indenizacao_link.copy()
+        claim_col = _panel_find_col(inden, ["DATA DE CLAIM", "DATA CLAIM"])
+        emissao_col = _panel_find_col(inden, ["DATA DE EMISSÃO", "DATA DE EMISSAO"])
+        if claim_col:
+            ano_ref = pd.to_datetime(inden[claim_col], errors="coerce").dt.year
+        elif emissao_col:
+            ano_ref = pd.to_datetime(inden[emissao_col], errors="coerce").dt.year
+        else:
+            ano_ref = pd.Series(pd.NA, index=inden.index)
+
+        inden = inden[ano_ref.eq(2026)].copy()
+        inden_base_col = _panel_find_col(inden, ["BASE OFENSORA", "OFENSOR", "BASE", "ORIGEM", "ESTAÇÃO", "ESTACAO"])
+        inden_valor_col = _panel_find_col(inden, ["VALOR INDENIZAÇÃO", "VALOR INDENIZACAO", "VALOR DO CLAIM", "VALOR CLAIM", "VALOR"])
+        inden["_VALOR_NUM"] = _panel_money_to_num(inden[inden_valor_col]) if inden_valor_col else 0.0
+        if inden_base_col:
+            base_norm = inden[inden_base_col].astype(str).map(normalize_text)
+            passivel_total = float(inden.loc[
+                base_norm.str.contains("CDSP2|SAO12", regex=True, na=False),
+                "_VALOR_NUM"
+            ].sum())
+        else:
+            passivel_total = 0.0
+
+        g1, g2, g3 = st.columns(3)
+        g1.metric("Carteira operacional", carteira_total)
+        g2.metric("AWBs com ação", awbs_acao)
+        g3.metric("Críticas", criticas)
+
+        g4, g5, g6 = st.columns(3)
+        g4.metric("Entrega em atraso", entrega_atraso)
+        g5.metric("Backlog da Torre", backlog_torre)
+        g6.metric("Passível 2026", _panel_brl(passivel_total))
+
+        g7, g8 = st.columns(2)
+        g7.metric("Acareações em andamento", int(len(acar_andamento)))
+        g8.metric(
+            "Valor em acareação",
+            _panel_brl(
+                _panel_money_to_num(
+                    acar_andamento[_panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])]
+                ).sum()
+                if not acar_andamento.empty and _panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])
+                else 0.0
+            )
+        )
+
+        if not fila_gerencial.empty:
+            st.subheader("Principais problemas")
+            prob_resumo = (
+                fila_gerencial.groupby(["PROBLEMA", "PRIORIDADE"], dropna=False)
+                .size()
+                .reset_index(name="AWBS")
+                .sort_values(["AWBS"], ascending=False)
+                .head(10)
+            )
+            st.dataframe(prob_resumo, use_container_width=True, hide_index=True)
+
+            st.subheader("Bases / responsáveis com mais ações")
+            local_resumo = (
+                fila_gerencial.groupby("LOCALIZAÇÃO / RESPONSÁVEL", dropna=False)
+                .size()
+                .reset_index(name="AWBS")
+                .sort_values(["AWBS"], ascending=False)
+                .head(10)
+            )
+            st.dataframe(local_resumo, use_container_width=True, hide_index=True)
+
+        st.divider()
+
 except Exception as exc:
     st.error(f"Não foi possível processar os arquivos: {exc}")
     st.stop()
