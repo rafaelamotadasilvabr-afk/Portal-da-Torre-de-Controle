@@ -859,6 +859,19 @@ def _panel_brl(value):
     return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+
+def build_manager_pack_bytes(summary_df, fila_df, top_problemas_df, top_bases_df, top_clientes_df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        summary_df.to_excel(writer, sheet_name="RESUMO", index=False)
+        fila_df.to_excel(writer, sheet_name="FILA", index=False)
+        top_problemas_df.to_excel(writer, sheet_name="TOP_PROBLEMAS", index=False)
+        top_bases_df.to_excel(writer, sheet_name="TOP_BASES", index=False)
+        top_clientes_df.to_excel(writer, sheet_name="TOP_CLIENTES", index=False)
+    output.seek(0)
+    return output.getvalue()
+
+
 # =========================
 # RETORNOS DO WHATSAPP
 # =========================
@@ -1033,7 +1046,7 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
 # =========================
 
 st.title("Portal de Gestão da Torre de Controle")
-st.caption("V1.3.0 — Dashboard do gerente separado")
+st.caption("V1.4.0 — Operação + app do gerente separado")
 
 with st.sidebar:
     st.header("Atualização das bases")
@@ -1211,6 +1224,36 @@ try:
                 tower_latest.loc[~tower_latest["EVENTO_TORRE"].eq("FINALIZADO"), "AWB"].nunique()
             ) if not tower_latest.empty else 0
 
+            if "SLA_DATA" in master.columns:
+                _sla_dt = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.normalize()
+            else:
+                _sla_dt = pd.Series(pd.NaT, index=master.index)
+
+            _teve_rota = master["TEVE_ROTA_HOJE"].fillna(False) if "TEVE_ROTA_HOJE" in master.columns else False
+
+            if "ULTIMO_ENTREGADOR" in master.columns:
+                _sem_entregador = (
+                    master["ULTIMO_ENTREGADOR"].isna()
+                    | master["ULTIMO_ENTREGADOR"].astype(str).str.strip().isin(["", "nan", "None"])
+                )
+            else:
+                _sem_entregador = True
+
+            _situacao_norm = (
+                master["SITUACAO_GERENCIAL"].astype(str).map(normalize_text)
+                if "SITUACAO_GERENCIAL" in master.columns
+                else pd.Series("", index=master.index)
+            )
+
+            _piso_sem_rota_mask = (
+                _sla_dt.eq(pd.Timestamp(reference_date).normalize())
+                & ~_teve_rota
+                & _sem_entregador
+                & _situacao_norm.str.contains("ENTREGA|PENDENTE", regex=True, na=False)
+                & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
+            )
+            sla_dia_piso_sem_rota = int(_piso_sem_rota_mask.sum())
+
             # Acareação em andamento
             acar = acareacao_ressalva_link.copy()
             acar_status_col = _panel_find_col(acar, ["STATUS ACAREACAO", "STATUS ACAREAÇÃO", "STATUS", "SITUACAO", "SITUAÇÃO"])
@@ -1244,17 +1287,15 @@ try:
             else:
                 passivel_total = 0.0
 
-            g1, g2, g3 = st.columns(3)
+            g1, g2, g3, g4 = st.columns(4)
             g1.metric("AWBs monitoradas", carteira_total)
             g2.metric("AWBs com ação", awbs_acao)
             g3.metric("Ações imediatas", criticas)
-
-            g4, g5, g6 = st.columns(3)
             g4.metric("Entrega em atraso", entrega_atraso)
-            g5.metric("Backlog da Torre", backlog_torre)
-            g6.metric("Passível 2026", _panel_brl(passivel_total))
 
-            g7, g8 = st.columns(2)
+            g5, g6, g7, g8 = st.columns(4)
+            g5.metric("SLA do dia sem rota", sla_dia_piso_sem_rota)
+            g6.metric("Backlog da Torre", backlog_torre)
             g7.metric("Acareações em andamento", int(len(acar_andamento)))
             g8.metric(
                 "Valor em acareação",
@@ -1304,6 +1345,44 @@ try:
             st.caption(
                 "AWBs monitoradas = total de AWBs únicas na carteira atual. "
                 "Não representa entregas concluídas."
+            )
+            resumo_dashboard = pd.DataFrame([
+                {"METRICA": "Data de análise", "VALOR": str(reference_date)},
+                {"METRICA": "Atualizado em", "VALOR": str(pd.Timestamp.now())},
+                {"METRICA": "AWBs monitoradas", "VALOR": carteira_total},
+                {"METRICA": "AWBs com ação", "VALOR": awbs_acao},
+                {"METRICA": "Ações imediatas", "VALOR": criticas},
+                {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
+                {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
+                {"METRICA": "Backlog da Torre", "VALOR": backlog_torre},
+                {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
+                {"METRICA": "Valor em acareação", "VALOR": float(
+                    _panel_money_to_num(
+                        acar_andamento[_panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])]
+                    ).sum()
+                    if not acar_andamento.empty and _panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])
+                    else 0.0
+                )},
+            ])
+
+            pacote_gerente = build_manager_pack_bytes(
+                resumo_dashboard,
+                fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
+                prob_resumo if 'prob_resumo' in locals() else pd.DataFrame(),
+                local_resumo if 'local_resumo' in locals() else pd.DataFrame(),
+                cliente_resumo if 'cliente_resumo' in locals() else pd.DataFrame(),
+            )
+
+            st.download_button(
+                "Baixar pacote do dashboard do gerente",
+                data=pacote_gerente,
+                file_name="dashboard_gerente.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_pacote_gerente",
+            )
+
+            st.info(
+                "O valor do passível a débito foi removido temporariamente do dashboard do gerente."
             )
             st.stop()
 
