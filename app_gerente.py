@@ -145,7 +145,6 @@ def _google_sheet_client():
     return gspread.authorize(creds)
 
 
-@st.cache_data(ttl=120, show_spinner=False)
 def load_source(url):
     gc = _google_sheet_client()
     if gc is None:
@@ -221,6 +220,11 @@ if not SOURCE_URL:
         "Adicione MANAGER_SOURCE_URL nos Secrets do app do gerente."
     )
     st.stop()
+
+refresh_col, _ = st.columns([1, 6])
+with refresh_col:
+    if st.button("↻ Atualizar", use_container_width=True):
+        st.rerun()
 
 try:
     pack = load_source(SOURCE_URL)
