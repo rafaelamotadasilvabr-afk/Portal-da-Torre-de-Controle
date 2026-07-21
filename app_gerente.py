@@ -597,6 +597,9 @@ def edi_rows(df, indicador=None, base=None, cliente=None):
         "CLIENTE",
         "AWB",
         "STATUS",
+        "STATUS_EN",
+        "BAG_CREATE",
+        "JA_ENTREGUE",
         "SLA",
         "STATUS_SLA",
         "DIAS_SLA",
@@ -623,7 +626,7 @@ def render_edi_card_detail(card_key, edi_detalhe):
         },
         "edi_emb_tres1": {
             "title": "EDI — Embarque em SAO12/TRES1 TRES1",
-            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
+            "subtitle": "Cliente TRES1: Três Corações. Para Bag Create, valida se a AWB já foi entregue antes de classificar como pendente. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
             "sheet": "EMB_TRES1",
         },
@@ -1465,7 +1468,7 @@ elif menu == "retornos":
 elif menu == "edi":
     st.markdown("### EDI — First Mile")
     st.caption(
-        "Cards expansivos. Regra: embarque só entra se OPSStation for SAO12/TRES1; desembarque entra quando OPSStation bate com FltDestination. Clique em Abrir para ver o detalhe e baixar Excel."
+        "Cards expansivos. Regra: embarque só entra se OPSStation for SAO12/TRES1; Bag Create é validado contra entrega; desembarque entra quando OPSStation bate com FltDestination. Clique em Abrir para ver o detalhe e baixar Excel."
     )
 
     st.info(

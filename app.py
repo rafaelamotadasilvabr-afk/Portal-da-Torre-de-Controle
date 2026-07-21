@@ -349,6 +349,27 @@ def read_first_mile_awbstatus(file_bytes, base_name):
     df["STATUS_SISTEMA"] = df["StatusDescription"].astype(str).str.strip()
     df["STATUS_NORMALIZADO"] = df["STATUS_SISTEMA"].apply(normalize_text)
 
+    if "StatusDescriptionEN" in df.columns:
+        df["STATUS_EN"] = df["StatusDescriptionEN"].astype(str).str.strip()
+    else:
+        df["STATUS_EN"] = ""
+
+    df["STATUS_EN_NORMALIZADO"] = df["STATUS_EN"].apply(normalize_text)
+
+    # Histórico de entrega por AWB antes de manter somente o último evento.
+    # Isso evita classificar como pendente de embarque uma AWB que já teve entrega registrada.
+    _status_full = (
+        df["STATUS_NORMALIZADO"].fillna("").astype(str)
+        + " "
+        + df["STATUS_EN_NORMALIZADO"].fillna("").astype(str)
+    )
+    df["_EH_ENTREGA_HIST"] = _status_full.str.contains(
+        "ENTREGUE|DELIVERED|DELIVERY COMPLETE|DELIVERY COMPLETED|BAIXADO",
+        regex=True,
+        na=False,
+    )
+    _entregue_map = df.groupby("AWB")["_EH_ENTREGA_HIST"].max().to_dict()
+
     if "ApproxSLA" in df.columns:
         df["SLA_DATA"] = parse_date(df["ApproxSLA"]).dt.date
     else:
@@ -377,6 +398,9 @@ def read_first_mile_awbstatus(file_bytes, base_name):
           .drop_duplicates("AWB", keep="last")
           .copy()
     )
+
+    df["JA_ENTREGUE_FIRST_MILE"] = df["AWB"].map(_entregue_map).fillna(False).astype(bool)
+
     return df
 
 
@@ -459,6 +483,40 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                     return str(val).strip()
         return ""
 
+    # AWBs entregues conforme Notas Integradas EDI.
+    # Usado para validar StatusDescriptionEN = Bag Create.
+    edi_awbs_entregues = set()
+    if edi_base_df is not None and not edi_base_df.empty:
+        edi_awb_col = find_column(edi_base_df, ["Nº AWB", "AWB", "AWBNumber"])
+        entrega_col = find_column(edi_base_df, ["EntregaCarga", "Entrega Carga", "Data Entrega", "DataEntrega"])
+        ocorr_col = find_column(edi_base_df, ["UltimaOcorrencia", "Última Ocorrência", "Ultima Ocorrência"])
+
+        if edi_awb_col:
+            _edi_tmp = edi_base_df.copy()
+            _edi_tmp["_AWB_NORM"] = _edi_tmp[edi_awb_col].apply(normalize_awb)
+
+            _entrega_mask = pd.Series(False, index=_edi_tmp.index)
+
+            if entrega_col:
+                _entrega_mask = _entrega_mask | (
+                    _edi_tmp[entrega_col].notna()
+                    & ~_edi_tmp[entrega_col].astype(str).str.strip().isin(["", "nan", "None", "NaT"])
+                )
+
+            if ocorr_col:
+                _ocorr_norm = _edi_tmp[ocorr_col].astype(str).map(normalize_text)
+                _entrega_mask = _entrega_mask | _ocorr_norm.str.contains(
+                    "ENTREGUE|DELIVERED|DELIVERY",
+                    regex=True,
+                    na=False,
+                )
+
+            edi_awbs_entregues = set(
+                _edi_tmp.loc[_entrega_mask, "_AWB_NORM"]
+                .dropna()
+                .astype(str)
+            )
+
     if first_mile_df is not None and not first_mile_df.empty:
         fm = first_mile_df.copy()
 
@@ -478,6 +536,27 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
 
             grupo = str(row.get("GRUPO_FIRST_MILE", "")).strip().upper()
             status_norm = normalize_text(row.get("STATUS_SISTEMA", ""))
+            status_en = pick(row, ["STATUS_EN", "StatusDescriptionEN"])
+            status_en_norm = normalize_text(status_en)
+
+            awb_norm = normalize_awb(row.get("AWB", ""))
+
+            bag_create = (
+                "BAG CREATE" in status_en_norm
+                or "BAG CREATED" in status_en_norm
+                or status_en_norm == "BAG CREATE"
+            )
+
+            ja_entregue = (
+                str(row.get("JA_ENTREGUE_FIRST_MILE", "")).strip().lower()
+                in {"true", "1", "sim", "yes", "verdadeiro"}
+            ) or (
+                awb_norm in edi_awbs_entregues
+            ) or (
+                "ENTREGUE" in status_norm
+                or "DELIVERED" in status_en_norm
+                or "DELIVERY" in status_en_norm
+            )
 
             cliente_raw = str(row.get("CLIENTE_PADRONIZADO", row.get("BillTo", ""))).strip()
             cliente_norm = normalize_text(cliente_raw)
@@ -523,6 +602,11 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
 
             if grupo == "PENDENTE DE EMBARQUE":
                 if ops_station in {"SAO12", "TRES1"}:
+                    # Regra específica:
+                    # Se StatusDescriptionEN = Bag Create, valida se a AWB já foi entregue.
+                    # Se já foi entregue, não entra como pendente de embarque.
+                    if bag_create and ja_entregue:
+                        continue
                     indicador = "PENDENTE DE EMBARQUE"
                 else:
                     continue
@@ -575,6 +659,9 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "CLIENTE": cliente_raw,
                 "AWB": row.get("AWB", ""),
                 "STATUS": row.get("STATUS_SISTEMA", ""),
+                "STATUS_EN": status_en,
+                "BAG_CREATE": "SIM" if bag_create else "NÃO",
+                "JA_ENTREGUE": "SIM" if ja_entregue else "NÃO",
                 "SLA": sla_date,
                 "STATUS_SLA": status_sla,
                 "DIAS_SLA": dias_sla,
