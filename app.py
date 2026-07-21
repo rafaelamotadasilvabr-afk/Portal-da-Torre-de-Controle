@@ -473,6 +473,32 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
             grupo = str(row.get("GRUPO_FIRST_MILE", "")).strip().upper()
             status_norm = normalize_text(row.get("STATUS_SISTEMA", ""))
 
+            cliente_raw = str(row.get("CLIENTE_PADRONIZADO", row.get("BillTo", ""))).strip()
+            cliente_norm = normalize_text(cliente_raw)
+
+            # EDI gerencial — escopo de clientes:
+            # SAO12: Riachuelo, Della Via, Stone, Tania Bulhões e Inbrands.
+            # TRES1: Três Corações.
+            clientes_sao12 = [
+                "RIACHUELO",
+                "DELLA VIA",
+                "STONE",
+                "TANIA BULHOES",
+                "TANIA BULHÕES",
+                "INBRANDS",
+                "IMBRANDS",
+            ]
+
+            if base == "SAO12" and not any(c in cliente_norm for c in clientes_sao12):
+                continue
+
+            if base == "TRES1" and not (
+                "TRES" in cliente_norm
+                or "TRES CORACOES" in cliente_norm
+                or "TRÊS CORAÇÕES" in cliente_raw.upper()
+            ):
+                continue
+
             indicador = None
             if grupo == "PENDENTE DE EMBARQUE":
                 indicador = "PENDENTE DE EMBARQUE"
@@ -516,7 +542,7 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "FONTE": "FIRST MILE",
                 "BASE": base,
                 "INDICADOR": indicador,
-                "CLIENTE": row.get("CLIENTE_PADRONIZADO", row.get("BillTo", "")),
+                "CLIENTE": cliente_raw,
                 "AWB": row.get("AWB", ""),
                 "STATUS": row.get("STATUS_SISTEMA", ""),
                 "SLA": sla_date,

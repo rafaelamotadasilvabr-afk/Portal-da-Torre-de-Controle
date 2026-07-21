@@ -493,6 +493,22 @@ def render_table(df, height=340):
     st.dataframe(df, use_container_width=True, hide_index=True, height=height)
 
 
+def excel_bytes(df, sheet_name="DADOS"):
+    output = io.BytesIO()
+    safe_df = df.copy() if df is not None else pd.DataFrame()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        safe_df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False)
+    output.seek(0)
+    return output.getvalue()
+
+
+def safe_filename(name):
+    text = normalize_text(name).lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text or "dados"
+
+
 def render_alert_pie_chart(alert_df):
     st.markdown(
         """
@@ -540,17 +556,11 @@ def render_alert_pie_chart(alert_df):
     st.altair_chart(pie + labels, use_container_width=True)
 
 
-def edi_count(df, indicador=None, base=None):
+def edi_count(df, indicador=None, base=None, cliente=None):
     if df is None or df.empty:
         return 0
 
-    data = df.copy()
-
-    if indicador and "INDICADOR" in data.columns:
-        data = data[data["INDICADOR"].astype(str).eq(indicador)]
-
-    if base and "BASE" in data.columns:
-        data = data[data["BASE"].astype(str).str.upper().eq(str(base).upper())]
+    data = edi_rows(df, indicador=indicador, base=base, cliente=cliente)
 
     if data.empty:
         return 0
@@ -563,7 +573,7 @@ def edi_count(df, indicador=None, base=None):
     return int(len(data))
 
 
-def edi_rows(df, indicador=None, base=None):
+def edi_rows(df, indicador=None, base=None, cliente=None):
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -574,6 +584,12 @@ def edi_rows(df, indicador=None, base=None):
 
     if base and "BASE" in data.columns:
         data = data[data["BASE"].astype(str).str.upper().eq(str(base).upper())]
+
+    if cliente and "CLIENTE" in data.columns:
+        cliente_norm = normalize_text(cliente)
+        data = data[
+            data["CLIENTE"].astype(str).map(normalize_text).str.contains(cliente_norm, na=False)
+        ]
 
     preferred = [
         "BASE",
@@ -594,6 +610,91 @@ def edi_rows(df, indicador=None, base=None):
     ]
     cols = [c for c in preferred if c in data.columns]
     return data[cols].copy() if cols else data
+
+
+def render_edi_card_detail(card_key, edi_detalhe):
+    mapping = {
+        "edi_emb_sao12": {
+            "title": "EDI — Pendente de embarque SAO12",
+            "subtitle": "Clientes SAO12 monitorados: Riachuelo, Della Via, Stone, Tania Bulhões e Inbrands.",
+            "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
+            "sheet": "EMB_SAO12",
+        },
+        "edi_emb_tres1": {
+            "title": "EDI — Pendente de embarque TRES1",
+            "subtitle": "Cliente TRES1: Três Corações.",
+            "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
+            "sheet": "EMB_TRES1",
+        },
+        "edi_des_sao12": {
+            "title": "EDI — Pendente de desembarque SAO12",
+            "subtitle": "Cargas pendentes de desembarque até o SLA do dia.",
+            "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12"),
+            "sheet": "DES_SAO12",
+        },
+        "edi_des_tres1": {
+            "title": "EDI — Pendente de desembarque TRES1",
+            "subtitle": "Cargas pendentes de desembarque até o SLA do dia.",
+            "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1"),
+            "sheet": "DES_TRES1",
+        },
+        "edi_entrega_sla": {
+            "title": "EDI — Entrega destino / SLA",
+            "subtitle": "Pendentes no destino com SLA vencido ou SLA do dia.",
+            "df": edi_rows(edi_detalhe, "ENTREGA NO DESTINO PELO SLA"),
+            "sheet": "ENTREGA_SLA",
+        },
+        "edi_missing": {
+            "title": "EDI — Missing",
+            "subtitle": "Cargas classificadas como missing no First Mile.",
+            "df": edi_rows(edi_detalhe, "MISSING"),
+            "sheet": "MISSING",
+        },
+        "edi_discrepancia": {
+            "title": "EDI — Discrepância",
+            "subtitle": "Divergências classificadas no First Mile.",
+            "df": edi_rows(edi_detalhe, "DISCREPÂNCIA"),
+            "sheet": "DISCREPANCIA",
+        },
+        "edi_resumo": {
+            "title": "EDI — Resumo",
+            "subtitle": "Resumo consolidado por base e indicador.",
+            "df": edi_resumo if "edi_resumo" in globals() else pd.DataFrame(),
+            "sheet": "RESUMO_EDI",
+        },
+    }
+
+    item = mapping.get(card_key)
+    if not item:
+        return
+
+    df = item["df"].copy()
+
+    st.markdown(
+        f"""
+        <div class="detail-box">
+            <div class="detail-title">{item["title"]}</div>
+            <div class="detail-sub">{item["subtitle"]}</div>
+            <span class="detail-count">{len(df)} registro(s) encontrado(s)</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_b = st.columns([1, 5])
+    with col_a:
+        if st.button("Fechar detalhe", key="fechar_edi_detail", use_container_width=True):
+            st.session_state["edi_detail_card"] = ""
+            st.rerun()
+
+    render_table(df, height=500)
+    st.download_button(
+        "Baixar Excel deste card",
+        excel_bytes(df, sheet_name=item["sheet"]),
+        file_name=f"{safe_filename(item['title'])}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
 
 def detail_columns(df):
@@ -878,6 +979,13 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         if "DATA" in chart.columns and "AWBS" in chart.columns:
             st.bar_chart(chart.set_index("DATA")["AWBS"])
         render_table(detail_df, height=330)
+        st.download_button(
+            "Baixar Excel deste card",
+            excel_bytes(detail_df, sheet_name="AWBS_POR_DIA"),
+            file_name="card_awbs_por_dia.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
         return
 
     if card_key == "acareacao":
@@ -886,9 +994,23 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         render_table(resumo_ent, height=260)
         st.markdown("#### Detalhe por AWB")
         render_table(detail_df.head(500), height=360)
+        st.download_button(
+            "Baixar Excel deste card",
+            excel_bytes(detail_df, sheet_name="ACAREACOES"),
+            file_name="card_acareacoes.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
         return
 
     render_table(detail_df.head(500), height=430)
+    st.download_button(
+        "Baixar Excel deste card",
+        excel_bytes(detail_df, sheet_name="DETALHE_CARD"),
+        file_name=f"card_{safe_filename(title)}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
 
 
@@ -1109,6 +1231,9 @@ with st.sidebar:
     if "detail_card" not in st.session_state:
         st.session_state["detail_card"] = ""
 
+    if "edi_detail_card" not in st.session_state:
+        st.session_state["edi_detail_card"] = ""
+
     for key, label in menu_items:
         active = st.session_state["menu_gerente"] == key
         if st.button(
@@ -1119,6 +1244,7 @@ with st.sidebar:
         ):
             st.session_state["menu_gerente"] = key
             st.session_state["detail_card"] = ""
+            st.session_state["edi_detail_card"] = ""
             st.rerun()
 
     st.markdown(
@@ -1340,134 +1466,45 @@ elif menu == "retornos":
 elif menu == "edi":
     st.markdown("### EDI — First Mile")
     st.caption(
-        "No dashboard gerencial, First Mile será tratado como EDI. "
-        "Esta tela replica os principais grupos do Portal Gestão da Torre / First Mile."
+        "Cards expansivos. Clique em Abrir para ver o detalhe e baixar Excel do indicador."
     )
 
-    st.markdown("#### Pendências por base")
-    e1, e2, e3, e4 = st.columns(4)
-
-    with e1:
-        kpi_card(
-            "EMBARQUE SAO12",
-            fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")),
-            "Pendente de embarque",
-            "S12",
-            "#2563eb",
-            "#eff6ff",
-        )
-
-    with e2:
-        kpi_card(
-            "EMBARQUE TRES1",
-            fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")),
-            "Pendente de embarque",
-            "T1",
-            "#1d4ed8",
-            "#eff6ff",
-        )
-
-    with e3:
-        kpi_card(
-            "DESEMBARQUE SAO12",
-            fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")),
-            "Até o SLA do dia",
-            "⇣",
-            "#0f766e",
-            "#f0fdfa",
-        )
-
-    with e4:
-        kpi_card(
-            "DESEMBARQUE TRES1",
-            fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")),
-            "Até o SLA do dia",
-            "⇣",
-            "#0f766e",
-            "#f0fdfa",
-        )
-
-    st.markdown("#### Alertas EDI")
-    a1, a2, a3 = st.columns(3)
-
-    with a1:
-        kpi_card(
-            "ENTREGA DESTINO / SLA",
-            fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")),
-            "Pendentes no destino com SLA hoje/vencido",
-            "SLA",
-            "#d97706",
-            "#fff7e8",
-        )
-
-    with a2:
-        kpi_card(
-            "MISSING",
-            fmt_int(edi_count(edi_detalhe, "MISSING")),
-            "Cargas missing em SAO12/TRES1",
-            "!",
-            "#d92d20",
-            "#fff0ef",
-            "#c9231a",
-        )
-
-    with a3:
-        kpi_card(
-            "DISCREPÂNCIA",
-            fmt_int(edi_count(edi_detalhe, "DISCREPÂNCIA")),
-            "Divergências do First Mile",
-            "≠",
-            "#7c3aed",
-            "#f5f3ff",
-        )
-
-    st.divider()
-
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-        "Emb. SAO12",
-        "Emb. TRES1",
-        "Desemb. SAO12",
-        "Desemb. TRES1",
-        "Entrega destino / SLA",
-        "Missing",
-        "Discrepância",
-        "Resumo EDI",
-    ])
-
-    with tab1:
-        render_table(edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"), height=500)
-
-    with tab2:
-        render_table(edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"), height=500)
-
-    with tab3:
-        st.caption("Pendente de desembarque em SAO12 com SLA vencido ou SLA do dia.")
-        render_table(edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12"), height=500)
-
-    with tab4:
-        st.caption("Pendente de desembarque em TRES1 com SLA vencido ou SLA do dia.")
-        render_table(edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1"), height=500)
-
-    with tab5:
-        st.caption("Considera pendência no destino com SLA hoje ou SLA vencido.")
-        render_table(edi_rows(edi_detalhe, "ENTREGA NO DESTINO PELO SLA"), height=500)
-
-    with tab6:
-        render_table(edi_rows(edi_detalhe, "MISSING"), height=500)
-
-    with tab7:
-        render_table(edi_rows(edi_detalhe, "DISCREPÂNCIA"), height=500)
-
-    with tab8:
-        render_table(edi_resumo, height=360)
-
-    st.download_button(
-        "Baixar detalhe EDI.csv",
-        edi_detalhe.to_csv(index=False).encode("utf-8-sig"),
-        file_name="edi_first_mile_detalhe.csv",
-        mime="text/csv",
-        use_container_width=True,
+    st.info(
+        "SAO12: Riachuelo, Della Via, Stone, Tania Bulhões e Inbrands. "
+        "TRES1: Três Corações."
     )
+
+    edi_cards_l1 = [
+        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Pendente de embarque", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
+        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Pendente de embarque", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
+        ("Desemb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_sao12"),
+        ("Desemb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_tres1"),
+    ]
+
+    edi_cards_l2 = [
+        ("Entrega destino / SLA", fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")), "SLA vencido ou SLA do dia", "SLA", "#d97706", "#fff7e8", "edi_entrega_sla"),
+        ("Missing", fmt_int(edi_count(edi_detalhe, "MISSING")), "Cargas missing", "!", "#d92d20", "#fff0ef", "edi_missing"),
+        ("Discrepância", fmt_int(edi_count(edi_detalhe, "DISCREPÂNCIA")), "Divergências First Mile", "≠", "#7c3aed", "#f5f3ff", "edi_discrepancia"),
+        ("Resumo EDI", fmt_int(len(edi_resumo)), "Resumo por base/indicador", "Σ", "#334155", "#f8fafc", "edi_resumo"),
+    ]
+
+    for cards in [edi_cards_l1, edi_cards_l2]:
+        cols = st.columns(len(cards))
+        for idx, item in enumerate(cards):
+            label, value, sub, icon, accent, soft, key = item
+            with cols[idx]:
+                kpi_card(label, value, sub, icon, accent, soft)
+                button_label = "Aberto" if st.session_state.get("edi_detail_card") == key else "Abrir"
+                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                    if st.session_state.get("edi_detail_card") == key:
+                        st.session_state["edi_detail_card"] = ""
+                    else:
+                        st.session_state["edi_detail_card"] = key
+                    st.rerun()
+
+    detail = st.session_state.get("edi_detail_card", "")
+    if detail:
+        render_edi_card_detail(detail, edi_detalhe)
 
 
 elif menu == "acareacao":
