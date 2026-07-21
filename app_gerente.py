@@ -576,20 +576,28 @@ def overdue_delivery_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    atraso_col = first_col(df, ["DIAS EM ATRASO"])
-    if atraso_col:
-        dias = numeric_series(df[atraso_col])
-        atraso_df = df[dias > 0].copy()
-        if not atraso_df.empty:
-            return atraso_df
+    problema_col = first_col(df, ["PROBLEMA"])
+    if problema_col:
+        problema = df[problema_col].astype(str).map(normalize_text)
+        exact = df[problema.eq("ENTREGA EM ATRASO")].copy()
+        if not exact.empty:
+            return exact
 
-    return filter_terms(df, ["ENTREGA EM ATRASO", "ATRASO", "SLA VENCIDO"])
+    return filter_terms(df, ["ENTREGA EM ATRASO"])
 
 
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
-    return filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA", "SEM ROTA"])
+
+    problema_col = first_col(df, ["PROBLEMA"])
+    if problema_col:
+        problema = df[problema_col].astype(str).map(normalize_text)
+        exact = df[problema.eq("SLA DO DIA SEM ROTA")].copy()
+        if not exact.empty:
+            return exact
+
+    return filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
 
 
 def terceira_tentativa_rows(df):
@@ -1111,7 +1119,7 @@ fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
 
 with top_info_col:
     st.markdown(
-        f'<div class="info">ⓘ {filtro_msg}. AWBs monitoradas representam AWBs únicas da carteira atual, não entregas concluídas.</div>',
+        f'<div class="info">ⓘ Cards críticos usam o RESUMO sincronizado pelo operacional. O filtro de data atua nos detalhes abertos, rankings e tabelas. {filtro_msg}.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1121,13 +1129,18 @@ pendcorp_df = top5_pendencia_corp(fila_filtrada)
 acareacao_df = acareacao_rows(fila_filtrada)
 daily_df = daily_awb_counts(fila_filtrada)
 
+resumo_entrega_atraso = number(summary_value(resumo, "Entrega em atraso", len(overdue_delivery_rows(fila_filtrada))))
+resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
+resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
+resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
+
 alert_distribution_df = pd.DataFrame(
     [
-        {"INDICADOR": "Entrega em atraso", "QTDE": len(overdue_delivery_rows(fila_filtrada))},
-        {"INDICADOR": "SLA do dia sem rota", "QTDE": len(sla_sem_rota_rows(fila_filtrada))},
-        {"INDICADOR": "3ª tentativa", "QTDE": len(terceira_tentativa_rows(fila_filtrada))},
+        {"INDICADOR": "Entrega em atraso", "QTDE": resumo_entrega_atraso},
+        {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
+        {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto", "QTDE": len(retornos_df)},
-        {"INDICADOR": "Acareações em aberto", "QTDE": len(acareacao_df)},
+        {"INDICADOR": "Acareações em aberto", "QTDE": resumo_acareacao_qtd},
     ]
 )
 alert_distribution_df = alert_distribution_df[alert_distribution_df["QTDE"] > 0].copy()
@@ -1146,13 +1159,13 @@ kpis_df = pd.DataFrame(
     [
         {"INDICADOR": "Nível de serviço estimado", "VALOR": service_level_label(resumo)},
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
-        {"INDICADOR": "Entrega em atraso", "VALOR": number(summary_value(resumo, "Entrega em atraso", 0))},
-        {"INDICADOR": "SLA do dia sem rota", "VALOR": number(summary_value(resumo, "SLA do dia sem rota", 0))},
-        {"INDICADOR": "3ª tentativa de entrega", "VALOR": number(summary_value(resumo, "3ª tentativa de entrega", 0))},
+        {"INDICADOR": "Entrega em atraso", "VALOR": resumo_entrega_atraso},
+        {"INDICADOR": "SLA do dia sem rota", "VALOR": resumo_sla_sem_rota},
+        {"INDICADOR": "3ª tentativa de entrega", "VALOR": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
         {"INDICADOR": "Top clientes com pendência", "VALOR": len(pendcorp_df)},
-        {"INDICADOR": "Acareações em aberto", "VALOR": number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))},
+        {"INDICADOR": "Acareações em aberto", "VALOR": resumo_acareacao_qtd},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
     ]
 )
@@ -1170,14 +1183,14 @@ if menu == "visao":
         "Clique em Abrir para ver somente o detalhe do indicador selecionado. O filtro de data atualiza os cards calculados pela fila."
     )
 
-    acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
+    acareacao_qtd = resumo_acareacao_qtd
     acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
 
     cards_linha1 = [
-        ("Nível de serviço", service_level_label(resumo), "Estimado: 1 - entregas em atraso / AWBs monitoradas", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
-        ("Entrega em atraso", fmt_int(len(overdue_delivery_rows(fila_filtrada))), "Cargas com SLA vencido no período", "◷", "#d92d20", "#fff0ef", "atraso"),
-        ("SLA do dia sem rota", fmt_int(len(sla_sem_rota_rows(fila_filtrada))), "SLA sem rota no período", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("3ª tentativa de entrega", fmt_int(len(terceira_tentativa_rows(fila_filtrada))), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
+        ("Nível de serviço", service_level_label(resumo), "Resumo operacional sincronizado", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
+        ("Entrega em atraso", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
     cards_linha2 = [

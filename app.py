@@ -808,6 +808,34 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 1, "CRÍTICA", "MISSING / DISCREPÂNCIA", \
                 "Localizar a carga e validar a divergência imediatamente"
 
+        status_sistema = normalize_text(value(row, "STATUS_SISTEMA"))
+
+        try:
+            sla_row = pd.to_datetime(row.get("SLA_DATA"), errors="coerce")
+            sla_row = sla_row.normalize() if pd.notna(sla_row) else pd.NaT
+        except Exception:
+            sla_row = pd.NaT
+
+        teve_rota_hoje = str(row.get("TEVE_ROTA_HOJE", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        em_torre_ativa = str(row.get("EM_TORRE_ATIVA", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        # Mesma regra do Radar Preventivo — Last Mile:
+        # Pendente Entrega + SLA na data de análise + nenhuma rota criada hoje + fora da Torre ativa.
+        if (
+            status_sistema == "PENDENTE ENTREGA"
+            and pd.notna(sla_row)
+            and sla_row == analysis_ts
+            and not teve_rota_hoje
+            and not em_torre_ativa
+        ):
+            return 2, "ALTA", "SLA DO DIA SEM ROTA", \
+                "Criar rota no Eu Entrego ou justificar ausência de rota no dia do SLA"
+
         # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
         # Entra antes de PENDENTE DE ENTREGA para não ficar escondido no grupo genérico.
         if tentativas >= 3 and (
@@ -817,31 +845,31 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "RETORNO" in situacao
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 2, prioridade, "3ª TENTATIVA DE ENTREGA", \
+            return 3, prioridade, "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre e definir nova tratativa de entrega"
 
         if atraso > 0 and "ENTREGA" in situacao:
-            return 3, "CRÍTICA", "ENTREGA EM ATRASO", \
+            return 4, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
-            return 4, "ALTA", "PENDENTE DE ENTREGA", \
+            return 5, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
 
         if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 5, "ALTA", "3ª TENTATIVA DE ENTREGA", \
+            return 6, "ALTA", "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
-            return 5, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
+            return 7, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
                 "Acompanhar devolutiva e prazo da acareação"
 
         if "INDENIZA" in controle or "DEBITO" in controle:
-            return 6, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
+            return 8, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
                 "Acompanhar o andamento do processo"
 
         if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-            return 7, "MÉDIA", "BOOKING / EDI", \
+            return 9, "MÉDIA", "BOOKING / EDI", \
                 "Validar execução do booking"
 
         return 99, "MONITORAR", value(row, "SITUACAO_GERENCIAL") or "SEM AÇÃO", \
@@ -1478,12 +1506,19 @@ try:
                 else pd.Series(0, index=master.index)
             )
 
-            # Regra correta:
-            # SLA do dia sem rota = SLA vencendo hoje + pendente entrega + nenhuma rota criada hoje.
+            _em_torre_panel = (
+                master["EM_TORRE_ATIVA"].fillna(False).astype(bool)
+                if "EM_TORRE_ATIVA" in master.columns
+                else pd.Series(False, index=master.index)
+            )
+
+            # Mesma regra do Radar Preventivo — Last Mile:
+            # SLA do dia sem rota = Pendente Entrega + SLA hoje + nenhuma rota criada hoje + fora da Torre ativa.
             # Se teve rota hoje e voltou com insucesso, NÃO entra aqui.
             _piso_sem_rota_mask = (
                 _sla_dt.eq(pd.Timestamp(reference_date).normalize())
                 & ~_teve_rota
+                & ~_em_torre_panel
                 & _status_norm_panel.eq("PENDENTE ENTREGA")
                 & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
             )
