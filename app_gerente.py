@@ -220,6 +220,41 @@ st.markdown(
         font-weight: 750;
     }
 
+    .detail-box {
+        background: #ffffff;
+        border: 1px solid #dbe7fb;
+        border-left: 5px solid #2563eb;
+        border-radius: 16px;
+        padding: 16px 18px;
+        margin-top: 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 8px 22px rgba(15,23,42,.045);
+    }
+
+    .detail-title {
+        color: #10213d;
+        font-size: 1.06rem;
+        font-weight: 900;
+        margin-bottom: 3px;
+    }
+
+    .detail-sub {
+        color: #64748b;
+        font-size: .78rem;
+        margin-bottom: 10px;
+    }
+
+    .detail-count {
+        display: inline-block;
+        padding: 4px 9px;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: #0b4ea7;
+        font-size: .74rem;
+        font-weight: 850;
+        margin-bottom: 8px;
+    }
+
     .filter-caption {
         color: #475569;
         font-size: .76rem;
@@ -419,6 +454,127 @@ def render_table(df, height=340):
     st.dataframe(df, use_container_width=True, hide_index=True, height=height)
 
 
+def detail_columns(df):
+    if df is None or df.empty:
+        return df
+
+    preferred = [
+        "PRIORIDADE",
+        "AWB",
+        "CLIENTE",
+        "PROBLEMA",
+        "SLA",
+        "DIAS EM ATRASO",
+        "MOTORISTA / ENTREGADOR",
+        "STATUS ÚLTIMA ROTA",
+        "MOTIVO ÚLTIMA ROTA",
+        "ÚLTIMA ROTA",
+        "DIAS DESDE ÚLTIMA ROTA",
+        "QT TENTATIVAS",
+        "LOCALIZAÇÃO / RESPONSÁVEL",
+        "PRÓXIMA AÇÃO",
+        "MOTIVO PENDÊNCIA",
+        "STATUS TORRE",
+        "ABA TORRE",
+    ]
+    cols = [c for c in preferred if c in df.columns]
+    return df[cols].copy() if cols else df.copy()
+
+
+def overdue_delivery_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    atraso_col = first_col(df, ["DIAS EM ATRASO"])
+    if atraso_col:
+        dias = numeric_series(df[atraso_col])
+        atraso_df = df[dias > 0].copy()
+        if not atraso_df.empty:
+            return atraso_df
+
+    return filter_terms(df, ["ENTREGA EM ATRASO", "ATRASO", "SLA VENCIDO"])
+
+
+def sla_sem_rota_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+    return filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA", "SEM ROTA"])
+
+
+def terceira_tentativa_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    tent_col = first_col(df, ["QT TENTATIVAS", "QT_TENTATIVAS_INSUCESSO"])
+    if tent_col:
+        tent = numeric_series(df[tent_col])
+        tentativa_df = df[tent >= 3].copy()
+        if not tentativa_df.empty:
+            return tentativa_df
+
+    return filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
+
+
+def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df):
+    title = ""
+    subtitle = ""
+    df = pd.DataFrame()
+
+    if card_key == "awbs":
+        title = "Detalhe — AWBs monitoradas"
+        subtitle = "Linhas detalhadas disponíveis na base gerencial sincronizada."
+        df = fila_filtrada.copy()
+
+    elif card_key == "atraso":
+        title = "Detalhe — Entrega em atraso"
+        subtitle = "Cargas com atraso/SLA vencido identificadas na fila gerencial."
+        df = overdue_delivery_rows(fila_filtrada)
+
+    elif card_key == "sla_sem_rota":
+        title = "Detalhe — SLA do dia sem rota"
+        subtitle = "Cargas com SLA no dia analisado e sem rota criada no Eu Entrego."
+        df = sla_sem_rota_rows(fila_filtrada)
+
+    elif card_key == "terceira":
+        title = "Detalhe — 3ª tentativa de entrega"
+        subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
+        df = terceira_tentativa_rows(fila_filtrada)
+
+    elif card_key == "retornos":
+        title = "Detalhe — Retornos em aberto"
+        subtitle = "Retornos/insucessos com 1 dia ou mais ainda em aberto."
+        df = retornos_df.copy()
+
+    elif card_key == "motoristas":
+        title = "Detalhe — Motoristas ofensores"
+        subtitle = "Ranking de motoristas/entregadores por insucessos e retornos."
+        df = motoristas_df.copy()
+
+    else:
+        return
+
+    detail_df = detail_columns(df)
+
+    st.markdown(
+        f"""
+        <div class="detail-box">
+            <div class="detail-title">{title}</div>
+            <div class="detail-sub">{subtitle}</div>
+            <span class="detail-count">{len(detail_df)} registro(s) encontrado(s)</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_b = st.columns([1, 5])
+    with col_a:
+        if st.button("Fechar detalhe", use_container_width=True):
+            st.session_state["detail_card"] = ""
+            st.rerun()
+
+    render_table(detail_df.head(500), height=430)
+
+
 def driver_offenders(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -601,6 +757,9 @@ with st.sidebar:
     if "menu_gerente" not in st.session_state:
         st.session_state["menu_gerente"] = "visao"
 
+    if "detail_card" not in st.session_state:
+        st.session_state["detail_card"] = ""
+
     for key, label in menu_items:
         active = st.session_state["menu_gerente"] == key
         if st.button(
@@ -610,6 +769,7 @@ with st.sidebar:
             type="primary" if active else "secondary",
         ):
             st.session_state["menu_gerente"] = key
+            st.session_state["detail_card"] = ""
             st.rerun()
 
     st.markdown(
@@ -731,34 +891,18 @@ if menu == "visao":
         label, value, sub, icon, accent, soft, key = item
         with cols[idx]:
             kpi_card(label, value, sub, icon, accent, soft)
-            if st.button("Abrir", key=f"abrir_{key}", use_container_width=True):
-                st.session_state["detail_card"] = key
+            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                if st.session_state.get("detail_card") == key:
+                    st.session_state["detail_card"] = ""
+                else:
+                    st.session_state["detail_card"] = key
                 st.rerun()
 
     detail = st.session_state.get("detail_card", "")
 
     if detail:
-        st.divider()
-        st.markdown("### Detalhe do card aberto")
-
-        if detail == "awbs":
-            st.caption("A carteira total vem do resumo consolidado. Abaixo estão as linhas detalhadas disponíveis na base gerencial.")
-            render_table(fila_filtrada.head(300), height=420)
-
-        elif detail == "atraso":
-            render_table(filter_terms(fila_filtrada, ["ENTREGA EM ATRASO", "ATRASO"]).head(300), height=420)
-
-        elif detail == "sla_sem_rota":
-            render_table(filter_terms(fila_filtrada, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"]).head(300), height=420)
-
-        elif detail == "terceira":
-            render_table(filter_terms(fila_filtrada, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"]).head(300), height=420)
-
-        elif detail == "retornos":
-            render_table(retornos_df.head(300), height=420)
-
-        elif detail == "motoristas":
-            render_table(motoristas_df, height=420)
+        render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df)
 
     st.divider()
     c1, c2 = st.columns(2)
