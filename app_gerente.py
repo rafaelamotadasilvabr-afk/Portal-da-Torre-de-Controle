@@ -18,6 +18,19 @@ st.set_page_config(
 
 DEFAULT_MANAGER_SOURCE_URL = ""
 
+SHEET_NAMES = [
+    "RESUMO",
+    "FILA",
+    "TOP_PROBLEMAS",
+    "TOP_BASES",
+    "EDI_RESUMO",
+    "EDI_DETALHE",
+    "PENDENCIA_MOVIMENTOS",
+    "ACAREACOES_DETALHE",
+    "AVARIAS_DETALHE",
+]
+
+
 
 # =========================================================
 # CSS — LAYOUT CLARO
@@ -310,6 +323,7 @@ def _google_service_account_info():
         return None
 
 
+@st.cache_resource(show_spinner=False)
 def _google_sheet_client():
     info = _google_service_account_info()
     if not info:
@@ -323,7 +337,38 @@ def _google_sheet_client():
     return gspread.authorize(creds)
 
 
+def _values_to_dataframe(values):
+    if not values:
+        return pd.DataFrame()
+
+    headers = [str(h).strip() for h in values[0]]
+    rows = values[1:]
+
+    if not headers:
+        return pd.DataFrame()
+
+    width = len(headers)
+    normalized_rows = []
+
+    for row in rows:
+        row = list(row)
+        if len(row) < width:
+            row = row + [""] * (width - len(row))
+        elif len(row) > width:
+            row = row[:width]
+        normalized_rows.append(row)
+
+    return pd.DataFrame(normalized_rows, columns=headers)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def load_source(url):
+    """
+    Carrega todas as abas do Google Sheets com cache de 5 minutos.
+
+    Evita erro 429 quando o usuário abre card, fecha card ou baixa Excel,
+    porque o Streamlit reroda o script a cada interação.
+    """
     gc = _google_sheet_client()
     if gc is None:
         raise RuntimeError(
@@ -331,24 +376,38 @@ def load_source(url):
         )
 
     spreadsheet = gc.open_by_url(url)
-    result = {}
+    result = {sheet_name: pd.DataFrame() for sheet_name in SHEET_NAMES}
 
-    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE", "PENDENCIA_MOVIMENTOS", "ACAREACOES_DETALHE", "AVARIAS_DETALHE"]:
-        try:
-            ws = spreadsheet.worksheet(sheet_name)
-            values = ws.get_all_values()
+    ranges = [f"'{sheet_name}'!A:ZZ" for sheet_name in SHEET_NAMES]
 
-            if not values:
+    try:
+        response = spreadsheet.values_batch_get(ranges=ranges)
+        value_ranges = response.get("valueRanges", [])
+
+        for sheet_name, value_range in zip(SHEET_NAMES, value_ranges):
+            values = value_range.get("values", [])
+            result[sheet_name] = _values_to_dataframe(values)
+
+        return result
+
+    except Exception as batch_error:
+        for sheet_name in SHEET_NAMES:
+            try:
+                ws = spreadsheet.worksheet(sheet_name)
+                values = ws.get_all_values()
+                result[sheet_name] = _values_to_dataframe(values)
+            except gspread.WorksheetNotFound:
                 result[sheet_name] = pd.DataFrame()
-                continue
+            except Exception as e:
+                if "429" in str(e) or "Quota exceeded" in str(e) or "Read requests per minute" in str(e):
+                    raise RuntimeError(
+                        "Limite temporário do Google Sheets atingido. "
+                        "Aguarde 1 a 2 minutos e clique em Atualizar dados do Google. "
+                        "Esta versão reduz leituras com cache e leitura em lote."
+                    ) from e
+                raise
 
-            headers = values[0]
-            rows = values[1:]
-            result[sheet_name] = pd.DataFrame(rows, columns=headers)
-        except gspread.WorksheetNotFound:
-            result[sheet_name] = pd.DataFrame()
-
-    return result
+        return result
 
 
 # =========================================================
@@ -1404,6 +1463,10 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
+
+    if st.button("Atualizar dados do Google", key="refresh_google_data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
     menu_items = [
         ("visao", "⌂  Visão Geral"),
