@@ -1794,6 +1794,104 @@ try:
                 tower_latest.loc[~tower_latest["EVENTO_TORRE"].eq("FINALIZADO"), "AWB"].nunique()
             ) if not tower_latest.empty else 0
 
+            # Movimentação diária da pendência da Torre.
+            _ref_torre = pd.Timestamp(reference_date).normalize()
+            entradas_torre_hoje = 0
+            saidas_torre_hoje = 0
+
+            pendencia_movimentos_gerente = pd.DataFrame(
+                columns=[
+                    "TIPO_MOVIMENTO",
+                    "AWB",
+                    "DATA_EVENTO_TORRE",
+                    "EVENTO_TORRE",
+                    "STATUS_TRATATIVA",
+                    "ORIGEM_TORRE",
+                    "MOTIVO_PENDENCIA",
+                    "ABA_ORIGEM",
+                ]
+            )
+
+            try:
+                _mov_parts = []
+
+                if tower_latest is not None and not tower_latest.empty:
+                    _total_pend = tower_latest.loc[
+                        ~tower_latest["EVENTO_TORRE"].astype(str).eq("FINALIZADO")
+                    ].copy()
+                    _total_pend["TIPO_MOVIMENTO"] = "TOTAL NA PENDÊNCIA"
+                    _mov_parts.append(_total_pend)
+
+                if tower_history is not None and not tower_history.empty:
+                    _hist_torre = tower_history.copy()
+                    _hist_torre["_DATA_NORM"] = pd.to_datetime(
+                        _hist_torre["DATA_EVENTO_TORRE"],
+                        errors="coerce",
+                    ).dt.normalize()
+
+                    _evento_norm = _hist_torre["EVENTO_TORRE"].astype(str).map(normalize_text)
+
+                    _entrada_mask = (
+                        _hist_torre["_DATA_NORM"].eq(_ref_torre)
+                        & _evento_norm.isin(["PENDENCIA", "PENDENCIA_CORP"])
+                    )
+
+                    _saida_mask = (
+                        _hist_torre["_DATA_NORM"].eq(_ref_torre)
+                        & _evento_norm.eq("FINALIZADO")
+                    )
+
+                    entradas_torre_hoje = int(
+                        _hist_torre.loc[_entrada_mask, "AWB"].dropna().nunique()
+                    )
+                    saidas_torre_hoje = int(
+                        _hist_torre.loc[_saida_mask, "AWB"].dropna().nunique()
+                    )
+
+                    _entradas = _hist_torre.loc[_entrada_mask].copy()
+                    _entradas["TIPO_MOVIMENTO"] = "ENTROU HOJE"
+                    _mov_parts.append(_entradas)
+
+                    _saidas = _hist_torre.loc[_saida_mask].copy()
+                    _saidas["TIPO_MOVIMENTO"] = "SAIU HOJE"
+                    _mov_parts.append(_saidas)
+
+                if _mov_parts:
+                    pendencia_movimentos_gerente = pd.concat(
+                        _mov_parts,
+                        ignore_index=True,
+                        sort=False,
+                    )
+                    _cols_mov = [
+                        "TIPO_MOVIMENTO",
+                        "AWB",
+                        "DATA_EVENTO_TORRE",
+                        "EVENTO_TORRE",
+                        "STATUS_TRATATIVA",
+                        "ORIGEM_TORRE",
+                        "MOTIVO_PENDENCIA",
+                        "ABA_ORIGEM",
+                    ]
+                    pendencia_movimentos_gerente = pendencia_movimentos_gerente[
+                        [c for c in _cols_mov if c in pendencia_movimentos_gerente.columns]
+                    ].copy()
+
+            except Exception:
+                entradas_torre_hoje = 0
+                saidas_torre_hoje = 0
+                pendencia_movimentos_gerente = pd.DataFrame(
+                    columns=[
+                        "TIPO_MOVIMENTO",
+                        "AWB",
+                        "DATA_EVENTO_TORRE",
+                        "EVENTO_TORRE",
+                        "STATUS_TRATATIVA",
+                        "ORIGEM_TORRE",
+                        "MOTIVO_PENDENCIA",
+                        "ABA_ORIGEM",
+                    ]
+                )
+
             if "SLA_DATA" in master.columns:
                 _sla_dt = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.normalize()
             else:
@@ -2017,6 +2115,9 @@ try:
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
                 {"METRICA": "Backlog da Torre", "VALOR": backlog_torre},
+                {"METRICA": "Total na pendência", "VALOR": backlog_torre},
+                {"METRICA": "Entraram na pendência hoje", "VALOR": entradas_torre_hoje},
+                {"METRICA": "Saíram da pendência hoje", "VALOR": saidas_torre_hoje},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
                 {"METRICA": "Valor em acareação", "VALOR": float(
                     _panel_money_to_num(
@@ -2075,6 +2176,7 @@ try:
                 extra_sheets={
                     "EDI_RESUMO": edi_resumo_gerente,
                     "EDI_DETALHE": edi_detalhe_gerente,
+                        "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                 },
             )
 
@@ -2097,6 +2199,8 @@ try:
                 int(sla_dia_piso_sem_rota),
                 int(terceira_tentativa_entrega),
                 int(backlog_torre),
+                int(entradas_torre_hoje),
+                int(saidas_torre_hoje),
                 int(len(acar_andamento)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
@@ -2111,6 +2215,7 @@ try:
                 extra_sheets={
                     "EDI_RESUMO": edi_resumo_gerente,
                     "EDI_DETALHE": edi_detalhe_gerente,
+                        "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                 },
                 )
                 if _sync_ok:
@@ -2126,6 +2231,7 @@ try:
                     extra_sheets={
                         "EDI_RESUMO": edi_resumo_gerente,
                         "EDI_DETALHE": edi_detalhe_gerente,
+                        "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                     },
                     )
                     if _sync_ok:

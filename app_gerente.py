@@ -333,7 +333,7 @@ def load_source(url):
     spreadsheet = gc.open_by_url(url)
     result = {}
 
-    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE"]:
+    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE", "PENDENCIA_MOVIMENTOS"]:
         try:
             ws = spreadsheet.worksheet(sheet_name)
             values = ws.get_all_values()
@@ -775,6 +775,29 @@ def last_mile_desembarque_rows(df):
     return filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"])
 
 
+def pendencia_movimento_rows(tipo):
+    df = pendencia_movimentos if "pendencia_movimentos" in globals() else pd.DataFrame()
+
+    if df is None or df.empty or "TIPO_MOVIMENTO" not in df.columns:
+        return pd.DataFrame()
+
+    mask = df["TIPO_MOVIMENTO"].astype(str).map(normalize_text).eq(normalize_text(tipo))
+    out = df[mask].copy()
+
+    preferred = [
+        "TIPO_MOVIMENTO",
+        "AWB",
+        "DATA_EVENTO_TORRE",
+        "EVENTO_TORRE",
+        "STATUS_TRATATIVA",
+        "ORIGEM_TORRE",
+        "MOTIVO_PENDENCIA",
+        "ABA_ORIGEM",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    return out[cols].copy() if cols else out
+
+
 def terceira_tentativa_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -935,6 +958,21 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         title = "Detalhe — 3ª tentativa de entrega"
         subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
         df = terceira_tentativa_rows(fila_filtrada)
+
+    elif card_key == "pend_total":
+        title = "Detalhe — Total na pendência"
+        subtitle = "Cargas que compõem o backlog atual da Torre."
+        df = pendencia_movimento_rows("TOTAL NA PENDÊNCIA")
+
+    elif card_key == "pend_entrada_hoje":
+        title = "Detalhe — Entraram na pendência hoje"
+        subtitle = "Cargas que entraram na pendência na data de análise."
+        df = pendencia_movimento_rows("ENTROU HOJE")
+
+    elif card_key == "pend_saida_hoje":
+        title = "Detalhe — Saíram da pendência hoje"
+        subtitle = "Cargas finalizadas/encerradas na data de análise."
+        df = pendencia_movimento_rows("SAIU HOJE")
 
     elif card_key == "retornos":
         title = "Detalhe — Retornos em aberto"
@@ -1281,6 +1319,7 @@ resumo = pack.get("RESUMO", pd.DataFrame())
 fila = pack.get("FILA", pd.DataFrame())
 edi_resumo = pack.get("EDI_RESUMO", pd.DataFrame())
 edi_detalhe = pack.get("EDI_DETALHE", pd.DataFrame())
+pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 
 periodo = summary_value(resumo, "Período analisado", "")
 if not periodo:
@@ -1342,6 +1381,9 @@ resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sl
 resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
+resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
+resumo_entraram_pendencia_hoje = number(summary_value(resumo, "Entraram na pendência hoje", len(pendencia_movimento_rows("ENTROU HOJE"))))
+resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendência hoje", len(pendencia_movimento_rows("SAIU HOJE"))))
 
 alert_distribution_df = pd.DataFrame(
     [
@@ -1375,6 +1417,9 @@ kpis_df = pd.DataFrame(
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
         {"INDICADOR": "Top clientes com pendência", "VALOR": len(pendcorp_df)},
+        {"INDICADOR": "Total na pendência", "VALOR": resumo_total_pendencia},
+        {"INDICADOR": "Entraram na pendência hoje", "VALOR": resumo_entraram_pendencia_hoje},
+        {"INDICADOR": "Saíram da pendência hoje", "VALOR": resumo_sairam_pendencia_hoje},
         {"INDICADOR": "Acareações em aberto", "VALOR": resumo_acareacao_qtd},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
     ]
@@ -1409,13 +1454,19 @@ if menu == "visao":
     ]
 
     cards_linha2 = [
+        ("Total na pendência", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#334155", "#f8fafc", "pend_total"),
+        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entraram na pendência no dia", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
+        ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje"),
         ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
+    ]
+
+    cards_linha3 = [
         ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
         ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
         ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
     ]
 
-    for cards in [cards_linha1, cards_linha2]:
+    for cards in [cards_linha1, cards_linha2, cards_linha3]:
         cols = st.columns(len(cards))
         for idx, item in enumerate(cards):
             label, value, sub, icon, accent, soft, key = item
@@ -1599,6 +1650,7 @@ elif menu == "config":
             {"Aba": "FILA", "Linhas": len(fila)},
             {"Aba": "EDI_RESUMO", "Linhas": len(edi_resumo)},
             {"Aba": "EDI_DETALHE", "Linhas": len(edi_detalhe)},
+            {"Aba": "PENDENCIA_MOVIMENTOS", "Linhas": len(pendencia_movimentos)},
             {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
             {"Filtro aplicado": "AWBs por dia", "Linhas após filtro": len(daily_df)},
             {"Filtro aplicado": "Acareações em aberto", "Linhas após filtro": len(acareacao_df)},
