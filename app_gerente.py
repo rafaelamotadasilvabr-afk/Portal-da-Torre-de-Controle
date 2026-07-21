@@ -853,6 +853,8 @@ def avaria_rows(df):
     # Prioriza a aba própria da planilha Pendências da Torre.
     sheet = avarias_detalhe if "avarias_detalhe" in globals() else pd.DataFrame()
     if sheet is not None and not sheet.empty:
+        data = sheet.copy()
+
         preferred = [
             "ORIGEM_AVARIA",
             "ABA_ORIGEM",
@@ -867,8 +869,24 @@ def avaria_rows(df):
             "NF",
             "PEDIDO",
         ]
-        cols = [c for c in preferred if c in sheet.columns]
-        return sheet[cols].copy() if cols else sheet.copy()
+        orig_cols = [c for c in data.columns if str(c).startswith("ORIG_")]
+
+        # Se AWB/CLIENTE vierem vazios por nome de coluna diferente, exibe também as colunas originais.
+        cols = [c for c in preferred if c in data.columns] + orig_cols
+
+        if cols:
+            out = data[cols].copy()
+        else:
+            out = data.copy()
+
+        # Remove colunas 100% vazias para melhorar leitura, mas preserva ORIG úteis.
+        non_empty_cols = []
+        for col in out.columns:
+            s = out[col]
+            if s.notna().any() and not s.astype(str).str.strip().eq("").all():
+                non_empty_cols.append(col)
+
+        return out[non_empty_cols].copy() if non_empty_cols else out
 
     # Fallback antigo: busca na FILA.
     if df is None or df.empty:
@@ -887,7 +905,32 @@ def avaria_rows(df):
 def acareacao_rows_prefer_sheet(fila_df):
     sheet = acareacoes_detalhe if "acareacoes_detalhe" in globals() else pd.DataFrame()
     if sheet is not None and not sheet.empty:
-        return sheet.copy()
+        data = sheet.copy()
+
+        preferred = [
+            "AWB",
+            "CLIENTE",
+            "ENTREGADOR",
+            "VALOR",
+            "VALOR_NUM",
+            "STATUS",
+            "TIPO",
+            "OBSERVACAO",
+            "DATA",
+            "NF",
+            "PEDIDO",
+        ]
+        orig_cols = [c for c in data.columns if str(c).startswith("ORIG_")]
+        cols = [c for c in preferred if c in data.columns] + orig_cols
+        out = data[cols].copy() if cols else data.copy()
+
+        non_empty_cols = []
+        for col in out.columns:
+            s = out[col]
+            if s.notna().any() and not s.astype(str).str.strip().eq("").all():
+                non_empty_cols.append(col)
+        return out[non_empty_cols].copy() if non_empty_cols else out
+
     return acareacao_rows(fila_df)
 
 
@@ -902,7 +945,19 @@ def acareacao_driver_summary_prefer_sheet(fila_df):
         "MOTORISTA",
         "NOME ENTREGADOR",
         "NOME DO ENTREGADOR",
+        "NOME MOTORISTA",
+        "RESPONSAVEL",
+        "RESPONSÁVEL",
+        "RESPONSAVEL TRATATIVA",
     ])
+
+    if not driver_col:
+        for col in df.columns:
+            col_norm = normalize_text(col)
+            if any(token in col_norm for token in ["ENTREGADOR", "MOTORISTA", "RESPONSAVEL", "DRIVER"]):
+                driver_col = col
+                break
+
     value_col = first_col(df, [
         "ACAREACAO VALOR",
         "VALOR_NUM",
@@ -911,11 +966,22 @@ def acareacao_driver_summary_prefer_sheet(fila_df):
     ])
 
     if not driver_col:
-        return pd.DataFrame()
+        # Não há nome de entregador reconhecido. Devolve diagnóstico em vez de ficar vazio.
+        return pd.DataFrame({
+            "ENTREGADOR": ["Coluna de entregador não localizada"],
+            "QTDE": [len(df)],
+            "VALOR_TOTAL": [0],
+        })
 
     base = df.copy()
     base["_ENTREGADOR"] = base[driver_col].fillna("Não informado").astype(str).str.strip()
-    base["_VALOR"] = numeric_series(base[value_col]) if value_col else 0
+    base["_ENTREGADOR"] = base["_ENTREGADOR"].replace("", "Não informado")
+
+    if value_col:
+        base["_VALOR"] = numeric_series(base[value_col])
+    else:
+        base["_VALOR"] = 0
+
     count_col = "AWB" if "AWB" in base.columns else "_ENTREGADOR"
 
     return (

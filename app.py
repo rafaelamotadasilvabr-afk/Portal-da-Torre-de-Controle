@@ -271,6 +271,9 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
     Regras:
     - Aba contendo AVARIA entra como AVARIAS.
     - Aba contendo SALVAD entra como SALVADOS / AGUARDANDO APROVAÇÃO.
+
+    Esta versão preserva colunas originais para evitar detalhe em branco
+    quando a planilha usa nomes diferentes dos esperados.
     """
     if not file_bytes:
         return pd.DataFrame()
@@ -279,6 +282,72 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
         xls = pd.ExcelFile(io.BytesIO(file_bytes))
     except Exception:
         return pd.DataFrame()
+
+    def _norm_col_name(col):
+        return normalize_text(str(col)).replace(" ", "")
+
+    def _find_col_fuzzy(df, candidates):
+        # Primeiro tenta find_column padrão.
+        found = find_column(df, candidates)
+        if found:
+            return found
+
+        cand_norms = [normalize_text(c) for c in candidates]
+        compact_cands = [_norm_col_name(c) for c in candidates]
+
+        for col in df.columns:
+            col_txt = str(col)
+            col_norm = normalize_text(col_txt)
+            col_compact = _norm_col_name(col_txt)
+
+            for cand in cand_norms:
+                if cand and (cand in col_norm or col_norm in cand):
+                    return col
+
+            for cand in compact_cands:
+                if cand and (cand in col_compact or col_compact in cand):
+                    return col
+
+        return None
+
+    def _detect_header_and_read(sheet_name):
+        # Tenta primeiro leitura normal.
+        try:
+            df0 = pd.read_excel(xls, sheet_name=sheet_name)
+            df0 = clean_columns(df0)
+            if df0 is not None and not df0.empty:
+                cols_norm = " ".join(normalize_text(c) for c in df0.columns)
+                if any(k in cols_norm for k in ["AWB", "CLIENTE", "STATUS", "MOTIVO", "VALOR", "NF", "PEDIDO"]):
+                    return df0
+        except Exception:
+            pass
+
+        # Caso a planilha tenha cabeçalho deslocado, procura nas primeiras linhas.
+        try:
+            raw = pd.read_excel(xls, sheet_name=sheet_name, header=None, nrows=15)
+        except Exception:
+            return pd.DataFrame()
+
+        best_header = 0
+        best_score = -1
+
+        for idx, row in raw.iterrows():
+            vals = [str(v).strip() for v in row.tolist() if pd.notna(v) and str(v).strip()]
+            row_norm = " ".join(normalize_text(v) for v in vals)
+            score = 0
+            for token in ["AWB", "CLIENTE", "STATUS", "MOTIVO", "VALOR", "NF", "PEDIDO", "RESPONSAVEL", "ENTREGADOR", "MOTORISTA"]:
+                if token in row_norm:
+                    score += 1
+            if score > best_score:
+                best_score = score
+                best_header = int(idx)
+
+        try:
+            df = pd.read_excel(xls, sheet_name=sheet_name, header=best_header)
+            df = clean_columns(df)
+            return df
+        except Exception:
+            return pd.DataFrame()
 
     frames = []
 
@@ -294,24 +363,41 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
         if origem is None:
             continue
 
-        try:
-            df = pd.read_excel(xls, sheet_name=sheet)
-            df = clean_columns(df)
-        except Exception:
-            continue
-
+        df = _detect_header_and_read(sheet)
         if df is None or df.empty:
             continue
 
-        awb_col = find_column(df, ["AWB", "awb", "Nº AWB", "NUMERO AWB", "Número AWB"])
-        cliente_col = find_column(df, ["CLIENTE", "CLIENTE FINAL", "CLIENTE_ORIGEM"])
-        status_col = find_column(df, ["STATUS", "STATUS AVARIA", "STATUS_TRATATIVA"])
-        motivo_col = find_column(df, ["MOTIVO", "MOTIVO DA PENDENCIA", "MOTIVO PENDENCIA", "OBS", "OBSERVAÇÃO", "OBSERVACAO"])
-        data_col = find_column(df, ["DATA", "DATA DA TRATATIVA", "DATA ABERTURA", "DATA DE ABERTURA", "DATA EVENTO"])
-        valor_col = find_column(df, ["VALOR", "VALOR DA CARGA", "VALOR_CARGA"])
-        resp_col = find_column(df, ["RESPONSÁVEL", "RESPONSAVEL", "ENTREGADOR", "MOTORISTA"])
-        nf_col = find_column(df, ["NF", "NOTA FISCAL", "Nº NF"])
-        pedido_col = find_column(df, ["PEDIDO", "ORDER", "Nº PEDIDO"])
+        # Remove linhas/colunas totalmente vazias.
+        df = df.dropna(axis=1, how="all").dropna(axis=0, how="all").copy()
+        if df.empty:
+            continue
+
+        awb_col = _find_col_fuzzy(df, [
+            "AWB", "Nº AWB", "NUMERO AWB", "NÚMERO AWB", "AWB NUMBER", "NUM AWB", "COD AWB"
+        ])
+        cliente_col = _find_col_fuzzy(df, [
+            "CLIENTE", "CLIENTE FINAL", "CLIENTE_ORIGEM", "CONTA", "CONTRATANTE", "TOMADOR"
+        ])
+        status_col = _find_col_fuzzy(df, [
+            "STATUS", "STATUS AVARIA", "STATUS_TRATATIVA", "SITUAÇÃO", "SITUACAO", "TRATATIVA"
+        ])
+        motivo_col = _find_col_fuzzy(df, [
+            "MOTIVO", "MOTIVO DA PENDENCIA", "MOTIVO PENDENCIA", "OBS", "OBSERVAÇÃO",
+            "OBSERVACAO", "DESCRIÇÃO", "DESCRICAO", "OCORRÊNCIA", "OCORRENCIA"
+        ])
+        data_col = _find_col_fuzzy(df, [
+            "DATA", "DATA DA TRATATIVA", "DATA ABERTURA", "DATA DE ABERTURA",
+            "DATA EVENTO", "DT", "CRIADO EM", "ABERTURA"
+        ])
+        valor_col = _find_col_fuzzy(df, [
+            "VALOR", "VALOR DA CARGA", "VALOR_CARGA", "VALOR NF", "VALOR TOTAL"
+        ])
+        resp_col = _find_col_fuzzy(df, [
+            "RESPONSÁVEL", "RESPONSAVEL", "ENTREGADOR", "MOTORISTA", "NOME ENTREGADOR",
+            "NOME DO ENTREGADOR", "NOME MOTORISTA", "DRIVER", "RESPONSAVEL TRATATIVA"
+        ])
+        nf_col = _find_col_fuzzy(df, ["NF", "NOTA FISCAL", "Nº NF", "NUMERO NF", "NÚMERO NF"])
+        pedido_col = _find_col_fuzzy(df, ["PEDIDO", "ORDER", "Nº PEDIDO", "NUMERO PEDIDO", "NÚMERO PEDIDO"])
 
         out = pd.DataFrame(index=df.index)
         out["ORIGEM_AVARIA"] = origem
@@ -328,17 +414,16 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
         out["NF"] = df[nf_col] if nf_col else ""
         out["PEDIDO"] = df[pedido_col] if pedido_col else ""
 
-        # Mantém também as colunas originais úteis, para auditoria quando o nome vier diferente.
+        # Preserva todas as colunas originais relevantes para auditoria.
         for col in df.columns:
-            col_norm = normalize_text(col)
-            if col not in out.columns and col_norm not in {
-                "AWB", "CLIENTE", "STATUS", "MOTIVO", "DATA", "VALOR", "RESPONSAVEL", "NF", "PEDIDO"
-            }:
-                safe_col = f"ORIG_{str(col)[:24]}"
-                if safe_col not in out.columns:
-                    out[safe_col] = df[col]
+            safe_col = f"ORIG_{str(col)[:40]}"
+            if safe_col not in out.columns:
+                out[safe_col] = df[col]
 
-        out = out.dropna(how="all")
+        # Remove linhas que ficaram totalmente sem conteúdo útil.
+        content_cols = [c for c in out.columns if c not in ["ORIGEM_AVARIA", "ABA_ORIGEM"]]
+        out = out[out[content_cols].notna().any(axis=1)].copy()
+
         frames.append(out)
 
     if not frames:
@@ -349,11 +434,13 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
 
     result = pd.concat(frames, ignore_index=True, sort=False)
 
-    if "AWB" in result.columns:
-        # Remove linhas completamente vazias de AWB somente quando todas as demais info também estão vazias.
-        result["AWB"] = result["AWB"].fillna("").astype(str).str.strip()
+    # Limpa textos vazios visíveis.
+    for col in result.columns:
+        if result[col].dtype == "object":
+            result[col] = result[col].apply(lambda x: "" if pd.isna(x) else str(x).strip())
 
     return result
+
 
 
 def read_torre(file_bytes):
@@ -2201,33 +2288,71 @@ try:
             acareacoes_detalhe_gerente = pd.DataFrame()
             try:
                 if acar_andamento is not None and not acar_andamento.empty:
-                    acareacoes_detalhe_gerente = acar_andamento.copy()
-                    _cols_pref_acar = [
-                        "AWB",
+                    _acar_src = acar_andamento.copy()
+            
+                    def _find_acar_col(df, candidates):
+                        found = _panel_find_col(df, candidates)
+                        if found:
+                            return found
+                        cand_norms = [normalize_text(c) for c in candidates]
+                        for col in df.columns:
+                            col_norm = normalize_text(col)
+                            for cand in cand_norms:
+                                if cand and (cand in col_norm or col_norm in cand):
+                                    return col
+                        return None
+            
+                    _awb_col = _find_acar_col(_acar_src, ["AWB", "Nº AWB", "NUMERO AWB"])
+                    _cliente_col = _find_acar_col(_acar_src, ["CLIENTE", "CLIENTE FINAL", "CONTA"])
+                    _ent_col = _find_acar_col(_acar_src, [
+                        "ACAREACAO ENTREGADOR",
                         "ENTREGADOR",
                         "MOTORISTA",
                         "NOME ENTREGADOR",
+                        "NOME DO ENTREGADOR",
+                        "NOME MOTORISTA",
+                        "RESPONSAVEL",
+                        "RESPONSÁVEL",
+                        "RESPONSAVEL TRATATIVA",
+                    ])
+                    _valor_col = _find_acar_col(_acar_src, [
+                        "ACAREACAO VALOR",
+                        "VALOR_NUM",
                         "VALOR DA CARGA",
                         "VALOR",
-                        "STATUS",
-                        "TIPO",
-                        "OBSERVAÇÃO",
-                        "OBSERVACAO",
-                        "DATA",
-                        "DATA ABERTURA",
-                        "CLIENTE",
-                        "NF",
-                        "PEDIDO",
-                    ]
-                    _cols_acar = [c for c in _cols_pref_acar if c in acareacoes_detalhe_gerente.columns]
-                    if _cols_acar:
-                        acareacoes_detalhe_gerente = acareacoes_detalhe_gerente[_cols_acar].copy()
-                    if "VALOR DA CARGA" in acareacoes_detalhe_gerente.columns:
-                        acareacoes_detalhe_gerente["VALOR_NUM"] = _panel_money_to_num(acareacoes_detalhe_gerente["VALOR DA CARGA"])
-                    elif "VALOR" in acareacoes_detalhe_gerente.columns:
-                        acareacoes_detalhe_gerente["VALOR_NUM"] = _panel_money_to_num(acareacoes_detalhe_gerente["VALOR"])
+                        "VALOR NF",
+                    ])
+                    _status_col = _find_acar_col(_acar_src, ["STATUS", "STATUS ACAREACAO", "STATUS_TRATATIVA"])
+                    _tipo_col = _find_acar_col(_acar_src, ["TIPO", "TIPO ACAREACAO", "TIPO RESSALVA"])
+                    _obs_col = _find_acar_col(_acar_src, ["OBSERVAÇÃO", "OBSERVACAO", "OBS", "MOTIVO"])
+                    _data_col = _find_acar_col(_acar_src, ["DATA", "DATA ABERTURA", "DATA DA TRATATIVA"])
+                    _nf_col = _find_acar_col(_acar_src, ["NF", "NOTA FISCAL", "Nº NF"])
+                    _pedido_col = _find_acar_col(_acar_src, ["PEDIDO", "ORDER", "Nº PEDIDO"])
+            
+                    out_acar = pd.DataFrame(index=_acar_src.index)
+                    out_acar["AWB"] = _acar_src[_awb_col].apply(normalize_awb) if _awb_col else ""
+                    out_acar["CLIENTE"] = _acar_src[_cliente_col] if _cliente_col else ""
+                    out_acar["ENTREGADOR"] = _acar_src[_ent_col] if _ent_col else ""
+                    out_acar["VALOR"] = _acar_src[_valor_col] if _valor_col else ""
+                    out_acar["VALOR_NUM"] = _panel_money_to_num(_acar_src[_valor_col]) if _valor_col else 0
+                    out_acar["STATUS"] = _acar_src[_status_col] if _status_col else ""
+                    out_acar["TIPO"] = _acar_src[_tipo_col] if _tipo_col else ""
+                    out_acar["OBSERVACAO"] = _acar_src[_obs_col] if _obs_col else ""
+                    out_acar["DATA"] = parse_date(_acar_src[_data_col]) if _data_col else pd.NaT
+                    out_acar["NF"] = _acar_src[_nf_col] if _nf_col else ""
+                    out_acar["PEDIDO"] = _acar_src[_pedido_col] if _pedido_col else ""
+            
+                    # Preserva originais para auditoria.
+                    for col in _acar_src.columns:
+                        safe_col = f"ORIG_{str(col)[:40]}"
+                        if safe_col not in out_acar.columns:
+                            out_acar[safe_col] = _acar_src[col]
+            
+                    acareacoes_detalhe_gerente = out_acar.copy()
+            
             except Exception:
                 acareacoes_detalhe_gerente = pd.DataFrame()
+
 
             # Detalhe gerencial de avarias e salvados aguardando aprovação.
             # Fonte: planilha Pendências da Torre, abas AVARIAS e SALVADOS.
