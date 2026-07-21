@@ -360,6 +360,21 @@ def brl(value):
     return f"R$ {n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def service_level_value(resumo):
+    total = number(summary_value(resumo, "AWBs monitoradas", 0))
+    atraso = number(summary_value(resumo, "Entrega em atraso", 0))
+
+    if total <= 0:
+        return 0.0
+
+    nivel = ((total - atraso) / total) * 100
+    return max(0.0, min(100.0, nivel))
+
+
+def service_level_label(resumo):
+    return f"{service_level_value(resumo):.1f}%".replace(".", ",")
+
+
 def first_col(df, names):
     if df is None or df.empty:
         return None
@@ -476,6 +491,11 @@ def detail_columns(df):
         "MOTIVO PENDÊNCIA",
         "STATUS TORRE",
         "ABA TORRE",
+        "ACAREACAO ENTREGADOR",
+        "ACAREACAO VALOR",
+        "ACAREACAO STATUS",
+        "ACAREACAO TIPO",
+        "ACAREACAO OBSERVACAO",
     ]
     cols = [c for c in preferred if c in df.columns]
     return df[cols].copy() if cols else df.copy()
@@ -515,14 +535,131 @@ def terceira_tentativa_rows(df):
     return filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
 
 
-def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df):
+def awb_col_name(df):
+    return first_col(df, ["AWB"])
+
+
+def date_basis_col(df):
+    if df is None or df.empty:
+        return None
+    for col_name in ["DATA ANÁLISE", "SLA", "ÚLTIMA ROTA", "DATA EVENTO TORRE", "ÚLTIMA ALTERAÇÃO"]:
+        col = first_col(df, [col_name])
+        if col:
+            dates = parse_date_col(df[col])
+            if dates.notna().any():
+                return col
+    return None
+
+
+def daily_awb_counts(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    dcol = date_basis_col(df)
+    if not dcol:
+        return pd.DataFrame()
+
+    dates = parse_date_col(df[dcol])
+    base = df[dates.notna()].copy()
+    base["_DATA_BASE"] = dates[dates.notna()].dt.date.astype(str)
+
+    acol = awb_col_name(base)
+    if acol:
+        out = base.groupby("_DATA_BASE")[acol].nunique().reset_index(name="AWBS")
+    else:
+        out = base.groupby("_DATA_BASE").size().reset_index(name="AWBS")
+
+    return out.rename(columns={"_DATA_BASE": "DATA"}).sort_values("DATA")
+
+
+def acareacao_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    blob = as_text_blob(df)
+    mask = blob.str.contains("ACAREACAO|ACAREAÇÃO|RESSALVA", regex=True, na=False)
+
+    status_col = first_col(df, ["ACAREACAO STATUS", "STATUS TORRE", "STATUS"])
+    if status_col:
+        status = df[status_col].astype(str).map(normalize_text)
+        # Se existir status, prioriza aberto/em andamento, mas não esconde se a base só tiver texto geral.
+        aberto = status.str.contains("EM ANDAMENTO|ABERTO|PENDENTE", regex=True, na=False)
+        if aberto.any():
+            mask = mask & aberto
+
+    out = df[mask].copy()
+
+    preferred = [
+        "AWB",
+        "CLIENTE",
+        "ACAREACAO ENTREGADOR",
+        "MOTORISTA / ENTREGADOR",
+        "ACAREACAO VALOR",
+        "ACAREACAO STATUS",
+        "ACAREACAO TIPO",
+        "ACAREACAO OBSERVACAO",
+        "PROBLEMA",
+        "PRÓXIMA AÇÃO",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    return out[cols].copy() if cols else out
+
+
+def acareacao_driver_summary(df):
+    rows = acareacao_rows(df)
+    if rows.empty:
+        return pd.DataFrame()
+
+    ent_col = first_col(rows, ["ACAREACAO ENTREGADOR", "MOTORISTA / ENTREGADOR"])
+    val_col = first_col(rows, ["ACAREACAO VALOR"])
+    awb_col = first_col(rows, ["AWB"])
+
+    if not ent_col:
+        rows["ENTREGADOR RESPONSÁVEL"] = "SEM ENTREGADOR INFORMADO"
+        ent_col = "ENTREGADOR RESPONSÁVEL"
+
+    rows[ent_col] = rows[ent_col].fillna("").astype(str).str.strip()
+    rows[ent_col] = rows[ent_col].replace({"": "SEM ENTREGADOR INFORMADO", "nan": "SEM ENTREGADOR INFORMADO"})
+
+    if val_col:
+        rows["_VALOR_NUM"] = numeric_series(rows[val_col])
+    else:
+        rows["_VALOR_NUM"] = 0
+
+    if awb_col:
+        grouped = rows.groupby(ent_col, dropna=False).agg(
+            AWBS=(awb_col, "nunique"),
+            VALOR_TOTAL=("_VALOR_NUM", "sum"),
+        ).reset_index()
+    else:
+        grouped = rows.groupby(ent_col, dropna=False).agg(
+            AWBS=(ent_col, "size"),
+            VALOR_TOTAL=("_VALOR_NUM", "sum"),
+        ).reset_index()
+
+    grouped = grouped.rename(columns={ent_col: "ENTREGADOR RESPONSÁVEL"})
+    grouped["VALOR_TOTAL"] = grouped["VALOR_TOTAL"].map(lambda x: f"R$ {float(x):,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    return grouped.sort_values("AWBS", ascending=False)
+
+
+def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df):
     title = ""
     subtitle = ""
     df = pd.DataFrame()
 
-    if card_key == "awbs":
-        title = "Detalhe — AWBs monitoradas"
-        subtitle = "Linhas detalhadas disponíveis na base gerencial sincronizada."
+    if card_key == "nivel_servico":
+        title = "Detalhe — Nível de serviço"
+        subtitle = "Indicador gerencial estimado: AWBs monitoradas menos entregas em atraso, dividido por AWBs monitoradas. Não representa baixa final de entrega."
+        df = kpis_df.copy() if "kpis_df" in globals() else pd.DataFrame()
+
+    elif card_key == "awbs_dia":
+        title = "Detalhe — Quantidade de AWB por dia"
+        subtitle = "Contagem de AWBs por dia dentro do período selecionado no filtro."
+        df = daily_df.copy()
+
+    elif card_key == "awbs":
+        title = "Detalhe — AWBs do período"
+        subtitle = "Linhas detalhadas disponíveis na base gerencial filtrada."
         df = fila_filtrada.copy()
 
     elif card_key == "atraso":
@@ -550,6 +687,16 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df):
         subtitle = "Ranking de motoristas/entregadores por insucessos e retornos."
         df = motoristas_df.copy()
 
+    elif card_key == "top_pendencia":
+        title = "Detalhe — Top 5 clientes com pendência"
+        subtitle = "Ranking por cliente e pendência. Prioriza Pendência Corp quando houver marcação; caso contrário usa a fila de pendências."
+        df = top5_pendencia_corp(fila_filtrada)
+
+    elif card_key == "acareacao":
+        title = "Detalhe — Acareações em aberto"
+        subtitle = "Quantidade, valor e entregador responsável pelas acareações/ressalvas em aberto."
+        df = acareacao_df.copy()
+
     else:
         return
 
@@ -572,7 +719,23 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df):
             st.session_state["detail_card"] = ""
             st.rerun()
 
+    if card_key == "awbs_dia" and not detail_df.empty:
+        chart = detail_df.copy()
+        if "DATA" in chart.columns and "AWBS" in chart.columns:
+            st.bar_chart(chart.set_index("DATA")["AWBS"])
+        render_table(detail_df, height=330)
+        return
+
+    if card_key == "acareacao":
+        st.markdown("#### Entregadores responsáveis")
+        resumo_ent = acareacao_driver_summary(fila_filtrada)
+        render_table(resumo_ent, height=260)
+        st.markdown("#### Detalhe por AWB")
+        render_table(detail_df.head(500), height=360)
+        return
+
     render_table(detail_df.head(500), height=430)
+
 
 
 def driver_offenders(df):
@@ -659,26 +822,45 @@ def open_returns(df):
 
 
 def top5_pendencia_corp(df):
+    """
+    Top 5 clientes com pendência.
+
+    Regra:
+    1. Tenta priorizar Pendência Corp quando houver marcação na base.
+    2. Se não houver marcação explícita, usa a fila filtrada inteira.
+    3. Agrupa por Cliente + Pendência/Problema.
+    4. Nunca deixa vazio se existir Cliente ou Problema na fila.
+    """
     if df is None or df.empty:
         return pd.DataFrame()
 
-    blob = as_text_blob(df)
+    base = df.copy()
+    blob = as_text_blob(base)
+
+    # Prioriza Pendência Corp se existir na base.
     corp_mask = blob.str.contains("PENDENCIA CORP|PENDENCIA_CORP|PENDÊNCIA CORP", regex=True, na=False)
+    if corp_mask.any():
+        base = base[corp_mask].copy()
 
-    base = df[corp_mask].copy()
-    if base.empty:
-        base = filter_terms(df, ["PENDENCIA", "PENDÊNCIA"]).copy()
+    cliente_col = first_col(base, ["CLIENTE", "CLIENTE PADRONIZADO", "CLIENTE_PADRONIZADO"])
+    pend_col = first_col(base, ["MOTIVO PENDÊNCIA", "PROBLEMA", "SITUAÇÃO", "STATUS TORRE", "STATUS ÚLTIMA ROTA"])
 
-    if base.empty:
+    if not cliente_col and not pend_col:
         return pd.DataFrame()
 
-    cliente_col = first_col(base, ["CLIENTE"])
-    pend_col = first_col(base, ["MOTIVO PENDÊNCIA", "PROBLEMA", "SITUAÇÃO", "STATUS TORRE"])
-
     if not cliente_col:
-        cliente_col = base.columns[0]
+        base["CLIENTE"] = "CLIENTE NÃO INFORMADO"
+        cliente_col = "CLIENTE"
+
     if not pend_col:
-        pend_col = base.columns[-1]
+        base["PENDÊNCIA"] = "PENDÊNCIA NÃO INFORMADA"
+        pend_col = "PENDÊNCIA"
+
+    base[cliente_col] = base[cliente_col].fillna("").astype(str).str.strip()
+    base[pend_col] = base[pend_col].fillna("").astype(str).str.strip()
+
+    base[cliente_col] = base[cliente_col].replace({"": "CLIENTE NÃO INFORMADO", "nan": "CLIENTE NÃO INFORMADO"})
+    base[pend_col] = base[pend_col].replace({"": "PENDÊNCIA NÃO INFORMADA", "nan": "PENDÊNCIA NÃO INFORMADA"})
 
     awb_col = first_col(base, ["AWB"])
 
@@ -696,6 +878,10 @@ def top5_pendencia_corp(df):
         )
 
     grouped = grouped.rename(columns={cliente_col: "CLIENTE", pend_col: "PENDÊNCIA"})
+    grouped["% DO TOTAL"] = (
+        grouped["AWBS"] / grouped["AWBS"].sum() * 100
+    ).round(1).astype(str).str.replace(".", ",", regex=False) + "%"
+
     return grouped.sort_values("AWBS", ascending=False).head(5)
 
 
@@ -707,6 +893,11 @@ def simplified_director_report(resumo, kpis_df, motoristas_df, retornos_df, pend
         motoristas_df.to_excel(writer, sheet_name="MOTORISTAS", index=False)
         retornos_df.to_excel(writer, sheet_name="RETORNOS_ABERTOS", index=False)
         pendcorp_df.to_excel(writer, sheet_name="TOP5_PEND_CORP", index=False)
+        # Quando disponíveis no escopo, adiciona abas gerenciais novas.
+        if "acareacao_df" in globals():
+            acareacao_df.to_excel(writer, sheet_name="ACAREACOES", index=False)
+        if "daily_df" in globals():
+            daily_df.to_excel(writer, sheet_name="AWBS_POR_DIA", index=False)
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -749,7 +940,8 @@ with st.sidebar:
         ("visao", "⌂  Visão Geral"),
         ("motoristas", "☑  Motoristas ofensores"),
         ("retornos", "↩  Retornos em aberto"),
-        ("pendcorp", "▣  Pendência Corp"),
+        ("acareacao", "⚖  Acareações"),
+        ("pendcorp", "▣  Top clientes pendência"),
         ("relatorio", "▤  Download diretoria"),
         ("config", "⚙  Configurações"),
     ]
@@ -853,17 +1045,27 @@ with top_info_col:
 motoristas_df = driver_offenders(fila_filtrada)
 retornos_df = open_returns(fila_filtrada)
 pendcorp_df = top5_pendencia_corp(fila_filtrada)
+acareacao_df = acareacao_rows(fila_filtrada)
+daily_df = daily_awb_counts(fila_filtrada)
+
+awb_periodo_qtd = 0
+if not fila_filtrada.empty:
+    _awb_col_periodo = first_col(fila_filtrada, ["AWB"])
+    awb_periodo_qtd = int(fila_filtrada[_awb_col_periodo].nunique()) if _awb_col_periodo else int(len(fila_filtrada))
 
 kpis_df = pd.DataFrame(
     [
+        {"INDICADOR": "Nível de serviço estimado", "VALOR": service_level_label(resumo)},
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
         {"INDICADOR": "Entrega em atraso", "VALOR": number(summary_value(resumo, "Entrega em atraso", 0))},
         {"INDICADOR": "SLA do dia sem rota", "VALOR": number(summary_value(resumo, "SLA do dia sem rota", 0))},
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": number(summary_value(resumo, "3ª tentativa de entrega", 0))},
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
-        {"INDICADOR": "Top Pendência Corp analisado", "VALOR": len(pendcorp_df)},
-        {"INDICADOR": "Acareações em andamento", "VALOR": number(summary_value(resumo, "Acareações em andamento", 0))},
+        {"INDICADOR": "AWBs no período filtrado", "VALOR": awb_periodo_qtd},
+        {"INDICADOR": "Dias com AWB no período", "VALOR": len(daily_df)},
+        {"INDICADOR": "Top clientes com pendência", "VALOR": len(pendcorp_df)},
+        {"INDICADOR": "Acareações em aberto", "VALOR": number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
     ]
 )
@@ -877,50 +1079,50 @@ menu = st.session_state["menu_gerente"]
 if menu == "visao":
     st.markdown('<div class="section-title">Resumo gerencial</div>', unsafe_allow_html=True)
 
-    cards = [
-        ("AWBs monitoradas", fmt_int(summary_value(resumo, "AWBs monitoradas", 0)), "Carteira única acompanhada", "▣", "#2f6fed", "#edf4ff", "awbs"),
-        ("Entrega em atraso", fmt_int(summary_value(resumo, "Entrega em atraso", 0)), "Cargas com SLA vencido", "◷", "#d92d20", "#fff0ef", "atraso"),
-        ("SLA do dia sem rota", fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)), "SLA hoje sem rota no Eu Entrego", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("3ª tentativa de entrega", fmt_int(summary_value(resumo, "3ª tentativa de entrega", 0)), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
-        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
-        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "In Sucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
+    st.caption(
+        "Clique em Abrir para ver somente o detalhe do indicador selecionado. O filtro de data atualiza os cards calculados pela fila."
+    )
+
+    acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
+    acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
+
+    cards_linha1 = [
+        ("Nível de serviço", service_level_label(resumo), "Estimado: 1 - entregas em atraso / AWBs monitoradas", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
+        ("AWBs no período", fmt_int(awb_periodo_qtd), "Qtd. de AWBs na fila filtrada", "▣", "#2563eb", "#eff6ff", "awbs"),
+        ("AWBs por dia", fmt_int(daily_df["AWBS"].sum() if not daily_df.empty else 0), "Abrir para ver a distribuição diária", "📅", "#1d4ed8", "#eff6ff", "awbs_dia"),
+        ("Entrega em atraso", fmt_int(len(overdue_delivery_rows(fila_filtrada))), "Cargas com SLA vencido no período", "◷", "#d92d20", "#fff0ef", "atraso"),
     ]
 
-    cols = st.columns(6)
-    for idx, item in enumerate(cards):
-        label, value, sub, icon, accent, soft, key = item
-        with cols[idx]:
-            kpi_card(label, value, sub, icon, accent, soft)
-            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                if st.session_state.get("detail_card") == key:
-                    st.session_state["detail_card"] = ""
-                else:
-                    st.session_state["detail_card"] = key
-                st.rerun()
+    cards_linha2 = [
+        ("SLA do dia sem rota", fmt_int(len(sla_sem_rota_rows(fila_filtrada))), "SLA sem rota no período", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("3ª tentativa de entrega", fmt_int(len(terceira_tentativa_rows(fila_filtrada))), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
+        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
+        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
+    ]
+
+    cards_linha3 = [
+        ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
+        ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
+    ]
+
+    for cards in [cards_linha1, cards_linha2, cards_linha3]:
+        cols = st.columns(len(cards))
+        for idx, item in enumerate(cards):
+            label, value, sub, icon, accent, soft, key = item
+            with cols[idx]:
+                kpi_card(label, value, sub, icon, accent, soft)
+                button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                    if st.session_state.get("detail_card") == key:
+                        st.session_state["detail_card"] = ""
+                    else:
+                        st.session_state["detail_card"] = key
+                    st.rerun()
 
     detail = st.session_state.get("detail_card", "")
 
     if detail:
-        render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df)
-
-    st.divider()
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.markdown("### Controle de motoristas ofensores")
-        st.caption("Baseado em ocorrências de insucesso e retornos.")
-        render_table(motoristas_df, height=360)
-
-    with c2:
-        st.markdown("### Retornos em aberto — 1 dia ou +")
-        st.caption("Cargas com retorno/insucesso/devolvido ainda não confirmado e com 1 dia ou mais.")
-        render_table(retornos_df.head(15), height=360)
-
-    st.divider()
-    st.markdown("### Top 5 ofensores — Pendência Corp")
-    st.caption("Agrupamento por cliente e pendência.")
-    render_table(pendcorp_df, height=260)
+        render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
 
 
 elif menu == "motoristas":
@@ -951,13 +1153,48 @@ elif menu == "retornos":
     )
 
 
+elif menu == "acareacao":
+    st.markdown("### Acareações em aberto")
+    st.caption("Quantidade, valor e entregador responsável.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        kpi_card(
+            "ACAREAÇÕES EM ABERTO",
+            fmt_int(number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))),
+            "Quantidade de tratativas em aberto",
+            "⚖",
+            "#9333ea",
+            "#faf5ff",
+        )
+
+    with c2:
+        kpi_card(
+            "VALOR EM ACAREAÇÃO",
+            brl(summary_value(resumo, "Valor em acareação", 0)),
+            "Valor financeiro em aberto",
+            "$",
+            "#17633a",
+            "#edf9f1",
+            "#14532d",
+        )
+
+    st.divider()
+    st.markdown("#### Entregadores responsáveis")
+    render_table(acareacao_driver_summary(fila_filtrada), height=300)
+
+    st.divider()
+    st.markdown("#### Detalhe por AWB")
+    render_table(acareacao_df, height=520)
+
+
 elif menu == "pendcorp":
-    st.markdown("### Top 5 ofensores — Pendência Corp")
-    st.caption("Agrupamento por cliente e tipo/motivo da pendência.")
+    st.markdown("### Top 5 clientes com pendência")
+    st.caption("Agrupamento por cliente e pendência. Prioriza Pendência Corp quando existir.")
     render_table(pendcorp_df, height=360)
 
     st.divider()
-    st.markdown("### Base filtrada de Pendência Corp")
+    st.markdown("### Base de pendências analisada")
     pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA CORP", "PENDÊNCIA CORP", "PENDENCIA_CORP"])
     if pendcorp_base.empty:
         pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA", "PENDÊNCIA"])
@@ -1003,6 +1240,8 @@ elif menu == "config":
             {"Aba": "RESUMO", "Linhas": len(resumo)},
             {"Aba": "FILA", "Linhas": len(fila)},
             {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
+            {"Filtro aplicado": "AWBs por dia", "Linhas após filtro": len(daily_df)},
+            {"Filtro aplicado": "Acareações em aberto", "Linhas após filtro": len(acareacao_df)},
         ]
     )
     render_table(status_df, height=220)

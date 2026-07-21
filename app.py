@@ -674,6 +674,53 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
         return " | ".join(out)
 
     result["CONTROLE_ESPECIAL"] = result.apply(tags, axis=1)
+
+    # Detalhes da Acareação/Ressalva para o dashboard gerencial.
+    # Mantém campos vazios quando a planilha não trouxer a coluna.
+    result["ACAREACAO_ENTREGADOR"] = ""
+    result["ACAREACAO_VALOR"] = ""
+    result["ACAREACAO_STATUS"] = ""
+    result["ACAREACAO_TIPO"] = ""
+    result["ACAREACAO_OBSERVACAO"] = ""
+
+    if acareacao_df is not None and not acareacao_df.empty:
+        acar_df = clean_columns(acareacao_df.copy())
+        awb_col = find_column(acar_df, ["AWB", "awb"])
+        if awb_col:
+            acar_df["_AWB_CONTROLE"] = acar_df[awb_col].apply(normalize_awb)
+            acar_df = acar_df[acar_df["_AWB_CONTROLE"].notna()].copy()
+
+            ent_col = find_column(acar_df, ["ENTREGADOR", "MOTORISTA", "NOME ENTREGADOR"])
+            val_col = find_column(acar_df, ["VALOR DA CARGA", "VALOR", "VALOR CARGA"])
+            status_col = find_column(acar_df, ["STATUS", "SITUAÇÃO", "SITUACAO"])
+            tipo_col = find_column(acar_df, ["TIPO DE ACAREAÇÃO", "TIPO DE ACAREACAO", "TIPO"])
+            obs_col = find_column(acar_df, ["OBSERVAÇÃO", "OBSERVACAO", "OBS"])
+
+            # Mantém a linha mais recente por AWB quando houver data de solicitação/prazo.
+            dt_col = find_column(acar_df, ["DATA DA SOLICITAÇÃO", "DATA DA SOLICITACAO", "PRAZO DE DEVOLUTIVA"])
+            if dt_col:
+                acar_df["_DT_ACAR"] = parse_date(acar_df[dt_col])
+                acar_df = acar_df.sort_values(["_AWB_CONTROLE", "_DT_ACAR"]).drop_duplicates("_AWB_CONTROLE", keep="last")
+            else:
+                acar_df = acar_df.drop_duplicates("_AWB_CONTROLE", keep="last")
+
+            def map_by(col):
+                if not col:
+                    return {}
+                return dict(zip(acar_df["_AWB_CONTROLE"], acar_df[col].fillna("").astype(str)))
+
+            ent_map = map_by(ent_col)
+            val_map = map_by(val_col)
+            status_map = map_by(status_col)
+            tipo_map = map_by(tipo_col)
+            obs_map = map_by(obs_col)
+
+            result["ACAREACAO_ENTREGADOR"] = result["_AWB_CONTROLE"].map(ent_map).fillna("")
+            result["ACAREACAO_VALOR"] = result["_AWB_CONTROLE"].map(val_map).fillna("")
+            result["ACAREACAO_STATUS"] = result["_AWB_CONTROLE"].map(status_map).fillna("")
+            result["ACAREACAO_TIPO"] = result["_AWB_CONTROLE"].map(tipo_map).fillna("")
+            result["ACAREACAO_OBSERVACAO"] = result["_AWB_CONTROLE"].map(obs_map).fillna("")
+
     return result
 
 
@@ -849,6 +896,13 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["ORIGEM TORRE"] = df["ORIGEM_TORRE"] if "ORIGEM_TORRE" in df.columns else ""
     queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
     queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
+
+    # Dados de acareação para o dashboard gerencial.
+    queue["ACAREACAO ENTREGADOR"] = df["ACAREACAO_ENTREGADOR"] if "ACAREACAO_ENTREGADOR" in df.columns else ""
+    queue["ACAREACAO VALOR"] = df["ACAREACAO_VALOR"] if "ACAREACAO_VALOR" in df.columns else ""
+    queue["ACAREACAO STATUS"] = df["ACAREACAO_STATUS"] if "ACAREACAO_STATUS" in df.columns else ""
+    queue["ACAREACAO TIPO"] = df["ACAREACAO_TIPO"] if "ACAREACAO_TIPO" in df.columns else ""
+    queue["ACAREACAO OBSERVACAO"] = df["ACAREACAO_OBSERVACAO"] if "ACAREACAO_OBSERVACAO" in df.columns else ""
 
     if "ULTIMA_ROTA" in df.columns:
         _ult_rota_dt = pd.to_datetime(df["ULTIMA_ROTA"], errors="coerce")
