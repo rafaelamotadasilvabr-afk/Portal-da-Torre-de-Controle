@@ -1,9 +1,13 @@
+import io
 import re
 import unicodedata
+from datetime import date, timedelta
+
 import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+
 
 st.set_page_config(
     page_title="Dashboard Executivo da Torre",
@@ -13,40 +17,41 @@ st.set_page_config(
 
 DEFAULT_MANAGER_SOURCE_URL = ""
 
+
 # =========================================================
-# CSS SEGURO
-# Não usamos DIVs abertas envolvendo charts/dataframes.
-# Isso evita erro visual do Streamlit no navegador.
+# CSS — LAYOUT CLARO
 # =========================================================
 st.markdown(
     """
     <style>
     .stApp {
-        background: #f5f7fb;
+        background: #f6f8fb;
+        color: #0f172a;
     }
 
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #06162f 0%, #082347 60%, #061a36 100%);
+        background: #ffffff;
+        border-right: 1px solid #e2e8f0;
     }
 
     [data-testid="stSidebar"] * {
-        color: #e5edf8;
+        color: #0f172a;
     }
 
     .block-container {
-        padding-top: 0.5rem;
-        padding-bottom: 1.4rem;
+        padding-top: 0.65rem;
+        padding-bottom: 1.5rem;
         max-width: 1650px;
     }
 
     .brand-box {
         padding: 8px 6px 18px 6px;
-        border-bottom: 1px solid rgba(255,255,255,.12);
+        border-bottom: 1px solid #e2e8f0;
         margin-bottom: 14px;
     }
 
     .brand-main {
-        color: #ffffff;
+        color: #0a2146;
         font-size: 3rem;
         font-weight: 950;
         font-style: italic;
@@ -55,20 +60,11 @@ st.markdown(
     }
 
     .brand-sub {
-        color: #ffffff;
+        color: #0a2146;
         font-size: .78rem;
         font-weight: 800;
         letter-spacing: .42em;
         margin-top: 8px;
-    }
-
-    .side-note {
-        margin-top: 20px;
-        border-top: 1px solid rgba(255,255,255,.12);
-        padding-top: 14px;
-        color: #b9c8dc;
-        font-size: .76rem;
-        line-height: 1.5;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button {
@@ -76,27 +72,38 @@ st.markdown(
         justify-content: flex-start;
         text-align: left;
         border-radius: 12px;
-        border: 1px solid rgba(255,255,255,.08);
-        background: transparent;
-        color: #e5edf8;
+        border: 1px solid #e2e8f0;
+        background: #ffffff;
+        color: #0f172a;
         font-weight: 700;
         padding: 0.65rem 0.8rem;
         margin-bottom: 0.25rem;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: linear-gradient(90deg, #0b4ea7, #123b76);
-        color: #ffffff;
-        box-shadow: 0 8px 18px rgba(0,0,0,.14);
+        background: #e8f1ff;
+        color: #0b4ea7;
+        border-color: #b8d4ff;
+        box-shadow: 0 8px 18px rgba(37, 99, 235, .08);
+    }
+
+    .side-note {
+        margin-top: 20px;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 14px;
+        color: #64748b;
+        font-size: .76rem;
+        line-height: 1.5;
     }
 
     .hero {
-        background: linear-gradient(120deg, #071a37 0%, #082347 58%, #103b76 100%);
-        color: white;
-        border-radius: 0 0 22px 22px;
-        padding: 22px 28px;
-        margin: -0.5rem -0.2rem 14px -0.2rem;
-        box-shadow: 0 12px 28px rgba(8,35,71,.16);
+        background: linear-gradient(120deg, #ffffff 0%, #f2f7ff 62%, #e8f1ff 100%);
+        color: #0f172a;
+        border: 1px solid #dbe7fb;
+        border-radius: 20px;
+        padding: 22px 26px;
+        margin-bottom: 14px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, .045);
     }
 
     .hero h1 {
@@ -107,7 +114,7 @@ st.markdown(
 
     .hero p {
         margin: 0;
-        opacity: 0.92;
+        color: #475569;
         font-size: 0.94rem;
     }
 
@@ -116,17 +123,22 @@ st.markdown(
         padding: 6px 10px;
         margin: 0 7px 10px 0;
         border-radius: 8px;
-        background: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.22);
+        background: #ffffff;
+        border: 1px solid #cbdffb;
+        color: #0b4ea7;
         font-size: 0.74rem;
         font-weight: 750;
     }
 
-    .section-title {
-        font-size: 0.98rem;
-        font-weight: 850;
-        color: #10213d;
-        margin: 8px 0 10px 0;
+    .info {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 10px 13px;
+        color: #52637c;
+        font-size: 0.80rem;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 12px rgba(15,23,42,.025);
     }
 
     .kpi {
@@ -176,24 +188,17 @@ st.markdown(
         line-height: 1.35;
     }
 
-    .info {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 10px 13px;
-        color: #52637c;
-        font-size: 0.80rem;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(15,23,42,.025);
+    .section-title {
+        font-size: 1.05rem;
+        font-weight: 850;
+        color: #10213d;
+        margin: 10px 0 4px 0;
     }
 
-    .soft-box {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 16px 18px;
-        box-shadow: 0 8px 22px rgba(15,23,42,.045);
-        margin-bottom: 12px;
+    .small-muted {
+        color: #64748b;
+        font-size: .80rem;
+        margin-bottom: 10px;
     }
 
     div[data-testid="stDataFrame"] {
@@ -209,10 +214,16 @@ st.markdown(
         color: #10213d;
         font-weight: 750;
     }
+
+    div[data-testid="stButton"] button {
+        border-radius: 10px;
+        font-weight: 750;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
 
 # =========================================================
 # GOOGLE SHEETS
@@ -298,7 +309,22 @@ def brl(value):
     return f"R$ {n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def normalize_numeric_series(series):
+def first_col(df, names):
+    if df is None or df.empty:
+        return None
+    norm_map = {normalize_text(c): c for c in df.columns}
+    for name in names:
+        key = normalize_text(name)
+        if key in norm_map:
+            return norm_map[key]
+    return None
+
+
+def parse_date_col(series):
+    return pd.to_datetime(series, errors="coerce", dayfirst=True)
+
+
+def numeric_series(series):
     return pd.to_numeric(
         series.astype(str)
         .str.replace(".", "", regex=False)
@@ -307,35 +333,55 @@ def normalize_numeric_series(series):
     ).fillna(0)
 
 
-def chart_dataframe(df):
-    if df is None or df.empty or len(df.columns) < 2:
-        return pd.DataFrame()
-
-    label_col = df.columns[0]
-    value_col = df.columns[-1]
-
-    out = df[[label_col, value_col]].copy()
-    out[value_col] = normalize_numeric_series(out[value_col])
-    out = out[out[value_col] > 0]
-
-    if out.empty:
-        return pd.DataFrame()
-
-    return out.sort_values(value_col, ascending=False).head(10).set_index(label_col)
+def as_text_blob(df):
+    if df is None or df.empty:
+        return pd.Series(dtype=str)
+    return df.astype(str).agg(" ".join, axis=1).map(normalize_text)
 
 
-def filtered_rows(df, terms):
+def filter_terms(df, terms):
     if df is None or df.empty:
         return pd.DataFrame()
-
-    text = df.astype(str).agg(" ".join, axis=1).apply(normalize_text)
-    mask = False
+    blob = as_text_blob(df)
+    mask = pd.Series(False, index=df.index)
     for term in terms:
-        mask = mask | text.str.contains(normalize_text(term), na=False)
+        mask = mask | blob.str.contains(normalize_text(term), na=False)
     return df[mask].copy()
 
 
-def card(label, value, subtitle, icon, accent, soft, value_color=None):
+def apply_date_filter(df, date_range):
+    if df is None or df.empty:
+        return df, "sem dados"
+
+    if not isinstance(date_range, (list, tuple)) or len(date_range) != 2:
+        return df, "sem período definido"
+
+    start, end = date_range
+    if start is None or end is None:
+        return df, "sem período definido"
+
+    date_candidates = [
+        "DATA ANÁLISE",
+        "SLA",
+        "ÚLTIMA ROTA",
+        "DATA EVENTO TORRE",
+        "ÚLTIMA ALTERAÇÃO",
+    ]
+
+    for col_name in date_candidates:
+        col = first_col(df, [col_name])
+        if col:
+            dates = parse_date_col(df[col])
+            if dates.notna().any():
+                start_ts = pd.Timestamp(start)
+                end_ts = pd.Timestamp(end)
+                mask = dates.dt.normalize().between(start_ts.normalize(), end_ts.normalize())
+                return df[mask].copy(), f"Filtro aplicado por {col}"
+
+    return df, "sem coluna de data disponível na fila"
+
+
+def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None):
     value_color = value_color or "#10213d"
     st.markdown(
         f"""
@@ -350,92 +396,148 @@ def card(label, value, subtitle, icon, accent, soft, value_color=None):
     )
 
 
-def section_header(title, subtitle=None):
-    st.markdown(f"### {title}")
-    if subtitle:
-        st.caption(subtitle)
-
-
-def render_kpis(resumo):
-    cols = st.columns(6)
-
-    with cols[0]:
-        card(
-            "AWBs MONITORADAS",
-            fmt_int(summary_value(resumo, "AWBs monitoradas", 0)),
-            "Carteira única atualmente acompanhada",
-            "▣",
-            "#2f6fed",
-            "#edf4ff",
-        )
-
-    with cols[1]:
-        card(
-            "ENTREGA EM ATRASO",
-            fmt_int(summary_value(resumo, "Entrega em atraso", 0)),
-            "Cargas com SLA vencido",
-            "◷",
-            "#d92d20",
-            "#fff0ef",
-            "#c9231a",
-        )
-
-    with cols[2]:
-        card(
-            "SLA DO DIA SEM ROTA",
-            fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
-            "SLA hoje sem rota criada no Eu Entrego",
-            "▦",
-            "#d97706",
-            "#fff7e8",
-            "#b96804",
-        )
-
-    with cols[3]:
-        card(
-            "BACKLOG DA TORRE",
-            fmt_int(summary_value(resumo, "Backlog da Torre", 0)),
-            "Pendências ainda não finalizadas",
-            "≡",
-            "#6d3fd1",
-            "#f4efff",
-            "#5b2dbf",
-        )
-
-    with cols[4]:
-        card(
-            "ACAREAÇÕES EM ANDAMENTO",
-            fmt_int(summary_value(resumo, "Acareações em andamento", 0)),
-            "Tratativas ativas neste momento",
-            "⚖",
-            "#2459c4",
-            "#edf4ff",
-            "#16449f",
-        )
-
-    with cols[5]:
-        card(
-            "VALOR EM ACAREAÇÃO",
-            brl(summary_value(resumo, "Valor em acareação", 0)),
-            "Valor financeiro atualmente exposto",
-            "$",
-            "#17633a",
-            "#edf9f1",
-            "#14532d",
-        )
-
-
-def render_table(df, height=360):
+def render_table(df, height=340):
     if df is None or df.empty:
         st.info("Sem dados para exibir.")
         return
+    st.dataframe(df, use_container_width=True, hide_index=True, height=height)
 
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        height=height,
-    )
+
+def driver_offenders(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    driver_col = first_col(df, ["MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "ENTREGADOR", "MOTORISTA"])
+    if not driver_col:
+        return pd.DataFrame()
+
+    blob = as_text_blob(df)
+    insucesso_mask = blob.str.contains("INSUCESSO", na=False)
+    retorno_mask = blob.str.contains("RETORNO|DEVOLVIDO", regex=True, na=False)
+    base = df[insucesso_mask | retorno_mask].copy()
+
+    if base.empty:
+        return pd.DataFrame()
+
+    base["_MOTORISTA"] = base[driver_col].fillna("").astype(str).str.strip()
+    base["_MOTORISTA"] = base["_MOTORISTA"].replace({"": "SEM MOTORISTA INFORMADO"})
+
+    base["_INSUCESSO"] = as_text_blob(base).str.contains("INSUCESSO", na=False).astype(int)
+    base["_RETORNO"] = as_text_blob(base).str.contains("RETORNO|DEVOLVIDO", regex=True, na=False).astype(int)
+
+    awb_col = first_col(base, ["AWB"])
+    if awb_col:
+        grouped = (
+            base.groupby("_MOTORISTA", dropna=False)
+            .agg(
+                AWBS=(awb_col, "nunique"),
+                INSUCESSOS=("_INSUCESSO", "sum"),
+                RETORNOS=("_RETORNO", "sum"),
+            )
+            .reset_index()
+        )
+    else:
+        grouped = (
+            base.groupby("_MOTORISTA", dropna=False)
+            .agg(
+                AWBS=("_MOTORISTA", "size"),
+                INSUCESSOS=("_INSUCESSO", "sum"),
+                RETORNOS=("_RETORNO", "sum"),
+            )
+            .reset_index()
+        )
+
+    grouped = grouped.rename(columns={"_MOTORISTA": "MOTORISTA / ENTREGADOR"})
+    grouped["TOTAL OCORRÊNCIAS"] = grouped["INSUCESSOS"] + grouped["RETORNOS"]
+    return grouped.sort_values(["TOTAL OCORRÊNCIAS", "AWBS"], ascending=False).head(15)
+
+
+def open_returns(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    blob = as_text_blob(df)
+    mask = blob.str.contains("RETORNO|DEVOLVIDO|INSUCESSO", regex=True, na=False)
+
+    retorno_col = first_col(df, ["RETORNO CONFIRMADO"])
+    if retorno_col:
+        confirmed = df[retorno_col].astype(str).map(normalize_text).isin(["TRUE", "SIM", "1", "VERDADEIRO"])
+        mask = mask & ~confirmed
+
+    dias_col = first_col(df, ["DIAS DESDE ÚLTIMA ROTA", "DIAS EM ATRASO"])
+    if dias_col:
+        dias = numeric_series(df[dias_col])
+        mask = mask & dias.ge(1)
+
+    out = df[mask].copy()
+
+    preferred = [
+        "AWB",
+        "CLIENTE",
+        "MOTORISTA / ENTREGADOR",
+        "STATUS ÚLTIMA ROTA",
+        "MOTIVO ÚLTIMA ROTA",
+        "ÚLTIMA ROTA",
+        "DIAS DESDE ÚLTIMA ROTA",
+        "PROBLEMA",
+        "PRÓXIMA AÇÃO",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    return out[cols] if cols else out
+
+
+def top5_pendencia_corp(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    blob = as_text_blob(df)
+    corp_mask = blob.str.contains("PENDENCIA CORP|PENDENCIA_CORP|PENDÊNCIA CORP", regex=True, na=False)
+
+    base = df[corp_mask].copy()
+    if base.empty:
+        base = filter_terms(df, ["PENDENCIA", "PENDÊNCIA"]).copy()
+
+    if base.empty:
+        return pd.DataFrame()
+
+    cliente_col = first_col(base, ["CLIENTE"])
+    pend_col = first_col(base, ["MOTIVO PENDÊNCIA", "PROBLEMA", "SITUAÇÃO", "STATUS TORRE"])
+
+    if not cliente_col:
+        cliente_col = base.columns[0]
+    if not pend_col:
+        pend_col = base.columns[-1]
+
+    awb_col = first_col(base, ["AWB"])
+
+    if awb_col:
+        grouped = (
+            base.groupby([cliente_col, pend_col], dropna=False)[awb_col]
+            .nunique()
+            .reset_index(name="AWBS")
+        )
+    else:
+        grouped = (
+            base.groupby([cliente_col, pend_col], dropna=False)
+            .size()
+            .reset_index(name="AWBS")
+        )
+
+    grouped = grouped.rename(columns={cliente_col: "CLIENTE", pend_col: "PENDÊNCIA"})
+    return grouped.sort_values("AWBS", ascending=False).head(5)
+
+
+def simplified_director_report(resumo, kpis_df, motoristas_df, retornos_df, pendcorp_df):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        resumo.to_excel(writer, sheet_name="RESUMO_BASE", index=False)
+        kpis_df.to_excel(writer, sheet_name="RESUMO_DIRETORIA", index=False)
+        motoristas_df.to_excel(writer, sheet_name="MOTORISTAS", index=False)
+        retornos_df.to_excel(writer, sheet_name="RETORNOS_ABERTOS", index=False)
+        pendcorp_df.to_excel(writer, sheet_name="TOP5_PEND_CORP", index=False)
+
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 # =========================================================
@@ -473,13 +575,11 @@ with st.sidebar:
 
     menu_items = [
         ("visao", "⌂  Visão Geral"),
-        ("monitoramento", "↗  Monitoramento"),
-        ("pendencias", "▣  Pendências"),
-        ("acareacoes", "⚖  Acareações"),
-        ("performance", "◔  Performance"),
-        ("relatorios", "▤  Relatórios"),
-        ("alertas", "!  Alertas"),
-        ("configuracoes", "⚙  Configurações"),
+        ("motoristas", "☑  Motoristas ofensores"),
+        ("retornos", "↩  Retornos em aberto"),
+        ("pendcorp", "▣  Pendência Corp"),
+        ("relatorio", "▤  Download diretoria"),
+        ("config", "⚙  Configurações"),
     ]
 
     if "menu_gerente" not in st.session_state:
@@ -500,8 +600,8 @@ with st.sidebar:
         """
         <div class="side-note">
             <b>Dashboard Gerencial</b><br>
-            Menu funcional<br>
-            Fonte: Base Gerencial Torre
+            Layout claro<br>
+            Menu funcional
         </div>
         """,
         unsafe_allow_html=True,
@@ -524,8 +624,6 @@ except Exception as exc:
 
 resumo = pack.get("RESUMO", pd.DataFrame())
 fila = pack.get("FILA", pd.DataFrame())
-top_problemas = pack.get("TOP_PROBLEMAS", pd.DataFrame())
-top_bases = pack.get("TOP_BASES", pd.DataFrame())
 
 periodo = summary_value(resumo, "Período analisado", "")
 if not periodo:
@@ -533,12 +631,6 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-menu = st.session_state["menu_gerente"]
-
-
-# =========================================================
-# HEADER
-# =========================================================
 st.markdown(
     f"""
     <div class="hero">
@@ -547,290 +639,208 @@ st.markdown(
         <span class="badge">PERÍODO ANALISADO: {periodo}</span>
         <span class="badge">ATUALIZADO EM: {atualizado}</span>
         <h1>Dashboard Executivo da Torre</h1>
-        <p>Panorama gerencial das pendências, riscos operacionais e ações prioritárias.</p>
+        <p>Visão gerencial de SLA, retornos, motoristas ofensores e pendências corporativas.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+# =========================================================
+# FILTRO DE DATA
+# =========================================================
+today = date.today()
+default_start = today - timedelta(days=7)
+with st.expander("Filtros", expanded=True):
+    f1, f2 = st.columns([1.2, 2.2])
+    with f1:
+        date_range = st.date_input(
+            "Filtro de data",
+            value=(default_start, today),
+            format="DD/MM/YYYY",
+        )
+    with f2:
+        st.caption(
+            "O filtro é aplicado aos detalhes do relatório usando a primeira coluna de data disponível: "
+            "Data análise, SLA, última rota, data evento Torre ou última alteração."
+        )
+
+fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
 st.markdown(
-    '<div class="info">ⓘ AWBs monitoradas representam AWBs únicas da carteira atual, não entregas concluídas.</div>',
+    f'<div class="info">ⓘ {filtro_msg}. AWBs monitoradas representam AWBs únicas da carteira atual, não entregas concluídas.</div>',
     unsafe_allow_html=True,
+)
+
+motoristas_df = driver_offenders(fila_filtrada)
+retornos_df = open_returns(fila_filtrada)
+pendcorp_df = top5_pendencia_corp(fila_filtrada)
+
+kpis_df = pd.DataFrame(
+    [
+        {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
+        {"INDICADOR": "Entrega em atraso", "VALOR": number(summary_value(resumo, "Entrega em atraso", 0))},
+        {"INDICADOR": "SLA do dia sem rota", "VALOR": number(summary_value(resumo, "SLA do dia sem rota", 0))},
+        {"INDICADOR": "3ª tentativa de entrega", "VALOR": number(summary_value(resumo, "3ª tentativa de entrega", 0))},
+        {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
+        {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
+        {"INDICADOR": "Top Pendência Corp analisado", "VALOR": len(pendcorp_df)},
+        {"INDICADOR": "Acareações em andamento", "VALOR": number(summary_value(resumo, "Acareações em andamento", 0))},
+        {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
+    ]
 )
 
 
 # =========================================================
 # PÁGINAS
 # =========================================================
+menu = st.session_state["menu_gerente"]
+
 if menu == "visao":
-    st.markdown('<div class="section-title">VISÃO EXECUTIVA</div>', unsafe_allow_html=True)
-    render_kpis(resumo)
-    st.divider()
+    st.markdown('<div class="section-title">Resumo gerencial</div>', unsafe_allow_html=True)
 
-    c1, c2 = st.columns([1, 1.2])
-
-    with c1:
-        section_header(
-            "Onde está o problema?",
-            "Distribuição das pendências por categoria operacional.",
-        )
-        chart_df = chart_dataframe(top_problemas)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_problemas, height=260)
-
-    with c2:
-        section_header(
-            "Maiores concentrações de pendência",
-            "Bases ou responsáveis com maior volume de pendências em aberto.",
-        )
-        chart_df = chart_dataframe(top_bases)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_bases, height=260)
-
-    st.divider()
-    section_header(
-        "Fila executiva de atenção",
-        "Pendências críticas e de maior impacto que exigem acompanhamento gerencial.",
-    )
-    preferred_cols = [
-        "PRIORIDADE",
-        "PROBLEMA",
-        "CLIENTE",
-        "LOCALIZAÇÃO / RESPONSÁVEL",
-        "AWB",
-        "PRÓXIMA AÇÃO",
+    cards = [
+        ("AWBs monitoradas", fmt_int(summary_value(resumo, "AWBs monitoradas", 0)), "Carteira única acompanhada", "▣", "#2f6fed", "#edf4ff", "awbs"),
+        ("Entrega em atraso", fmt_int(summary_value(resumo, "Entrega em atraso", 0)), "Cargas com SLA vencido", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("SLA do dia sem rota", fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)), "SLA hoje sem rota no Eu Entrego", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("3ª tentativa de entrega", fmt_int(summary_value(resumo, "3ª tentativa de entrega", 0)), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
+        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
+        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "In Sucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
     ]
-    cols = [c for c in preferred_cols if c in fila.columns]
-    render_table((fila[cols] if cols else fila).head(15) if not fila.empty else fila, height=430)
 
+    cols = st.columns(6)
+    for idx, item in enumerate(cards):
+        label, value, sub, icon, accent, soft, key = item
+        with cols[idx]:
+            kpi_card(label, value, sub, icon, accent, soft)
+            if st.button("Abrir", key=f"abrir_{key}", use_container_width=True):
+                st.session_state["detail_card"] = key
+                st.rerun()
 
-elif menu == "monitoramento":
-    section_header(
-        "Monitoramento",
-        "Visão operacional resumida dos principais indicadores do painel.",
-    )
-    render_kpis(resumo)
-    st.divider()
+    detail = st.session_state.get("detail_card", "")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        section_header("Distribuição por problema")
-        chart_df = chart_dataframe(top_problemas)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_problemas, height=300)
+    if detail:
+        st.divider()
+        st.markdown("### Detalhe do card aberto")
 
-    with c2:
-        section_header("Concentração por base/responsável")
-        chart_df = chart_dataframe(top_bases)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_bases, height=300)
+        if detail == "awbs":
+            st.caption("A carteira total vem do resumo consolidado. Abaixo estão as linhas detalhadas disponíveis na base gerencial.")
+            render_table(fila_filtrada.head(300), height=420)
 
+        elif detail == "atraso":
+            render_table(filter_terms(fila_filtrada, ["ENTREGA EM ATRASO", "ATRASO"]).head(300), height=420)
 
-elif menu == "pendencias":
-    section_header(
-        "Pendências",
-        "Fila e categorias de pendências para acompanhamento gerencial.",
-    )
+        elif detail == "sla_sem_rota":
+            render_table(filter_terms(fila_filtrada, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"]).head(300), height=420)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        section_header("Onde está o problema?")
-        chart_df = chart_dataframe(top_problemas)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_problemas, height=320)
+        elif detail == "terceira":
+            render_table(filter_terms(fila_filtrada, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"]).head(300), height=420)
 
-    with c2:
-        section_header("Maiores concentrações de pendência")
-        chart_df = chart_dataframe(top_bases)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-        render_table(top_bases, height=320)
+        elif detail == "retornos":
+            render_table(retornos_df.head(300), height=420)
+
+        elif detail == "motoristas":
+            render_table(motoristas_df, height=420)
 
     st.divider()
-    section_header("Fila de pendências")
-    render_table(fila, height=500)
-
-
-elif menu == "acareacoes":
-    section_header(
-        "Acareações",
-        "Resumo financeiro e operacional das acareações em andamento.",
-    )
-
     c1, c2 = st.columns(2)
+
     with c1:
-        card(
-            "ACAREAÇÕES EM ANDAMENTO",
-            fmt_int(summary_value(resumo, "Acareações em andamento", 0)),
-            "Tratativas ativas neste momento",
-            "⚖",
-            "#2459c4",
-            "#edf4ff",
-            "#16449f",
-        )
+        st.markdown("### Controle de motoristas ofensores")
+        st.caption("Baseado em ocorrências de insucesso e retornos.")
+        render_table(motoristas_df, height=360)
 
     with c2:
-        card(
-            "VALOR EM ACAREAÇÃO",
-            brl(summary_value(resumo, "Valor em acareação", 0)),
-            "Valor financeiro atualmente exposto",
-            "$",
-            "#17633a",
-            "#edf9f1",
-            "#14532d",
-        )
+        st.markdown("### Retornos em aberto — 1 dia ou +")
+        st.caption("Cargas com retorno/insucesso/devolvido ainda não confirmado e com 1 dia ou mais.")
+        render_table(retornos_df.head(15), height=360)
 
     st.divider()
-    section_header("Itens relacionados a acareação")
-    acareacao_df = filtered_rows(fila, ["ACAREACAO", "ACAREAÇÃO", "RESSALVA"])
-    render_table(acareacao_df if not acareacao_df.empty else fila.head(0), height=500)
+    st.markdown("### Top 5 ofensores — Pendência Corp")
+    st.caption("Agrupamento por cliente e pendência.")
+    render_table(pendcorp_df, height=260)
 
 
-elif menu == "performance":
-    section_header(
-        "Performance",
-        "Indicadores para leitura executiva da operação.",
+elif menu == "motoristas":
+    st.markdown("### Controle de motoristas ofensores")
+    st.caption("Ranking de entregadores/motoristas com maior concentração de insucessos e retornos.")
+    render_table(motoristas_df, height=520)
+
+    st.download_button(
+        "Baixar motoristas ofensores.csv",
+        motoristas_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="motoristas_ofensores.csv",
+        mime="text/csv",
+        use_container_width=True,
     )
-    render_kpis(resumo)
+
+
+elif menu == "retornos":
+    st.markdown("### Retornos em aberto — 1 dia ou +")
+    st.caption("Pendências com status de retorno, devolvido ou insucesso, ainda sem confirmação de retorno.")
+    render_table(retornos_df, height=560)
+
+    st.download_button(
+        "Baixar retornos em aberto.csv",
+        retornos_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="retornos_em_aberto.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
+elif menu == "pendcorp":
+    st.markdown("### Top 5 ofensores — Pendência Corp")
+    st.caption("Agrupamento por cliente e tipo/motivo da pendência.")
+    render_table(pendcorp_df, height=360)
+
     st.divider()
+    st.markdown("### Base filtrada de Pendência Corp")
+    pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA CORP", "PENDÊNCIA CORP", "PENDENCIA_CORP"])
+    if pendcorp_base.empty:
+        pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA", "PENDÊNCIA"])
+    render_table(pendcorp_base.head(500), height=520)
+
+
+elif menu == "relatorio":
+    st.markdown("### Download para diretoria — simplificado")
+    st.caption("Arquivo resumido com os indicadores principais, motoristas ofensores, retornos em aberto e Top 5 Pendência Corp.")
 
     c1, c2 = st.columns(2)
+
     with c1:
-        section_header("Problemas priorizados")
-        chart_df = chart_dataframe(top_problemas)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
+        render_table(kpis_df, height=360)
 
     with c2:
-        section_header("Bases/responsáveis com maior concentração")
-        chart_df = chart_dataframe(top_bases)
-        if not chart_df.empty:
-            st.bar_chart(chart_df)
-
-
-elif menu == "relatorios":
-    section_header(
-        "Relatórios",
-        "Consulta e exportação dos dados sincronizados para o dashboard gerencial.",
-    )
-
-    tabs = st.tabs(["Resumo", "Fila", "Top problemas", "Top bases"])
-
-    with tabs[0]:
-        render_table(resumo, height=400)
         st.download_button(
-            "Baixar RESUMO.csv",
-            resumo.to_csv(index=False).encode("utf-8-sig"),
-            file_name="resumo_gerencial.csv",
-            mime="text/csv",
+            "Baixar relatório diretoria.xlsx",
+            simplified_director_report(resumo, kpis_df, motoristas_df, retornos_df, pendcorp_df),
+            file_name="relatorio_diretoria_torre.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
 
-    with tabs[1]:
-        render_table(fila, height=500)
-        st.download_button(
-            "Baixar FILA.csv",
-            fila.to_csv(index=False).encode("utf-8-sig"),
-            file_name="fila_executiva.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-    with tabs[2]:
-        render_table(top_problemas, height=400)
-        st.download_button(
-            "Baixar TOP_PROBLEMAS.csv",
-            top_problemas.to_csv(index=False).encode("utf-8-sig"),
-            file_name="top_problemas.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-    with tabs[3]:
-        render_table(top_bases, height=400)
-        st.download_button(
-            "Baixar TOP_BASES.csv",
-            top_bases.to_csv(index=False).encode("utf-8-sig"),
-            file_name="top_bases.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-
-elif menu == "alertas":
-    section_header(
-        "Alertas",
-        "Itens críticos e de alta prioridade para ação gerencial.",
-    )
-
-    a1, a2, a3 = st.columns(3)
-    with a1:
-        card(
-            "3ª TENTATIVA DE ENTREGA",
-            fmt_int(summary_value(resumo, "3ª tentativa de entrega", 0)),
-            "Cargas com 3 ou mais tentativas registradas",
-            "3ª",
-            "#d92d20",
-            "#fff0ef",
-            "#c9231a",
-        )
-    with a2:
-        card(
-            "ENTREGA EM ATRASO",
-            fmt_int(summary_value(resumo, "Entrega em atraso", 0)),
-            "Cargas com SLA vencido",
-            "◷",
-            "#d92d20",
-            "#fff0ef",
-            "#c9231a",
-        )
-    with a3:
-        card(
-            "SLA DO DIA SEM ROTA",
-            fmt_int(summary_value(resumo, "SLA do dia sem rota", 0)),
-            "SLA hoje sem rota criada no Eu Entrego",
-            "▦",
-            "#d97706",
-            "#fff7e8",
-            "#b96804",
-        )
-
     st.divider()
-    st.markdown("#### 3ª tentativa de entrega")
-    terceira = filtered_rows(fila, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
-    render_table(terceira if not terceira.empty else fila.head(0), height=300)
+    st.markdown("### Prévia do conteúdo")
+    t1, t2, t3 = st.tabs(["Motoristas", "Retornos", "Pendência Corp"])
+    with t1:
+        render_table(motoristas_df, height=360)
+    with t2:
+        render_table(retornos_df, height=360)
+    with t3:
+        render_table(pendcorp_df, height=260)
 
-    st.divider()
-    st.markdown("#### Demais alertas críticos")
-    alertas = filtered_rows(fila, ["CRITICA", "CRÍTICA", "ALTA", "ATRASO", "SLA"])
-    render_table(alertas if not alertas.empty else fila.head(0), height=420)
 
-
-elif menu == "configuracoes":
-    section_header(
-        "Configurações",
-        "Status técnico da fonte de dados e conexão do dashboard.",
-    )
-
+elif menu == "config":
+    st.markdown("### Configurações")
     st.success("Dashboard carregado com sucesso.")
     st.write("Fonte configurada:", SOURCE_URL)
-    st.write("Abas lidas da base gerencial:")
 
     status_df = pd.DataFrame(
         [
             {"Aba": "RESUMO", "Linhas": len(resumo)},
             {"Aba": "FILA", "Linhas": len(fila)},
-            {"Aba": "TOP_PROBLEMAS", "Linhas": len(top_problemas)},
-            {"Aba": "TOP_BASES", "Linhas": len(top_bases)},
+            {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
         ]
     )
-    render_table(status_df, height=240)
+    render_table(status_df, height=220)
 
-    st.info(
-        "Os Secrets necessários continuam sendo MANAGER_SOURCE_URL e [gcp_service_account]."
-    )
+    st.info("Secrets necessários: MANAGER_SOURCE_URL e [gcp_service_account].")

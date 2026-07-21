@@ -832,6 +832,30 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["TRATATIVA ESPECIAL"] = df["CONTROLE_ESPECIAL"] if "CONTROLE_ESPECIAL" in df.columns else ""
     queue["PROBLEMA"] = df["_FILA_PROBLEMA"]
     queue["PRÓXIMA AÇÃO"] = df["_FILA_ACAO"]
+
+    # Colunas adicionais para o dashboard gerencial.
+    # Elas permitem filtros, controle de motoristas, retornos em aberto e Pendência Corp.
+    queue["DATA ANÁLISE"] = str(analysis_ts.date())
+    queue["MOTORISTA / ENTREGADOR"] = df["ULTIMO_ENTREGADOR"] if "ULTIMO_ENTREGADOR" in df.columns else ""
+    queue["STATUS ÚLTIMA ROTA"] = df["STATUS_ULTIMA_ROTA"] if "STATUS_ULTIMA_ROTA" in df.columns else ""
+    queue["MOTIVO ÚLTIMA ROTA"] = df["MOTIVO_ULTIMA_ROTA"] if "MOTIVO_ULTIMA_ROTA" in df.columns else ""
+    queue["ÚLTIMA ROTA"] = df["ULTIMA_ROTA"] if "ULTIMA_ROTA" in df.columns else ""
+    queue["ÚLTIMA ALTERAÇÃO"] = df["ULTIMA_ALTERACAO"] if "ULTIMA_ALTERACAO" in df.columns else ""
+    queue["QT TENTATIVAS"] = df["QT_TENTATIVAS_INSUCESSO"] if "QT_TENTATIVAS_INSUCESSO" in df.columns else 0
+    queue["RETORNO CONFIRMADO"] = df["RETORNO_CONFIRMADO"] if "RETORNO_CONFIRMADO" in df.columns else False
+    queue["EVENTO TORRE"] = df["EVENTO_TORRE"] if "EVENTO_TORRE" in df.columns else ""
+    queue["ABA TORRE"] = df["ABA_ORIGEM"] if "ABA_ORIGEM" in df.columns else ""
+    queue["STATUS TORRE"] = df["STATUS_TRATATIVA"] if "STATUS_TRATATIVA" in df.columns else ""
+    queue["ORIGEM TORRE"] = df["ORIGEM_TORRE"] if "ORIGEM_TORRE" in df.columns else ""
+    queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
+    queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
+
+    if "ULTIMA_ROTA" in df.columns:
+        _ult_rota_dt = pd.to_datetime(df["ULTIMA_ROTA"], errors="coerce")
+        queue["DIAS DESDE ÚLTIMA ROTA"] = (analysis_ts - _ult_rota_dt.dt.normalize()).dt.days.where(_ult_rota_dt.notna(), "")
+    else:
+        queue["DIAS DESDE ÚLTIMA ROTA"] = ""
+
     queue["_ORDEM_FILA"] = df["_FILA_ORDEM"]
 
     return (
