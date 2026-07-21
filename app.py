@@ -272,7 +272,11 @@ def build_bi_azul_views(files_by_base, edi_detalhe=None):
         edi_cols = [c for c in ["_AWB_KEY", "BASE", "INDICADOR", "CLIENTE", "STATUS", "SLA", "OPS_STATION", "DESTINO"] if c in edi.columns]
         edi_small = edi[edi_cols].drop_duplicates("_AWB_KEY")
     else:
-        edi_small = pd.DataFrame(columns=["_AWB_KEY"])
+        conferencia = pd.DataFrame(columns=[
+            "AWB", "RESULTADO_CONFERENCIA", "BASE_BI", "BASE_EDI", "BI_ESTA_EM",
+            "BI_DESTINO", "EDI_INDICADOR", "BI_STATUS_SLA"
+        ])
+        return resumo, detalhe, conferencia
 
     conf = bi.merge(
         edi_small,
@@ -2018,6 +2022,36 @@ def _write_df_to_worksheet(spreadsheet, sheet_name, df):
     )
 
 
+def sync_manager_extra_sheets_to_google_sheet(extra_sheets):
+    """
+    Sincroniza somente abas extras no Google Sheets gerencial.
+
+    Uso: BI Azul pode ser atualizado sem exigir AWBStatus/Eu Entrego.
+    Não sobrescreve RESUMO, FILA, TOP_PROBLEMAS nem TOP_BASES.
+    """
+    try:
+        spreadsheet_url = st.secrets.get("MANAGER_SOURCE_URL", "")
+    except Exception:
+        spreadsheet_url = ""
+
+    if not spreadsheet_url:
+        return False, "MANAGER_SOURCE_URL não configurado no app operacional."
+
+    gc = _google_sheet_client()
+    if gc is None:
+        return False, "Credenciais gcp_service_account não configuradas."
+
+    try:
+        spreadsheet = gc.open_by_url(spreadsheet_url)
+
+        for sheet_name, df in (extra_sheets or {}).items():
+            _write_df_to_worksheet(spreadsheet, sheet_name, df)
+
+        return True, "Abas extras sincronizadas com sucesso."
+    except Exception as exc:
+        return False, f"Falha ao sincronizar abas extras: {exc}"
+
+
 def sync_manager_dashboard_to_google_sheet(
     summary_df,
     fila_df,
@@ -2177,7 +2211,96 @@ if return_awbs:
     with st.expander("Ver AWBs extraídas"):
         st.write(", ".join(return_awbs))
 
+bi_azul_files_uploaded = any([file_bi_tres1, file_bi_sao12, file_bi_cdsp2])
+
 if not (file_lm and file_eu):
+    if bi_azul_files_uploaded:
+        st.info(
+            "BI Azul carregado. Como AWBStatus/Eu Entrego não foram enviados, "
+            "vou sincronizar apenas as abas do BI Azul, sem recalcular o Last Mile."
+        )
+
+        edi_detalhe_para_bi = pd.DataFrame()
+
+        # Se o EDI também foi enviado, cruza BI x EDI mesmo sem Last Mile.
+        if files_edi:
+            try:
+                edi_payload_bi = tuple((f.name, f.getvalue()) for f in files_edi)
+                edi_base_bi, _edi_audit_bi = read_edi_files(edi_payload_bi)
+                if not edi_base_bi.empty:
+                    edi_base_bi = edi_base_bi.copy()
+                    edi_base_bi["CLIENTE_EDI"] = edi_base_bi.apply(edi_client_name, axis=1)
+                    edi_base_bi["STATUS_EDI_GERENCIAL"] = edi_base_bi.apply(classify_edi_status, axis=1)
+
+                _edi_resumo_bi, edi_detalhe_para_bi = build_edi_manager_views(
+                    pd.DataFrame(),
+                    edi_base_bi,
+                    reference_date,
+                )
+            except Exception:
+                edi_detalhe_para_bi = pd.DataFrame()
+
+        bi_azul_resumo_preview, bi_azul_detalhe_preview, bi_azul_conferencia_preview = build_bi_azul_views(
+            {
+                "TRES1": file_bi_tres1,
+                "SAO12": file_bi_sao12,
+                "CDSP2": file_bi_cdsp2,
+            },
+            edi_detalhe_para_bi,
+        )
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric(
+            "AWBs BI Azul",
+            int(bi_azul_detalhe_preview["AWB"].nunique())
+            if not bi_azul_detalhe_preview.empty and "AWB" in bi_azul_detalhe_preview.columns
+            else 0,
+        )
+        c2.metric(
+            "Bases BI",
+            int(bi_azul_resumo_preview["BASE_BI"].nunique())
+            if not bi_azul_resumo_preview.empty and "BASE_BI" in bi_azul_resumo_preview.columns
+            else 0,
+        )
+        c3.metric(
+            "Divergências BI x EDI",
+            int(
+                bi_azul_conferencia_preview[
+                    ~bi_azul_conferencia_preview["RESULTADO_CONFERENCIA"].astype(str).eq("OK")
+                ].shape[0]
+            )
+            if not bi_azul_conferencia_preview.empty
+            and "RESULTADO_CONFERENCIA" in bi_azul_conferencia_preview.columns
+            else 0,
+        )
+
+        with st.expander("Prévia BI Azul"):
+            st.dataframe(
+                bi_azul_detalhe_preview.head(200),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        if st.button("Sincronizar BI Azul agora", key="sync_bi_azul_only", use_container_width=True):
+            _ok_bi, _msg_bi = sync_manager_extra_sheets_to_google_sheet(
+                {
+                    "BI_AZUL_RESUMO": bi_azul_resumo_preview,
+                    "BI_AZUL_DETALHE": bi_azul_detalhe_preview,
+                    "BI_AZUL_CONFERENCIA": bi_azul_conferencia_preview,
+                }
+            )
+            if _ok_bi:
+                st.success(_msg_bi)
+                st.info("Agora abra o dashboard do gerente e clique em Atualizar dados do Google.")
+            else:
+                st.error(_msg_bi)
+
+        st.warning(
+            "Para recalcular Last Mile, pendência, avaria, acareação e demais indicadores, "
+            "envie também AWBStatus e Eu Entrego."
+        )
+        st.stop()
+
     st.info("Envie AWBStatus e Eu Entrego para processar o Last Mile. A Pendência da Torre é carregada pelo link.")
     st.stop()
 

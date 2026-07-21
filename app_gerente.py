@@ -1920,7 +1920,7 @@ elif menu == "bi_azul":
     )
 
     if bi_azul_detalhe is None or bi_azul_detalhe.empty:
-        st.info("Nenhum relatório BI Azul foi sincronizado. Envie o arquivo no app operacional e clique em Sincronizar agora.")
+        st.info("Nenhum relatório BI Azul foi sincronizado. Envie o arquivo no app operacional e clique em Sincronizar BI Azul agora.")
 
     cards_l1 = [
         ("BI TRES1", fmt_int(bi_count(bi_azul_detalhe, base="TRES1")), "AWBs no relatório TRES1", "T1", "#1d4ed8", "#eff6ff", "bi_tres1"),
