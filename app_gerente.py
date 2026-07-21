@@ -616,13 +616,13 @@ def render_edi_card_detail(card_key, edi_detalhe):
     mapping = {
         "edi_emb_sao12": {
             "title": "EDI — Pendente de embarque SAO12",
-            "subtitle": "Clientes SAO12 monitorados: Riachuelo, Della Via, Stone, Tania Bulhões, Inbrands, ATS e Neodent.",
+            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
             "sheet": "EMB_SAO12",
         },
         "edi_emb_tres1": {
             "title": "EDI — Pendente de embarque TRES1",
-            "subtitle": "Cliente TRES1: Três Corações.",
+            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
             "sheet": "EMB_TRES1",
         },
@@ -1473,8 +1473,8 @@ elif menu == "edi":
     )
 
     edi_cards_l1 = [
-        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Pendente de embarque", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
-        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Pendente de embarque", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
+        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Até o SLA do dia", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
+        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Até o SLA do dia", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
         ("Desemb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_sao12"),
         ("Desemb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_tres1"),
     ]

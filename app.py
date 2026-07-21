@@ -532,7 +532,13 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 dias_sla = ""
                 status_sla = "SEM SLA"
 
-            if indicador in {"ENTREGA NO DESTINO PELO SLA", "PENDENTE DE DESEMBARQUE"} and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
+            # No EDI gerencial, pendente de embarque/desembarque e entrega no destino
+            # só entram até o SLA do dia. SLA futuro não aparece para o gerente.
+            if indicador in {
+                "PENDENTE DE EMBARQUE",
+                "PENDENTE DE DESEMBARQUE",
+                "ENTREGA NO DESTINO PELO SLA",
+            } and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
                 continue
 
             trecho = (
