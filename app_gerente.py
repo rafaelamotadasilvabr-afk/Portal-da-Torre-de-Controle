@@ -656,6 +656,20 @@ def sla_sem_rota_rows(df):
     return filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
 
 
+def last_mile_desembarque_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    problema_col = first_col(df, ["PROBLEMA"])
+    if problema_col:
+        problema = df[problema_col].astype(str).map(normalize_text)
+        exact = df[problema.eq("PENDENTE DE DESEMBARQUE")].copy()
+        if not exact.empty:
+            return exact
+
+    return filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"])
+
+
 def terceira_tentativa_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -806,6 +820,11 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         title = "Detalhe — SLA do dia sem rota"
         subtitle = "Cargas com SLA no dia analisado e sem rota criada no Eu Entrego."
         df = sla_sem_rota_rows(fila_filtrada)
+
+    elif card_key == "lastmile_desembarque":
+        title = "Detalhe — Last Mile pendente de desembarque"
+        subtitle = "Cargas em pendência de desembarque com SLA vencido ou SLA do dia."
+        df = last_mile_desembarque_rows(fila_filtrada)
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
@@ -1190,6 +1209,7 @@ daily_df = daily_awb_counts(fila_filtrada)
 
 resumo_entrega_atraso = number(summary_value(resumo, "Entrega em atraso", len(overdue_delivery_rows(fila_filtrada))))
 resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
+resumo_lm_desembarque = number(summary_value(resumo, "Last Mile pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 
@@ -1197,6 +1217,7 @@ alert_distribution_df = pd.DataFrame(
     [
         {"INDICADOR": "Entrega em atraso", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
+        {"INDICADOR": "Pendente desembarque LM", "QTDE": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto", "QTDE": len(retornos_df)},
         {"INDICADOR": "Acareações em aberto", "QTDE": resumo_acareacao_qtd},
@@ -1220,6 +1241,7 @@ kpis_df = pd.DataFrame(
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
         {"INDICADOR": "Entrega em atraso", "VALOR": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "VALOR": resumo_sla_sem_rota},
+        {"INDICADOR": "Last Mile pendente desembarque", "VALOR": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
@@ -1254,6 +1276,7 @@ if menu == "visao":
         ("Nível de serviço", service_level_label(resumo), "Resumo operacional sincronizado", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
         ("Entrega em atraso", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("Pendente desembarque LM", fmt_int(resumo_lm_desembarque), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
@@ -1318,16 +1341,17 @@ elif menu == "edi":
     st.markdown("### EDI — First Mile")
     st.caption(
         "No dashboard gerencial, First Mile será tratado como EDI. "
-        "A visão abaixo consolida SAO12/TRES1 e os alertas principais."
+        "Esta tela replica os principais grupos do Portal Gestão da Torre / First Mile."
     )
 
+    st.markdown("#### Pendências por base")
     e1, e2, e3, e4 = st.columns(4)
 
     with e1:
         kpi_card(
-            "PENDENTE EMBARQUE SAO12",
+            "EMBARQUE SAO12",
             fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")),
-            "Cargas pendentes de embarque em SAO12",
+            "Pendente de embarque",
             "S12",
             "#2563eb",
             "#eff6ff",
@@ -1335,15 +1359,38 @@ elif menu == "edi":
 
     with e2:
         kpi_card(
-            "PENDENTE EMBARQUE TRES1",
+            "EMBARQUE TRES1",
             fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")),
-            "Cargas pendentes de embarque em TRES1",
+            "Pendente de embarque",
             "T1",
             "#1d4ed8",
             "#eff6ff",
         )
 
     with e3:
+        kpi_card(
+            "DESEMBARQUE SAO12",
+            fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")),
+            "Até o SLA do dia",
+            "⇣",
+            "#0f766e",
+            "#f0fdfa",
+        )
+
+    with e4:
+        kpi_card(
+            "DESEMBARQUE TRES1",
+            fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")),
+            "Até o SLA do dia",
+            "⇣",
+            "#0f766e",
+            "#f0fdfa",
+        )
+
+    st.markdown("#### Alertas EDI")
+    a1, a2, a3 = st.columns(3)
+
+    with a1:
         kpi_card(
             "ENTREGA DESTINO / SLA",
             fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")),
@@ -1353,7 +1400,7 @@ elif menu == "edi":
             "#fff7e8",
         )
 
-    with e4:
+    with a2:
         kpi_card(
             "MISSING",
             fmt_int(edi_count(edi_detalhe, "MISSING")),
@@ -1364,13 +1411,26 @@ elif menu == "edi":
             "#c9231a",
         )
 
+    with a3:
+        kpi_card(
+            "DISCREPÂNCIA",
+            fmt_int(edi_count(edi_detalhe, "DISCREPÂNCIA")),
+            "Divergências do First Mile",
+            "≠",
+            "#7c3aed",
+            "#f5f3ff",
+        )
+
     st.divider()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Pendente embarque SAO12",
-        "Pendente embarque TRES1",
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        "Emb. SAO12",
+        "Emb. TRES1",
+        "Desemb. SAO12",
+        "Desemb. TRES1",
         "Entrega destino / SLA",
         "Missing",
+        "Discrepância",
         "Resumo EDI",
     ])
 
@@ -1381,13 +1441,24 @@ elif menu == "edi":
         render_table(edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"), height=500)
 
     with tab3:
+        st.caption("Pendente de desembarque em SAO12 com SLA vencido ou SLA do dia.")
+        render_table(edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12"), height=500)
+
+    with tab4:
+        st.caption("Pendente de desembarque em TRES1 com SLA vencido ou SLA do dia.")
+        render_table(edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1"), height=500)
+
+    with tab5:
         st.caption("Considera pendência no destino com SLA hoje ou SLA vencido.")
         render_table(edi_rows(edi_detalhe, "ENTREGA NO DESTINO PELO SLA"), height=500)
 
-    with tab4:
+    with tab6:
         render_table(edi_rows(edi_detalhe, "MISSING"), height=500)
 
-    with tab5:
+    with tab7:
+        render_table(edi_rows(edi_detalhe, "DISCREPÂNCIA"), height=500)
+
+    with tab8:
         render_table(edi_resumo, height=360)
 
     st.download_button(

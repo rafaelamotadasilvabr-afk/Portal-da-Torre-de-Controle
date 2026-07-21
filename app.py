@@ -476,9 +476,13 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
             indicador = None
             if grupo == "PENDENTE DE EMBARQUE":
                 indicador = "PENDENTE DE EMBARQUE"
+            elif grupo == "PENDENTE DE DESEMBARQUE":
+                indicador = "PENDENTE DE DESEMBARQUE"
             elif grupo == "MISSING":
                 indicador = "MISSING"
-            elif grupo == "PENDENTE DE DESEMBARQUE" or "PENDENTE ENTREGA" in status_norm:
+            elif grupo == "DISCREPÂNCIA":
+                indicador = "DISCREPÂNCIA"
+            elif "PENDENTE ENTREGA" in status_norm:
                 indicador = "ENTREGA NO DESTINO PELO SLA"
 
             if indicador is None:
@@ -499,7 +503,7 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 dias_sla = ""
                 status_sla = "SEM SLA"
 
-            if indicador == "ENTREGA NO DESTINO PELO SLA" and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
+            if indicador in {"ENTREGA NO DESTINO PELO SLA", "PENDENTE DE DESEMBARQUE"} and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
                 continue
 
             trecho = (
@@ -962,6 +966,17 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
 
+        # Last Mile: pendente de desembarque até o SLA do dia.
+        # Inclui SLA vencido e SLA hoje; não inclui SLA futuro.
+        if (
+            status_sistema == "PENDENTE DESEMBARQUE"
+            and pd.notna(sla_row)
+            and sla_row <= analysis_ts
+        ):
+            prioridade_des = "CRÍTICA" if sla_row < analysis_ts else "ALTA"
+            return 2, prioridade_des, "PENDENTE DE DESEMBARQUE", \
+                "Cobrar desembarque da carga até o SLA do dia"
+
         # Mesma regra do Radar Preventivo — Last Mile:
         # Pendente Entrega + SLA na data de análise + nenhuma rota criada hoje + fora da Torre ativa.
         if (
@@ -971,7 +986,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not teve_rota_hoje
             and not em_torre_ativa
         ):
-            return 2, "ALTA", "SLA DO DIA SEM ROTA", \
+            return 3, "ALTA", "SLA DO DIA SEM ROTA", \
                 "Criar rota no Eu Entrego ou justificar ausência de rota no dia do SLA"
 
         # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
@@ -983,31 +998,31 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "RETORNO" in situacao
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 3, prioridade, "3ª TENTATIVA DE ENTREGA", \
+            return 4, prioridade, "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre e definir nova tratativa de entrega"
 
         if atraso > 0 and "ENTREGA" in situacao:
-            return 4, "CRÍTICA", "ENTREGA EM ATRASO", \
+            return 5, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
-            return 5, "ALTA", "PENDENTE DE ENTREGA", \
+            return 6, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
 
         if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 6, "ALTA", "3ª TENTATIVA DE ENTREGA", \
+            return 7, "ALTA", "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
-            return 7, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
+            return 8, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
                 "Acompanhar devolutiva e prazo da acareação"
 
         if "INDENIZA" in controle or "DEBITO" in controle:
-            return 8, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
+            return 9, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
                 "Acompanhar o andamento do processo"
 
         if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-            return 9, "MÉDIA", "BOOKING / EDI", \
+            return 10, "MÉDIA", "BOOKING / EDI", \
                 "Validar execução do booking"
 
         return 99, "MONITORAR", value(row, "SITUACAO_GERENCIAL") or "SEM AÇÃO", \
@@ -1690,6 +1705,15 @@ try:
                 ).sum()
             )
 
+            last_mile_pendente_desembarque = int(
+                (
+                    _status_norm_panel.eq("PENDENTE DESEMBARQUE")
+                    & _sla_dt.notna()
+                    & _sla_dt.le(pd.Timestamp(reference_date).normalize())
+                    & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
+                ).sum()
+            )
+
             # Acareação em andamento
             acar = acareacao_ressalva_link.copy()
             acar_status_col = _panel_find_col(acar, ["STATUS ACAREACAO", "STATUS ACAREAÇÃO", "STATUS", "SITUACAO", "SITUAÇÃO"])
@@ -1846,6 +1870,7 @@ try:
                 {"METRICA": "Ações imediatas", "VALOR": criticas},
                 {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
+                {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
                 {"METRICA": "Backlog da Torre", "VALOR": backlog_torre},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
@@ -1868,6 +1893,18 @@ try:
                         & (edi_detalhe_gerente["INDICADOR"].astype(str).eq("PENDENTE DE EMBARQUE"))
                     ]["AWB"].nunique()
                 ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI pendente desembarque SAO12", "VALOR": int(
+                    edi_detalhe_gerente[
+                        (edi_detalhe_gerente["BASE"].astype(str).str.upper().eq("SAO12"))
+                        & (edi_detalhe_gerente["INDICADOR"].astype(str).eq("PENDENTE DE DESEMBARQUE"))
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI pendente desembarque TRES1", "VALOR": int(
+                    edi_detalhe_gerente[
+                        (edi_detalhe_gerente["BASE"].astype(str).str.upper().eq("TRES1"))
+                        & (edi_detalhe_gerente["INDICADOR"].astype(str).eq("PENDENTE DE DESEMBARQUE"))
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
                 {"METRICA": "EDI entrega destino SLA", "VALOR": int(
                     edi_detalhe_gerente[
                         edi_detalhe_gerente["INDICADOR"].astype(str).eq("ENTREGA NO DESTINO PELO SLA")
@@ -1876,6 +1913,11 @@ try:
                 {"METRICA": "EDI missing", "VALOR": int(
                     edi_detalhe_gerente[
                         edi_detalhe_gerente["INDICADOR"].astype(str).eq("MISSING")
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI discrepância", "VALOR": int(
+                    edi_detalhe_gerente[
+                        edi_detalhe_gerente["INDICADOR"].astype(str).eq("DISCREPÂNCIA")
                     ]["AWB"].nunique()
                 ) if not edi_detalhe_gerente.empty else 0},
             ])
@@ -1912,6 +1954,7 @@ try:
                 int(terceira_tentativa_entrega),
                 int(backlog_torre),
                 int(len(acar_andamento)),
+                int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
             )
 
