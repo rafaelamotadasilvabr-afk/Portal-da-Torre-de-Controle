@@ -451,9 +451,20 @@ def read_torre_from_dataframe(source_df):
     reason_col = find_column(df, ["OBS", "OBSERVAÇÃO", "MOTIVO DA PENDENCIA"])
     email_col = find_column(df, ["STATUS EMAIL"])
 
+    # Fallback para quando a leitura vier de uma única aba/CSV:
+    # se houver STATUS contendo FINALIZADO, classifica como saída.
+    if status_col:
+        _status_norm_torre = df[status_col].astype(str).map(normalize_text)
+        evento_series = pd.Series("PENDENCIA", index=df.index)
+        evento_series.loc[
+            _status_norm_torre.str.contains("FINALIZAD|CONCLUID|ENCERRAD|BAIXAD", regex=True, na=False)
+        ] = "FINALIZADO"
+    else:
+        evento_series = pd.Series("PENDENCIA", index=df.index)
+
     history = pd.DataFrame({
         "AWB": df["AWB"],
-        "EVENTO_TORRE": "PENDENCIA",
+        "EVENTO_TORRE": evento_series,
         "DATA_EVENTO_TORRE": (
             parse_date(df[treatment_col])
             if treatment_col else pd.Series(pd.NaT, index=df.index)
@@ -461,7 +472,7 @@ def read_torre_from_dataframe(source_df):
         "STATUS_TRATATIVA": df[status_col] if status_col else "",
         "ORIGEM_TORRE": df[origin_col] if origin_col else "",
         "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
-        "ABA_ORIGEM": "PENDENCIAS",
+        "ABA_ORIGEM": "PENDENCIAS/CSV",
     })
 
     if email_col:
@@ -662,45 +673,173 @@ def read_avarias_salvados_from_torre_workbook(file_bytes):
 
 
 def read_torre(file_bytes):
-    xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    """
+    Lê o workbook completo de Pendências da Torre.
 
-    valid_sheets = {
-        "PENDENCIAS": "PENDENCIA",
-        "PENDENCIA CORP": "PENDENCIA_CORP",
-        "FINALIZADAS": "FINALIZADO",
-    }
+    Abas esperadas, com busca flexível:
+    - PENDENCIAS / PENDÊNCIAS  -> PENDENCIA
+    - PENDENCIA CORP           -> PENDENCIA_CORP
+    - FINALIZADAS / FINALIZADOS / FINALIZAÇÕES -> FINALIZADO
+
+    A versão anterior dependia do nome exato da aba `FINALIZADAS` e de poucos
+    nomes de data. Esta versão detecta variações comuns e evita zerar as saídas.
+    """
+    if not file_bytes:
+        return pd.DataFrame(), pd.DataFrame()
+
+    try:
+        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    except Exception:
+        return pd.DataFrame(), pd.DataFrame()
+
+    def _sheet_event(sheet_name):
+        s = normalize_text(sheet_name)
+        compact = s.replace(" ", "")
+
+        # Finalizados primeiro para não confundir com outras abas.
+        if any(token in s for token in ["FINALIZADA", "FINALIZADO", "FINALIZACAO", "FINALIZAÇÃO"]):
+            return "FINALIZADO"
+
+        if "PENDENCIA" in s and "CORP" in s:
+            return "PENDENCIA_CORP"
+
+        # Evita capturar abas de avarias/salvados/acareação como pendência comum.
+        if (
+            "PENDENCIA" in s
+            and "CORP" not in s
+            and "AVARIA" not in s
+            and "SALVAD" not in s
+            and "ACARE" not in s
+            and "RESSALV" not in s
+        ):
+            return "PENDENCIA"
+
+        # Alguns arquivos vêm com nome de aba resumido.
+        if compact in ["PENDENCIAS", "PENDENCIA"]:
+            return "PENDENCIA"
+
+        return None
+
+    def _find_col_fuzzy(df, names):
+        found = find_column(df, names)
+        if found:
+            return found
+
+        wanted = [normalize_text(n) for n in names]
+        for col in df.columns:
+            col_norm = normalize_text(col)
+            for w in wanted:
+                if w and (w in col_norm or col_norm in w):
+                    return col
+        return None
+
+    def _best_date_col(df, event_type):
+        if event_type == "FINALIZADO":
+            candidates = [
+                "DATA MOV. FINALIZAÇÃO",
+                "DATA MOV FINALIZAÇÃO",
+                "DATA MOVIMENTAÇÃO FINALIZAÇÃO",
+                "DATA MOVIMENTACAO FINALIZACAO",
+                "DATA FINALIZAÇÃO",
+                "DATA FINALIZACAO",
+                "DATA DE FINALIZAÇÃO",
+                "DATA DE FINALIZACAO",
+                "DATA DA FINALIZAÇÃO",
+                "DATA DA FINALIZACAO",
+                "DATA STATUS FINALIZADO",
+                "DATA BAIXA",
+                "DATA DA BAIXA",
+                "DATA ENCERRAMENTO",
+                "DATA DE ENCERRAMENTO",
+                "FINALIZADO EM",
+                "DT FINALIZAÇÃO",
+                "DT FINALIZACAO",
+                "DATA DA TRATATIVA",
+                "DATA TRATATIVA",
+            ]
+        else:
+            candidates = [
+                "DATA DA TRATATIVA",
+                "DATA TRATATIVA",
+                "DATA ABERTURA",
+                "DATA DE ABERTURA",
+                "DATA",
+                "DT",
+            ]
+
+        col = _find_col_fuzzy(df, candidates)
+        if col:
+            return col
+
+        # Fallback: procura qualquer coluna de data com preenchimento.
+        for c in df.columns:
+            c_norm = normalize_text(c)
+            if "DATA" in c_norm or c_norm.startswith("DT"):
+                parsed = parse_date(df[c])
+                if parsed.notna().sum() > 0:
+                    return c
+
+        return None
 
     events = []
 
-    for sheet, event_type in valid_sheets.items():
-        if sheet not in xls.sheet_names:
+    for sheet in xls.sheet_names:
+        event_type = _sheet_event(sheet)
+        if not event_type:
             continue
 
-        df = pd.read_excel(xls, sheet_name=sheet)
-        df = clean_columns(df)
+        try:
+            df = pd.read_excel(xls, sheet_name=sheet)
+            df = clean_columns(df)
+        except Exception:
+            continue
 
-        awb_col = find_column(df, ["AWB", "awb"])
+        if df is None or df.empty:
+            continue
+
+        awb_col = _find_col_fuzzy(df, [
+            "AWB",
+            "awb",
+            "Nº AWB",
+            "NUMERO AWB",
+            "NÚMERO AWB",
+            "AWB NUMBER",
+            "AWBNumber",
+        ])
         if not awb_col:
             continue
 
         df["AWB"] = df[awb_col].apply(normalize_awb)
+        df = df[df["AWB"].fillna("").astype(str).str.strip().ne("")].copy()
+        if df.empty:
+            continue
 
-        if sheet == "FINALIZADAS":
-            final_col = find_column(df, ["DATA MOV. FINALIZAÇÃO", "DATA MOV FINALIZAÇÃO"])
-            treatment_col = find_column(df, ["DATA DA TRATATIVA"])
-            final_dt = parse_date(df[final_col]) if final_col else pd.Series(pd.NaT, index=df.index)
-            treatment_dt = parse_date(df[treatment_col]) if treatment_col else pd.Series(pd.NaT, index=df.index)
-            df["DATA_EVENTO"] = final_dt.fillna(treatment_dt)
-        else:
-            treatment_col = find_column(df, ["DATA DA TRATATIVA"])
-            df["DATA_EVENTO"] = (
-                parse_date(df[treatment_col])
-                if treatment_col else pd.NaT
-            )
+        date_col = _best_date_col(df, event_type)
+        df["DATA_EVENTO"] = parse_date(df[date_col]) if date_col else pd.NaT
 
-        status_col = find_column(df, ["STATUS", " STATUS"])
-        origin_col = find_column(df, ["ORIGEM", " ORIGEM ", "BASE DE ORIGEM"])
-        reason_col = find_column(df, ["MOTIVO DA PENDENCIA"])
+        status_col = _find_col_fuzzy(df, [
+            "STATUS",
+            " STATUS",
+            "STATUS_TRATATIVA",
+            "SITUAÇÃO",
+            "SITUACAO",
+            "STATUS EMAIL",
+        ])
+        origin_col = _find_col_fuzzy(df, [
+            "ORIGEM",
+            " ORIGEM ",
+            "BASE DE ORIGEM",
+            "BASE",
+            "ORIGEM_TORRE",
+        ])
+        reason_col = _find_col_fuzzy(df, [
+            "MOTIVO DA PENDENCIA",
+            "MOTIVO PENDENCIA",
+            "MOTIVO",
+            "OBS",
+            "OBSERVAÇÃO",
+            "OBSERVACAO",
+        ])
 
         part = pd.DataFrame({
             "AWB": df["AWB"],
@@ -710,7 +849,9 @@ def read_torre(file_bytes):
             "ORIGEM_TORRE": df[origin_col] if origin_col else "",
             "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
             "ABA_ORIGEM": sheet,
+            "COLUNA_DATA_USADA": date_col if date_col else "",
         })
+
         events.append(part)
 
     if not events:
@@ -719,11 +860,16 @@ def read_torre(file_bytes):
     history = pd.concat(events, ignore_index=True)
     history = history[history["AWB"].notna()].copy()
 
+    # Se houver evento sem data, mantém no histórico, mas ele não conta como saída do dia.
+    # Para latest, ordena AWBs sem data por último somente dentro do mesmo AWB.
+    history["_DATA_SORT"] = pd.to_datetime(history["DATA_EVENTO_TORRE"], errors="coerce")
     latest = (
-        history.sort_values(["AWB", "DATA_EVENTO_TORRE"])
+        history.sort_values(["AWB", "_DATA_SORT", "EVENTO_TORRE"], na_position="first")
                .drop_duplicates("AWB", keep="last")
+               .drop(columns=["_DATA_SORT"], errors="ignore")
                .copy()
     )
+    history = history.drop(columns=["_DATA_SORT"], errors="ignore")
 
     return latest, history
 
@@ -4147,9 +4293,33 @@ if not tower_history.empty:
 
     st.caption(
         "Entradas = AWBs incluídas hoje nas abas PENDENCIAS/PENDENCIA CORP. "
-        "Saídas = AWBs finalizadas hoje na aba FINALIZADAS. "
+        "Saídas = AWBs finalizadas hoje nas abas de FINALIZADAS/FINALIZADOS. "
         "Backlog = AWBs cujo evento mais recente ainda não é FINALIZADO."
     )
+
+    with st.expander("Diagnóstico — leitura da Torre"):
+        diag_torre = (
+            perf.groupby(["ABA_ORIGEM", "EVENTO_TORRE"], dropna=False)
+            .agg(
+                AWBS=("AWB", "nunique"),
+                COM_DATA=("DATA_EVENTO_TORRE", lambda s: pd.to_datetime(s, errors="coerce").notna().sum()),
+            )
+            .reset_index()
+            .sort_values(["ABA_ORIGEM", "EVENTO_TORRE"])
+        )
+        st.dataframe(diag_torre, use_container_width=True, hide_index=True)
+
+        finalizados_diag = perf[perf["EVENTO_TORRE"].eq("FINALIZADO")].copy()
+        if finalizados_diag.empty:
+            st.warning(
+                "Nenhum registro FINALIZADO foi lido. Verifique se a planilha possui uma aba com nome contendo FINALIZADAS/FINALIZADOS/FINALIZAÇÃO e coluna AWB."
+            )
+        else:
+            st.dataframe(
+                finalizados_diag.sort_values("DATA_EVENTO_TORRE", ascending=False).head(50),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 # Download
 st.subheader("Exportação")
