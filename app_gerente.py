@@ -602,6 +602,7 @@ def edi_rows(df, indicador=None, base=None, cliente=None):
         "DIAS_SLA",
         "ORIGEM",
         "DESTINO",
+        "OPS_STATION",
         "TRECHO",
         "VOO",
         "DATA_VOO",
@@ -615,26 +616,26 @@ def edi_rows(df, indicador=None, base=None, cliente=None):
 def render_edi_card_detail(card_key, edi_detalhe):
     mapping = {
         "edi_emb_sao12": {
-            "title": "EDI — Emb. origem SAO12/TRES1 SAO12",
-            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia e origem SAO12/TRES1.",
+            "title": "EDI — Embarque em SAO12/TRES1 SAO12",
+            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
             "sheet": "EMB_SAO12",
         },
         "edi_emb_tres1": {
-            "title": "EDI — Emb. origem SAO12/TRES1 TRES1",
-            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia e origem SAO12/TRES1.",
+            "title": "EDI — Embarque em SAO12/TRES1 TRES1",
+            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
             "sheet": "EMB_TRES1",
         },
         "edi_des_sao12": {
             "title": "EDI — Pendente de desembarque SAO12",
-            "subtitle": "Cargas pendentes de desembarque até o SLA do dia.",
+            "subtitle": "Cargas onde OPSStation bate com FltDestination ou status pendente desembarque, até o SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12"),
             "sheet": "DES_SAO12",
         },
         "edi_des_tres1": {
             "title": "EDI — Pendente de desembarque TRES1",
-            "subtitle": "Cargas pendentes de desembarque até o SLA do dia.",
+            "subtitle": "Cargas onde OPSStation bate com FltDestination ou status pendente desembarque, até o SLA do dia.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1"),
             "sheet": "DES_TRES1",
         },
@@ -1400,7 +1401,7 @@ if menu == "visao":
     cards_linha1 = [
         ("Entrega em atraso", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
+        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
@@ -1464,7 +1465,7 @@ elif menu == "retornos":
 elif menu == "edi":
     st.markdown("### EDI — First Mile")
     st.caption(
-        "Cards expansivos. Clique em Abrir para ver o detalhe e baixar Excel do indicador."
+        "Cards expansivos. Regra: embarque só entra se OPSStation for SAO12/TRES1; desembarque entra quando OPSStation bate com FltDestination. Clique em Abrir para ver o detalhe e baixar Excel."
     )
 
     st.info(
@@ -1473,10 +1474,10 @@ elif menu == "edi":
     )
 
     edi_cards_l1 = [
-        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Até o SLA do dia", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
-        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Até o SLA do dia", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
-        ("Desemb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_sao12"),
-        ("Desemb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_tres1"),
+        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Até SLA do dia", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
+        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Até SLA do dia", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
+        ("Desemb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_sao12"),
+        ("Desemb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_tres1"),
     ]
 
     edi_cards_l2 = [

@@ -466,9 +466,15 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
             fm["GRUPO_FIRST_MILE"] = fm["STATUS_SISTEMA"].apply(first_mile_status_group)
 
         for _, row in fm.iterrows():
-            base = str(row.get("BASE_EMISSORA", "")).strip().upper()
-            if base not in {"SAO12", "TRES1"}:
-                continue
+            base_arquivo = str(row.get("BASE_EMISSORA", "")).strip().upper()
+
+            ops_station = pick(row, ["OPSStation", "OPS_STATION", "OPS Station"]).strip().upper()
+            flt_destination = pick(row, ["FltDestination", "DestinationCode", "DESTINO"]).strip().upper()
+            flt_origin = pick(row, ["FltOrigin", "OriginCode", "ORIGEM"]).strip().upper()
+
+            # Para o EDI gerencial, a base operacional é onde a carga está agora.
+            # Pendente de embarque só entra quando a carga está em SAO12 ou TRES1.
+            base = ops_station or base_arquivo
 
             grupo = str(row.get("GRUPO_FIRST_MILE", "")).strip().upper()
             status_norm = normalize_text(row.get("STATUS_SISTEMA", ""))
@@ -503,9 +509,24 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 continue
 
             indicador = None
+
+            # Regra refinada do EDI gerencial:
+            # 1) Pendente de embarque só entra quando OPSStation está em SAO12 ou TRES1.
+            #    Exemplo: OPSStation = VCP não entra como pendente embarque.
+            # 2) Se OPSStation bate com FltDestination, a carga está no destino.
+            #    Então vira pendente de desembarque no destino, até o SLA do dia.
+            esta_no_destino = (
+                bool(ops_station)
+                and bool(flt_destination)
+                and normalize_text(ops_station) == normalize_text(flt_destination)
+            )
+
             if grupo == "PENDENTE DE EMBARQUE":
-                indicador = "PENDENTE DE EMBARQUE"
-            elif grupo == "PENDENTE DE DESEMBARQUE":
+                if ops_station in {"SAO12", "TRES1"}:
+                    indicador = "PENDENTE DE EMBARQUE"
+                else:
+                    continue
+            elif grupo == "PENDENTE DE DESEMBARQUE" or esta_no_destino:
                 indicador = "PENDENTE DE DESEMBARQUE"
             elif grupo == "MISSING":
                 indicador = "MISSING"
@@ -541,22 +562,10 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
             } and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
                 continue
 
-            origem_operacional = pick(row, ["OriginCode", "FltOrigin"])
-            destino_operacional = pick(row, ["DestinationCode", "FltDestination", "OPSStation"])
-
-            # Regra solicitada:
-            # EDI pendente de embarque só pode entrar quando o local/origem do embarque
-            # for SAO12 ou TRES1. Exemplo: pendente embarque em VCP não entra.
-            if indicador == "PENDENTE DE EMBARQUE":
-                origem_norm = normalize_text(origem_operacional)
-                if origem_norm not in {"SAO12", "TRES1"}:
-                    continue
-                base = origem_norm
-
             trecho = (
-                origem_operacional
+                (flt_origin or pick(row, ["FltOrigin", "OriginCode"]))
                 + " → "
-                + destino_operacional
+                + (flt_destination or pick(row, ["FltDestination", "DestinationCode"]))
             ).strip(" →")
 
             detail_rows.append({
@@ -569,8 +578,9 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "SLA": sla_date,
                 "STATUS_SLA": status_sla,
                 "DIAS_SLA": dias_sla,
-                "ORIGEM": origem_operacional,
-                "DESTINO": destino_operacional,
+                "ORIGEM": flt_origin or pick(row, ["OriginCode", "FltOrigin"]),
+                "DESTINO": flt_destination or pick(row, ["DestinationCode", "FltDestination"]),
+                "OPS_STATION": ops_station,
                 "TRECHO": trecho,
                 "VOO": row.get("FltNo", ""),
                 "DATA_VOO": row.get("FltDt", ""),
