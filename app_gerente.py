@@ -11,7 +11,7 @@ from google.oauth2.service_account import Credentials
 
 
 st.set_page_config(
-    page_title="Dashboard Executivo da Torre",
+    page_title="Dashboard Torre de Controle",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -965,8 +965,8 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         df = pendencia_movimento_rows("TOTAL NA PENDÊNCIA")
 
     elif card_key == "pend_entrada_hoje":
-        title = "Detalhe — Entraram na pendência hoje"
-        subtitle = "Cargas que entraram na pendência na data de análise."
+        title = "Detalhe — Entradas na Torre hoje"
+        subtitle = "Cargas que entraram na Torre na data de análise."
         df = pendencia_movimento_rows("ENTROU HOJE")
 
     elif card_key == "pend_saida_hoje":
@@ -1334,7 +1334,7 @@ st.markdown(
         <span class="badge">VISÃO EXECUTIVA</span>
         <span class="badge">PERÍODO ANALISADO: {periodo}</span>
         <span class="badge">ATUALIZADO EM: {atualizado}</span>
-        <h1>Dashboard Executivo da Torre</h1>
+        <h1>Dashboard Torre de Controle</h1>
         <p>Visão gerencial de SLA, retornos, motoristas ofensores e pendências corporativas.</p>
     </div>
     """,
@@ -1382,7 +1382,17 @@ resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
-resumo_entraram_pendencia_hoje = number(summary_value(resumo, "Entraram na pendência hoje", len(pendencia_movimento_rows("ENTROU HOJE"))))
+resumo_entraram_pendencia_hoje = number(
+    summary_value(
+        resumo,
+        "Entradas na Torre hoje",
+        summary_value(
+            resumo,
+            "Entraram na pendência hoje",
+            len(pendencia_movimento_rows("ENTROU HOJE")),
+        ),
+    )
+)
 resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendência hoje", len(pendencia_movimento_rows("SAIU HOJE"))))
 
 alert_distribution_df = pd.DataFrame(
@@ -1418,7 +1428,7 @@ kpis_df = pd.DataFrame(
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
         {"INDICADOR": "Top clientes com pendência", "VALOR": len(pendcorp_df)},
         {"INDICADOR": "Total na pendência", "VALOR": resumo_total_pendencia},
-        {"INDICADOR": "Entraram na pendência hoje", "VALOR": resumo_entraram_pendencia_hoje},
+        {"INDICADOR": "Entradas na Torre hoje", "VALOR": resumo_entraram_pendencia_hoje},
         {"INDICADOR": "Saíram da pendência hoje", "VALOR": resumo_sairam_pendencia_hoje},
         {"INDICADOR": "Acareações em aberto", "VALOR": resumo_acareacao_qtd},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
@@ -1455,7 +1465,7 @@ if menu == "visao":
 
     cards_linha2 = [
         ("Total na pendência", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#334155", "#f8fafc", "pend_total"),
-        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entraram na pendência no dia", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
+        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entradas na Torre hoje", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
         ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje"),
         ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
     ]

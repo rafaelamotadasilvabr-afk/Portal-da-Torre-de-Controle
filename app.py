@@ -2116,6 +2116,7 @@ try:
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
                 {"METRICA": "Backlog da Torre", "VALOR": backlog_torre},
                 {"METRICA": "Total na pendência", "VALOR": backlog_torre},
+                {"METRICA": "Entradas na Torre hoje", "VALOR": entradas_torre_hoje},
                 {"METRICA": "Entraram na pendência hoje", "VALOR": entradas_torre_hoje},
                 {"METRICA": "Saíram da pendência hoje", "VALOR": saidas_torre_hoje},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
