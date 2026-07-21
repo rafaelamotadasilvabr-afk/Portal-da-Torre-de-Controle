@@ -1285,6 +1285,14 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
 
+        teve_saida_dia_sla = str(row.get("TEVE_SAIDA_DIA_SLA", teve_rota_hoje)).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        pendencia_torre_dia = str(row.get("PENDENCIA_TORRE_DIA", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
         em_torre_ativa = str(row.get("EM_TORRE_ATIVA", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
@@ -1300,17 +1308,19 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 2, prioridade_des, "PENDENTE DE DESEMBARQUE", \
                 "Cobrar desembarque da carga até o SLA do dia"
 
-        # Mesma regra do Radar Preventivo — Last Mile:
-        # Pendente Entrega + SLA na data de análise + nenhuma rota criada hoje + fora da Torre ativa.
+        # SLA do dia sem rota:
+        # Só é sem rota quando realmente não houve saída/rota no dia do SLA.
+        # Se teve rota e foi para pendência no dia, não é sem rota; é tratativa da Torre.
         if (
             status_sistema == "PENDENTE ENTREGA"
             and pd.notna(sla_row)
             and sla_row == analysis_ts
-            and not teve_rota_hoje
+            and not teve_saida_dia_sla
+            and not pendencia_torre_dia
             and not em_torre_ativa
         ):
             return 3, "ALTA", "SLA DO DIA SEM ROTA", \
-                "Criar rota no Eu Entrego ou justificar ausência de rota no dia do SLA"
+                "Criar rota no Eu Entrego ou justificar ausência de saída no dia do SLA"
 
         # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
         # Entra antes de PENDENTE DE ENTREGA para não ficar escondido no grupo genérico.
@@ -1607,7 +1617,7 @@ def classify_row(row, today, returns_set):
 
     return "FORA DA FILA V0", "SEM AÇÃO V0", "MONITORAMENTO", "BAIXA"
 
-def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, today):
+def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, today, tower_history=None):
     master = last_mile.copy()
 
     master = master.merge(
@@ -1630,14 +1640,57 @@ def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, t
             validate="one_to_one",
         )
 
-    today_ts = pd.Timestamp(today)
-    route_today_awbs = set(
-        route_dates.loc[
-            route_dates["DATA_ROTA"].dt.normalize() == today_ts,
-            "AWB"
-        ].dropna()
-    )
+    today_ts = pd.Timestamp(today).normalize()
+
+    if route_dates is not None and not route_dates.empty and "DATA_ROTA" in route_dates.columns:
+        _route_dates = route_dates.copy()
+        _route_dates["DATA_ROTA"] = pd.to_datetime(_route_dates["DATA_ROTA"], errors="coerce").dt.normalize()
+
+        route_today_awbs = set(
+            _route_dates.loc[
+                _route_dates["DATA_ROTA"] == today_ts,
+                "AWB"
+            ].dropna()
+        )
+
+        route_pairs = set(
+            zip(
+                _route_dates["AWB"].astype(str),
+                _route_dates["DATA_ROTA"].dt.date,
+            )
+        )
+    else:
+        route_today_awbs = set()
+        route_pairs = set()
+
     master["TEVE_ROTA_HOJE"] = master["AWB"].isin(route_today_awbs)
+
+    if "SLA_DATA" in master.columns:
+        _sla_for_route = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.normalize()
+        master["TEVE_SAIDA_DIA_SLA"] = [
+            (str(awb), sla.date()) in route_pairs if pd.notna(sla) else False
+            for awb, sla in zip(master["AWB"], _sla_for_route)
+        ]
+    else:
+        master["TEVE_SAIDA_DIA_SLA"] = master["TEVE_ROTA_HOJE"]
+
+    # Marca AWBs que entraram em pendência da Torre na data da análise.
+    # Se teve rota e virou pendência no dia, não pode ser classificada como "sem rota".
+    if tower_history is not None and not tower_history.empty:
+        _hist = tower_history.copy()
+        _hist_dt = pd.to_datetime(_hist.get("DATA_EVENTO_TORRE"), errors="coerce").dt.normalize()
+        _hist_event = _hist.get("EVENTO_TORRE", "").astype(str).map(normalize_text)
+        pendencia_hoje_awbs = set(
+            _hist.loc[
+                _hist_dt.eq(today_ts)
+                & _hist_event.isin(["PENDENCIA", "PENDENCIA_CORP"]),
+                "AWB"
+            ].dropna()
+        )
+    else:
+        pendencia_hoje_awbs = set()
+
+    master["PENDENCIA_TORRE_DIA"] = master["AWB"].isin(pendencia_hoje_awbs)
     master["RETORNO_CONFIRMADO"] = master["AWB"].isin(returns_set)
 
     results = master.apply(
@@ -1939,6 +1992,7 @@ try:
             tower_latest,
             returns_set,
             reference_date,
+            tower_history=tower_history,
         )
 
 
@@ -2082,6 +2136,18 @@ try:
                 else pd.Series(False, index=master.index)
             )
 
+            _teve_saida_dia_sla = (
+                master["TEVE_SAIDA_DIA_SLA"].fillna(False).astype(bool)
+                if "TEVE_SAIDA_DIA_SLA" in master.columns
+                else _teve_rota
+            )
+
+            _pendencia_torre_dia = (
+                master["PENDENCIA_TORRE_DIA"].fillna(False).astype(bool)
+                if "PENDENCIA_TORRE_DIA" in master.columns
+                else pd.Series(False, index=master.index)
+            )
+
             _situacao_norm = (
                 master["SITUACAO_GERENCIAL"].astype(str).map(normalize_text)
                 if "SITUACAO_GERENCIAL" in master.columns
@@ -2106,12 +2172,13 @@ try:
                 else pd.Series(False, index=master.index)
             )
 
-            # Mesma regra do Radar Preventivo — Last Mile:
-            # SLA do dia sem rota = Pendente Entrega + SLA hoje + nenhuma rota criada hoje + fora da Torre ativa.
-            # Se teve rota hoje e voltou com insucesso, NÃO entra aqui.
+            # SLA do dia sem rota:
+            # Pendente Entrega + SLA hoje + nenhuma saída/rota no dia do SLA
+            # + não entrou em pendência no dia + fora da Torre ativa.
             _piso_sem_rota_mask = (
                 _sla_dt.eq(pd.Timestamp(reference_date).normalize())
-                & ~_teve_rota
+                & ~_teve_saida_dia_sla
+                & ~_pendencia_torre_dia
                 & ~_em_torre_panel
                 & _status_norm_panel.eq("PENDENTE ENTREGA")
                 & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
@@ -3177,24 +3244,35 @@ if entregador_col:
 else:
     master["TEM_ENTREGADOR"] = False
 
-# Rota criada hoje precisa considerar a existência de rota no Eu Entrego,
-# independentemente de ter terminado com sucesso ou insucesso.
-# Se teve rota hoje e voltou com insucesso, NÃO é "sem rota".
+# Sem rota só é sem rota quando não houve saída/rota no dia do SLA.
+# Se teve rota no dia e foi para pendência no dia, não é sem rota.
 master["TEM_ROTA_HOJE"] = master["TEVE_ROTA_HOJE"].fillna(False).astype(bool)
+master["TEM_SAIDA_DIA_SLA"] = (
+    master["TEVE_SAIDA_DIA_SLA"].fillna(False).astype(bool)
+    if "TEVE_SAIDA_DIA_SLA" in master.columns
+    else master["TEM_ROTA_HOJE"]
+)
+master["TEM_PENDENCIA_TORRE_DIA"] = (
+    master["PENDENCIA_TORRE_DIA"].fillna(False).astype(bool)
+    if "PENDENCIA_TORRE_DIA" in master.columns
+    else False
+)
+
 sla_dates = pd.to_datetime(master["SLA_DATA"], errors="coerce").dt.date
 status_norm = master["STATUS_SISTEMA"].map(normalize_text)
 
 master["SLA_DO_DIA_NO_PISO"] = (
     (status_norm == "PENDENTE ENTREGA")
     & (sla_dates == reference_date)
-    & (~master["TEM_ROTA_HOJE"])
+    & (~master["TEM_SAIDA_DIA_SLA"])
+    & (~master["TEM_PENDENCIA_TORRE_DIA"])
     & (~master["EM_TORRE_ATIVA"])
 )
 
 master["SLA_VENCIDO_SEM_ROTA"] = (
     (status_norm == "PENDENTE ENTREGA")
     & (sla_dates < reference_date)
-    & (~master["TEM_ROTA_HOJE"])
+    & (~master["TEM_SAIDA_DIA_SLA"])
     & (~master["EM_TORRE_ATIVA"])
 )
 
