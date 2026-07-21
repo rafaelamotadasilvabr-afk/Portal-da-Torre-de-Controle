@@ -440,6 +440,144 @@ def safe_dataframe_for_streamlit(df):
             )
     return safe
 
+
+def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
+    """
+    Monta a visão EDI do dashboard gerencial.
+
+    No gerente, chamaremos First Mile de EDI.
+    """
+    detail_rows = []
+    ref_ts = pd.to_datetime(reference_date, errors="coerce")
+    ref_date = ref_ts.date() if pd.notna(ref_ts) else pd.Timestamp.today().date()
+
+    def pick(row, cols):
+        for col in cols:
+            if col in row.index:
+                val = row.get(col)
+                if pd.notna(val) and str(val).strip() not in {"", "nan", "None", "NaT"}:
+                    return str(val).strip()
+        return ""
+
+    if first_mile_df is not None and not first_mile_df.empty:
+        fm = first_mile_df.copy()
+
+        if "GRUPO_FIRST_MILE" not in fm.columns and "STATUS_SISTEMA" in fm.columns:
+            fm["GRUPO_FIRST_MILE"] = fm["STATUS_SISTEMA"].apply(first_mile_status_group)
+
+        for _, row in fm.iterrows():
+            base = str(row.get("BASE_EMISSORA", "")).strip().upper()
+            if base not in {"SAO12", "TRES1"}:
+                continue
+
+            grupo = str(row.get("GRUPO_FIRST_MILE", "")).strip().upper()
+            status_norm = normalize_text(row.get("STATUS_SISTEMA", ""))
+
+            indicador = None
+            if grupo == "PENDENTE DE EMBARQUE":
+                indicador = "PENDENTE DE EMBARQUE"
+            elif grupo == "MISSING":
+                indicador = "MISSING"
+            elif grupo == "PENDENTE DE DESEMBARQUE" or "PENDENTE ENTREGA" in status_norm:
+                indicador = "ENTREGA NO DESTINO PELO SLA"
+
+            if indicador is None:
+                continue
+
+            sla = pd.to_datetime(row.get("SLA_DATA"), errors="coerce")
+            if pd.notna(sla):
+                sla_date = sla.date()
+                dias_sla = (ref_date - sla_date).days
+                if dias_sla > 0:
+                    status_sla = "SLA VENCIDO"
+                elif dias_sla == 0:
+                    status_sla = "SLA HOJE"
+                else:
+                    status_sla = "SLA FUTURO"
+            else:
+                sla_date = ""
+                dias_sla = ""
+                status_sla = "SEM SLA"
+
+            if indicador == "ENTREGA NO DESTINO PELO SLA" and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
+                continue
+
+            trecho = (
+                pick(row, ["FltOrigin", "OriginCode"])
+                + " → "
+                + pick(row, ["FltDestination", "DestinationCode", "OPSStation"])
+            ).strip(" →")
+
+            detail_rows.append({
+                "FONTE": "FIRST MILE",
+                "BASE": base,
+                "INDICADOR": indicador,
+                "CLIENTE": row.get("CLIENTE_PADRONIZADO", row.get("BillTo", "")),
+                "AWB": row.get("AWB", ""),
+                "STATUS": row.get("STATUS_SISTEMA", ""),
+                "SLA": sla_date,
+                "STATUS_SLA": status_sla,
+                "DIAS_SLA": dias_sla,
+                "ORIGEM": pick(row, ["OriginCode", "FltOrigin"]),
+                "DESTINO": pick(row, ["DestinationCode", "FltDestination", "OPSStation"]),
+                "TRECHO": trecho,
+                "VOO": row.get("FltNo", ""),
+                "DATA_VOO": row.get("FltDt", ""),
+                "BILL_TO": row.get("BillTo", ""),
+            })
+
+    if edi_base_df is not None and not edi_base_df.empty and "STATUS_EDI_GERENCIAL" in edi_base_df.columns:
+        pend = edi_base_df[
+            edi_base_df["STATUS_EDI_GERENCIAL"].isin(["BOOKING REAL", "AGUARDANDO BOOKING"])
+        ].copy()
+        for _, row in pend.iterrows():
+            detail_rows.append({
+                "FONTE": "NOTAS INTEGRADAS EDI",
+                "BASE": "",
+                "INDICADOR": str(row.get("STATUS_EDI_GERENCIAL", "")),
+                "CLIENTE": str(row.get("CLIENTE_EDI", "")),
+                "AWB": row.get("Nº AWB", ""),
+                "STATUS": row.get("UltimaOcorrencia", ""),
+                "SLA": "",
+                "STATUS_SLA": "",
+                "DIAS_SLA": "",
+                "ORIGEM": row.get("Origem", ""),
+                "DESTINO": row.get("Destino", ""),
+                "TRECHO": "",
+                "VOO": "",
+                "DATA_VOO": "",
+                "BILL_TO": "",
+            })
+
+    detalhe = pd.DataFrame(detail_rows)
+
+    if detalhe.empty:
+        return (
+            pd.DataFrame(columns=["BASE", "INDICADOR", "AWBS"]),
+            pd.DataFrame(columns=[
+                "FONTE", "BASE", "INDICADOR", "CLIENTE", "AWB", "STATUS",
+                "SLA", "STATUS_SLA", "DIAS_SLA", "ORIGEM", "DESTINO",
+                "TRECHO", "VOO", "DATA_VOO", "BILL_TO"
+            ]),
+        )
+
+    detalhe["AWB"] = detalhe["AWB"].fillna("").astype(str).str.strip()
+    detalhe["_CONTAGEM"] = detalhe["AWB"].where(
+        detalhe["AWB"].ne(""),
+        detalhe.index.astype(str)
+    )
+
+    resumo = (
+        detalhe.groupby(["BASE", "INDICADOR"], dropna=False)["_CONTAGEM"]
+        .nunique()
+        .reset_index(name="AWBS")
+        .sort_values(["BASE", "AWBS"], ascending=[True, False])
+    )
+
+    detalhe = detalhe.drop(columns=["_CONTAGEM"], errors="ignore")
+    return resumo, detalhe
+
+
 def edi_client_name(row):
     """
     Padroniza clientes EDI conhecidos pelo ID_Empresa.
@@ -983,7 +1121,14 @@ def _panel_brl(value):
 
 
 
-def build_manager_pack_bytes(summary_df, fila_df, top_problemas_df, top_bases_df, top_clientes_df):
+def build_manager_pack_bytes(
+    summary_df,
+    fila_df,
+    top_problemas_df,
+    top_bases_df,
+    top_clientes_df,
+    extra_sheets=None,
+):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         summary_df.to_excel(writer, sheet_name="RESUMO", index=False)
@@ -991,6 +1136,15 @@ def build_manager_pack_bytes(summary_df, fila_df, top_problemas_df, top_bases_df
         top_problemas_df.to_excel(writer, sheet_name="TOP_PROBLEMAS", index=False)
         top_bases_df.to_excel(writer, sheet_name="TOP_BASES", index=False)
         top_clientes_df.to_excel(writer, sheet_name="TOP_CLIENTES", index=False)
+
+        for sheet_name, df in (extra_sheets or {}).items():
+            safe_name = str(sheet_name)[:31]
+            (df if df is not None else pd.DataFrame()).to_excel(
+                writer,
+                sheet_name=safe_name,
+                index=False,
+            )
+
     output.seek(0)
     return output.getvalue()
 
@@ -1264,6 +1418,7 @@ def sync_manager_dashboard_to_google_sheet(
     fila_df,
     top_problemas_df,
     top_bases_df,
+    extra_sheets=None,
 ):
     """
     Sincroniza as quatro abas usadas pelo app do gerente.
@@ -1288,6 +1443,9 @@ def sync_manager_dashboard_to_google_sheet(
         _write_df_to_worksheet(spreadsheet, "FILA", fila_df)
         _write_df_to_worksheet(spreadsheet, "TOP_PROBLEMAS", top_problemas_df)
         _write_df_to_worksheet(spreadsheet, "TOP_BASES", top_bases_df)
+
+        for sheet_name, df in (extra_sheets or {}).items():
+            _write_df_to_worksheet(spreadsheet, sheet_name, df)
 
         return True, "Base gerencial sincronizada com sucesso."
     except Exception as exc:
@@ -1565,6 +1723,56 @@ try:
             else:
                 passivel_total = 0.0
 
+            # EDI gerencial: First Mile será exibido como EDI no painel do gerente.
+            fm_frames_gerente = []
+            if file_sao12:
+                try:
+                    fm_frames_gerente.append(
+                        read_first_mile_awbstatus(file_sao12.getvalue(), "SAO12")
+                    )
+                except Exception:
+                    pass
+
+            if file_tres1:
+                try:
+                    fm_frames_gerente.append(
+                        read_first_mile_awbstatus(file_tres1.getvalue(), "TRES1")
+                    )
+                except Exception:
+                    pass
+
+            first_mile_gerente = (
+                pd.concat(fm_frames_gerente, ignore_index=True, sort=False)
+                if fm_frames_gerente else pd.DataFrame()
+            )
+
+            if not first_mile_gerente.empty:
+                first_mile_gerente["GRUPO_FIRST_MILE"] = (
+                    first_mile_gerente["STATUS_SISTEMA"].apply(first_mile_status_group)
+                )
+
+            edi_base_gerente = pd.DataFrame()
+            if files_edi:
+                try:
+                    edi_payload_gerente = tuple((f.name, f.getvalue()) for f in files_edi)
+                    edi_base_gerente, _edi_audit_gerente = read_edi_files(edi_payload_gerente)
+                    if not edi_base_gerente.empty:
+                        edi_base_gerente = edi_base_gerente.copy()
+                        edi_base_gerente["CLIENTE_EDI"] = edi_base_gerente.apply(edi_client_name, axis=1)
+                        edi_base_gerente["STATUS_EDI_GERENCIAL"] = edi_base_gerente.apply(classify_edi_status, axis=1)
+                        edi_base_gerente = mark_edi_execution_from_first_mile(
+                            edi_base_gerente,
+                            first_mile_gerente,
+                        )
+                except Exception:
+                    edi_base_gerente = pd.DataFrame()
+
+            edi_resumo_gerente, edi_detalhe_gerente = build_edi_manager_views(
+                first_mile_gerente,
+                edi_base_gerente,
+                reference_date,
+            )
+
             g1, g2, g3, g4 = st.columns(4)
             g1.metric("AWBs monitoradas", carteira_total)
             g2.metric("AWBs com ação", awbs_acao)
@@ -1648,6 +1856,28 @@ try:
                     if not acar_andamento.empty and _panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])
                     else 0.0
                 )},
+                {"METRICA": "EDI pendente embarque SAO12", "VALOR": int(
+                    edi_detalhe_gerente[
+                        (edi_detalhe_gerente["BASE"].astype(str).str.upper().eq("SAO12"))
+                        & (edi_detalhe_gerente["INDICADOR"].astype(str).eq("PENDENTE DE EMBARQUE"))
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI pendente embarque TRES1", "VALOR": int(
+                    edi_detalhe_gerente[
+                        (edi_detalhe_gerente["BASE"].astype(str).str.upper().eq("TRES1"))
+                        & (edi_detalhe_gerente["INDICADOR"].astype(str).eq("PENDENTE DE EMBARQUE"))
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI entrega destino SLA", "VALOR": int(
+                    edi_detalhe_gerente[
+                        edi_detalhe_gerente["INDICADOR"].astype(str).eq("ENTREGA NO DESTINO PELO SLA")
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI missing", "VALOR": int(
+                    edi_detalhe_gerente[
+                        edi_detalhe_gerente["INDICADOR"].astype(str).eq("MISSING")
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
             ])
 
             pacote_gerente = build_manager_pack_bytes(
@@ -1656,6 +1886,10 @@ try:
                 prob_resumo if 'prob_resumo' in locals() else pd.DataFrame(),
                 local_resumo if 'local_resumo' in locals() else pd.DataFrame(),
                 pd.DataFrame(),
+                extra_sheets={
+                    "EDI_RESUMO": edi_resumo_gerente,
+                    "EDI_DETALHE": edi_detalhe_gerente,
+                },
             )
 
             st.download_button(
@@ -1678,6 +1912,7 @@ try:
                 int(terceira_tentativa_entrega),
                 int(backlog_torre),
                 int(len(acar_andamento)),
+                int(len(edi_detalhe_gerente)),
             )
 
             if st.session_state.get("_manager_last_sync_key") != _sync_key:
@@ -1686,6 +1921,10 @@ try:
                     fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
                     prob_resumo if "prob_resumo" in locals() else pd.DataFrame(),
                     local_resumo if "local_resumo" in locals() else pd.DataFrame(),
+                extra_sheets={
+                    "EDI_RESUMO": edi_resumo_gerente,
+                    "EDI_DETALHE": edi_detalhe_gerente,
+                },
                 )
                 if _sync_ok:
                     st.session_state["_manager_last_sync_key"] = _sync_key
@@ -1697,6 +1936,10 @@ try:
                         fila_gerencial.drop(columns=["_ORDEM_FILA"], errors="ignore"),
                         prob_resumo if "prob_resumo" in locals() else pd.DataFrame(),
                         local_resumo if "local_resumo" in locals() else pd.DataFrame(),
+                    extra_sheets={
+                        "EDI_RESUMO": edi_resumo_gerente,
+                        "EDI_DETALHE": edi_detalhe_gerente,
+                    },
                     )
                     if _sync_ok:
                         st.success(_sync_msg)

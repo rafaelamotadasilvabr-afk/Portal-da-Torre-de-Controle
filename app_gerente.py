@@ -333,7 +333,7 @@ def load_source(url):
     spreadsheet = gc.open_by_url(url)
     result = {}
 
-    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES"]:
+    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE"]:
         try:
             ws = spreadsheet.worksheet(sheet_name)
             values = ws.get_all_values()
@@ -538,6 +538,62 @@ def render_alert_pie_chart(alert_df):
     )
 
     st.altair_chart(pie + labels, use_container_width=True)
+
+
+def edi_count(df, indicador=None, base=None):
+    if df is None or df.empty:
+        return 0
+
+    data = df.copy()
+
+    if indicador and "INDICADOR" in data.columns:
+        data = data[data["INDICADOR"].astype(str).eq(indicador)]
+
+    if base and "BASE" in data.columns:
+        data = data[data["BASE"].astype(str).str.upper().eq(str(base).upper())]
+
+    if data.empty:
+        return 0
+
+    if "AWB" in data.columns:
+        awbs = data["AWB"].fillna("").astype(str).str.strip()
+        awbs = awbs[awbs.ne("")]
+        return int(awbs.nunique()) if not awbs.empty else int(len(data))
+
+    return int(len(data))
+
+
+def edi_rows(df, indicador=None, base=None):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    if indicador and "INDICADOR" in data.columns:
+        data = data[data["INDICADOR"].astype(str).eq(indicador)]
+
+    if base and "BASE" in data.columns:
+        data = data[data["BASE"].astype(str).str.upper().eq(str(base).upper())]
+
+    preferred = [
+        "BASE",
+        "INDICADOR",
+        "CLIENTE",
+        "AWB",
+        "STATUS",
+        "SLA",
+        "STATUS_SLA",
+        "DIAS_SLA",
+        "ORIGEM",
+        "DESTINO",
+        "TRECHO",
+        "VOO",
+        "DATA_VOO",
+        "BILL_TO",
+        "FONTE",
+    ]
+    cols = [c for c in preferred if c in data.columns]
+    return data[cols].copy() if cols else data
 
 
 def detail_columns(df):
@@ -1021,6 +1077,7 @@ with st.sidebar:
         ("visao", "⌂  Visão Geral"),
         ("motoristas", "☑  Motoristas ofensores"),
         ("retornos", "↩  Retornos em aberto"),
+        ("edi", "✈  EDI"),
         ("acareacao", "⚖  Acareações"),
         ("pendcorp", "▣  Top clientes pendência"),
         ("relatorio", "▤  Download diretoria"),
@@ -1073,6 +1130,8 @@ except Exception as exc:
 
 resumo = pack.get("RESUMO", pd.DataFrame())
 fila = pack.get("FILA", pd.DataFrame())
+edi_resumo = pack.get("EDI_RESUMO", pd.DataFrame())
+edi_detalhe = pack.get("EDI_DETALHE", pd.DataFrame())
 
 periodo = summary_value(resumo, "Período analisado", "")
 if not periodo:
@@ -1183,6 +1242,11 @@ if menu == "visao":
         "Clique em Abrir para ver somente o detalhe do indicador selecionado. O filtro de data atualiza os cards calculados pela fila."
     )
 
+    if st.button("Abrir EDI / First Mile", key="abrir_edi_home", use_container_width=False):
+        st.session_state["menu_gerente"] = "edi"
+        st.session_state["detail_card"] = ""
+        st.rerun()
+
     acareacao_qtd = resumo_acareacao_qtd
     acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
 
@@ -1245,6 +1309,91 @@ elif menu == "retornos":
         "Baixar retornos em aberto.csv",
         retornos_df.to_csv(index=False).encode("utf-8-sig"),
         file_name="retornos_em_aberto.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
+elif menu == "edi":
+    st.markdown("### EDI — First Mile")
+    st.caption(
+        "No dashboard gerencial, First Mile será tratado como EDI. "
+        "A visão abaixo consolida SAO12/TRES1 e os alertas principais."
+    )
+
+    e1, e2, e3, e4 = st.columns(4)
+
+    with e1:
+        kpi_card(
+            "PENDENTE EMBARQUE SAO12",
+            fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")),
+            "Cargas pendentes de embarque em SAO12",
+            "S12",
+            "#2563eb",
+            "#eff6ff",
+        )
+
+    with e2:
+        kpi_card(
+            "PENDENTE EMBARQUE TRES1",
+            fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")),
+            "Cargas pendentes de embarque em TRES1",
+            "T1",
+            "#1d4ed8",
+            "#eff6ff",
+        )
+
+    with e3:
+        kpi_card(
+            "ENTREGA DESTINO / SLA",
+            fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")),
+            "Pendentes no destino com SLA hoje/vencido",
+            "SLA",
+            "#d97706",
+            "#fff7e8",
+        )
+
+    with e4:
+        kpi_card(
+            "MISSING",
+            fmt_int(edi_count(edi_detalhe, "MISSING")),
+            "Cargas missing em SAO12/TRES1",
+            "!",
+            "#d92d20",
+            "#fff0ef",
+            "#c9231a",
+        )
+
+    st.divider()
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Pendente embarque SAO12",
+        "Pendente embarque TRES1",
+        "Entrega destino / SLA",
+        "Missing",
+        "Resumo EDI",
+    ])
+
+    with tab1:
+        render_table(edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"), height=500)
+
+    with tab2:
+        render_table(edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"), height=500)
+
+    with tab3:
+        st.caption("Considera pendência no destino com SLA hoje ou SLA vencido.")
+        render_table(edi_rows(edi_detalhe, "ENTREGA NO DESTINO PELO SLA"), height=500)
+
+    with tab4:
+        render_table(edi_rows(edi_detalhe, "MISSING"), height=500)
+
+    with tab5:
+        render_table(edi_resumo, height=360)
+
+    st.download_button(
+        "Baixar detalhe EDI.csv",
+        edi_detalhe.to_csv(index=False).encode("utf-8-sig"),
+        file_name="edi_first_mile_detalhe.csv",
         mime="text/csv",
         use_container_width=True,
     )
@@ -1318,13 +1467,15 @@ elif menu == "relatorio":
 
     st.divider()
     st.markdown("### Prévia do conteúdo")
-    t1, t2, t3 = st.tabs(["Motoristas", "Retornos", "Pendência Corp"])
+    t1, t2, t3, t4 = st.tabs(["Motoristas", "Retornos", "Pendência Corp", "EDI"])
     with t1:
         render_table(motoristas_df, height=360)
     with t2:
         render_table(retornos_df, height=360)
     with t3:
         render_table(pendcorp_df, height=260)
+    with t4:
+        render_table(edi_resumo, height=300)
 
 
 elif menu == "config":
@@ -1336,6 +1487,8 @@ elif menu == "config":
         [
             {"Aba": "RESUMO", "Linhas": len(resumo)},
             {"Aba": "FILA", "Linhas": len(fila)},
+            {"Aba": "EDI_RESUMO", "Linhas": len(edi_resumo)},
+            {"Aba": "EDI_DETALHE", "Linhas": len(edi_detalhe)},
             {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
             {"Filtro aplicado": "AWBs por dia", "Linhas após filtro": len(daily_df)},
             {"Filtro aplicado": "Acareações em aberto", "Linhas após filtro": len(acareacao_df)},
