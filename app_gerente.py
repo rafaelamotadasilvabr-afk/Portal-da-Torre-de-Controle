@@ -1062,8 +1062,6 @@ kpis_df = pd.DataFrame(
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": number(summary_value(resumo, "3ª tentativa de entrega", 0))},
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
-        {"INDICADOR": "AWBs no período filtrado", "VALOR": awb_periodo_qtd},
-        {"INDICADOR": "Dias com AWB no período", "VALOR": len(daily_df)},
         {"INDICADOR": "Top clientes com pendência", "VALOR": len(pendcorp_df)},
         {"INDICADOR": "Acareações em aberto", "VALOR": number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
@@ -1088,24 +1086,19 @@ if menu == "visao":
 
     cards_linha1 = [
         ("Nível de serviço", service_level_label(resumo), "Estimado: 1 - entregas em atraso / AWBs monitoradas", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
-        ("AWBs no período", fmt_int(awb_periodo_qtd), "Qtd. de AWBs na fila filtrada", "▣", "#2563eb", "#eff6ff", "awbs"),
-        ("AWBs por dia", fmt_int(daily_df["AWBS"].sum() if not daily_df.empty else 0), "Abrir para ver a distribuição diária", "📅", "#1d4ed8", "#eff6ff", "awbs_dia"),
         ("Entrega em atraso", fmt_int(len(overdue_delivery_rows(fila_filtrada))), "Cargas com SLA vencido no período", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("SLA do dia sem rota", fmt_int(len(sla_sem_rota_rows(fila_filtrada))), "SLA sem rota no período", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("3ª tentativa de entrega", fmt_int(len(terceira_tentativa_rows(fila_filtrada))), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
     cards_linha2 = [
-        ("SLA do dia sem rota", fmt_int(len(sla_sem_rota_rows(fila_filtrada))), "SLA sem rota no período", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("3ª tentativa de entrega", fmt_int(len(terceira_tentativa_rows(fila_filtrada))), "Cargas com 3 ou mais tentativas", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
         ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
-    ]
-
-    cards_linha3 = [
         ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
         ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
     ]
 
-    for cards in [cards_linha1, cards_linha2, cards_linha3]:
+    for cards in [cards_linha1, cards_linha2]:
         cols = st.columns(len(cards))
         for idx, item in enumerate(cards):
             label, value, sub, icon, accent, soft, key = item
