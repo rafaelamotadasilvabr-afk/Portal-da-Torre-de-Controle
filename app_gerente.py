@@ -923,8 +923,8 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         df = sla_sem_rota_rows(fila_filtrada)
 
     elif card_key == "lastmile_desembarque":
-        title = "Detalhe — Last Mile pendente de desembarque"
-        subtitle = "Cargas em pendência de desembarque com SLA vencido ou SLA do dia."
+        title = "Detalhe — Pendente de desembarque CDSP2"
+        subtitle = "Cargas CDSP2 em pendência de desembarque com SLA vencido ou SLA do dia."
         df = last_mile_desembarque_rows(fila_filtrada)
 
     elif card_key == "terceira":
@@ -1335,7 +1335,7 @@ daily_df = daily_awb_counts(fila_filtrada)
 
 resumo_entrega_atraso = number(summary_value(resumo, "Entrega em atraso", len(overdue_delivery_rows(fila_filtrada))))
 resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
-resumo_lm_desembarque = number(summary_value(resumo, "Last Mile pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
+resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 
@@ -1343,7 +1343,7 @@ alert_distribution_df = pd.DataFrame(
     [
         {"INDICADOR": "Entrega em atraso", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
-        {"INDICADOR": "Pendente desembarque LM", "QTDE": resumo_lm_desembarque},
+        {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto", "QTDE": len(retornos_df)},
         {"INDICADOR": "Acareações em aberto", "QTDE": resumo_acareacao_qtd},
@@ -1363,11 +1363,10 @@ if not fila_filtrada.empty:
 
 kpis_df = pd.DataFrame(
     [
-        {"INDICADOR": "Nível de serviço estimado", "VALOR": service_level_label(resumo)},
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
         {"INDICADOR": "Entrega em atraso", "VALOR": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "VALOR": resumo_sla_sem_rota},
-        {"INDICADOR": "Last Mile pendente desembarque", "VALOR": resumo_lm_desembarque},
+        {"INDICADOR": "CDSP2 pendente desembarque", "VALOR": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto 1 dia ou +", "VALOR": len(retornos_df)},
         {"INDICADOR": "Motoristas ofensores", "VALOR": len(motoristas_df)},
@@ -1399,10 +1398,9 @@ if menu == "visao":
     acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
 
     cards_linha1 = [
-        ("Nível de serviço", service_level_label(resumo), "Resumo operacional sincronizado", "%", "#0f766e", "#f0fdfa", "nivel_servico"),
         ("Entrega em atraso", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("Pendente desembarque LM", fmt_int(resumo_lm_desembarque), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
+        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até o SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
