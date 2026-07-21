@@ -4,6 +4,7 @@ import unicodedata
 from datetime import date, timedelta
 
 import pandas as pd
+import altair as alt
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -213,6 +214,29 @@ st.markdown(
         background: #ffffff;
         color: #10213d;
         font-weight: 750;
+    }
+
+    .chart-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 16px 18px;
+        box-shadow: 0 8px 22px rgba(15,23,42,.045);
+        margin-top: 16px;
+        margin-bottom: 12px;
+    }
+
+    .chart-title {
+        color: #10213d;
+        font-size: 1.04rem;
+        font-weight: 900;
+        margin-bottom: 3px;
+    }
+
+    .chart-sub {
+        color: #64748b;
+        font-size: .78rem;
+        margin-bottom: 10px;
     }
 
     div[data-testid="stButton"] button {
@@ -467,6 +491,53 @@ def render_table(df, height=340):
         st.info("Sem dados para exibir.")
         return
     st.dataframe(df, use_container_width=True, hide_index=True, height=height)
+
+
+def render_alert_pie_chart(alert_df):
+    st.markdown(
+        """
+        <div class="chart-card">
+            <div class="chart-title">Distribuição dos alertas gerenciais</div>
+            <div class="chart-sub">Composição dos principais alertas do período filtrado.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if alert_df is None or alert_df.empty or alert_df["QTDE"].sum() <= 0:
+        st.info("Sem volume suficiente para montar o gráfico de pizza no período selecionado.")
+        return
+
+    pie = (
+        alt.Chart(alert_df)
+        .mark_arc(innerRadius=58, outerRadius=118)
+        .encode(
+            theta=alt.Theta(field="QTDE", type="quantitative"),
+            color=alt.Color(
+                field="INDICADOR",
+                type="nominal",
+                title="Indicador",
+                legend=alt.Legend(orient="right"),
+            ),
+            tooltip=[
+                alt.Tooltip("INDICADOR:N", title="Indicador"),
+                alt.Tooltip("QTDE:Q", title="Quantidade", format=",.0f"),
+            ],
+        )
+        .properties(height=315)
+    )
+
+    labels = (
+        alt.Chart(alert_df)
+        .mark_text(radius=145, size=12, fontWeight="bold")
+        .encode(
+            theta=alt.Theta(field="QTDE", type="quantitative"),
+            text=alt.Text("PERCENTUAL:N"),
+            color=alt.value("#334155"),
+        )
+    )
+
+    st.altair_chart(pie + labels, use_container_width=True)
 
 
 def detail_columns(df):
@@ -898,6 +969,8 @@ def simplified_director_report(resumo, kpis_df, motoristas_df, retornos_df, pend
             acareacao_df.to_excel(writer, sheet_name="ACAREACOES", index=False)
         if "daily_df" in globals():
             daily_df.to_excel(writer, sheet_name="AWBS_POR_DIA", index=False)
+        if "alert_distribution_df" in globals():
+            alert_distribution_df.to_excel(writer, sheet_name="DISTR_ALERTAS", index=False)
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -1048,6 +1121,22 @@ pendcorp_df = top5_pendencia_corp(fila_filtrada)
 acareacao_df = acareacao_rows(fila_filtrada)
 daily_df = daily_awb_counts(fila_filtrada)
 
+alert_distribution_df = pd.DataFrame(
+    [
+        {"INDICADOR": "Entrega em atraso", "QTDE": len(overdue_delivery_rows(fila_filtrada))},
+        {"INDICADOR": "SLA do dia sem rota", "QTDE": len(sla_sem_rota_rows(fila_filtrada))},
+        {"INDICADOR": "3ª tentativa", "QTDE": len(terceira_tentativa_rows(fila_filtrada))},
+        {"INDICADOR": "Retornos em aberto", "QTDE": len(retornos_df)},
+        {"INDICADOR": "Acareações em aberto", "QTDE": len(acareacao_df)},
+    ]
+)
+alert_distribution_df = alert_distribution_df[alert_distribution_df["QTDE"] > 0].copy()
+if not alert_distribution_df.empty:
+    _total_alertas = alert_distribution_df["QTDE"].sum()
+    alert_distribution_df["PERCENTUAL"] = (
+        alert_distribution_df["QTDE"] / _total_alertas * 100
+    ).round(1).astype(str).str.replace(".", ",", regex=False) + "%"
+
 awb_periodo_qtd = 0
 if not fila_filtrada.empty:
     _awb_col_periodo = first_col(fila_filtrada, ["AWB"])
@@ -1113,6 +1202,8 @@ if menu == "visao":
                     st.rerun()
 
     detail = st.session_state.get("detail_card", "")
+
+    render_alert_pie_chart(alert_distribution_df)
 
     if detail:
         render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
