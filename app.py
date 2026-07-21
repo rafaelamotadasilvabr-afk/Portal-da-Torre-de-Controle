@@ -117,6 +117,220 @@ def classify_sao12_client(value):
 # =========================
 
 @st.cache_data(show_spinner=False)
+def read_bi_azul_report(file_bytes, base_bi):
+    """
+    Lê relatório extraído do Power BI Azul — Cobrança das Bases.
+
+    Upload opcional por praça/base:
+    - TRES1
+    - SAO12
+    - CDSP2
+
+    Modelo detectado:
+    AWB Number, Data Emissão, Previsão, Data Entrega, Origem, Está Em, Destino,
+    Cliente, Ocorrência, Última Ocorrência, SLA, Valor NF, Performance etc.
+    """
+    if not file_bytes:
+        return pd.DataFrame()
+
+    try:
+        raw = pd.read_excel(io.BytesIO(file_bytes), header=None)
+    except Exception:
+        return pd.DataFrame()
+
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+
+    # Detecta a linha de cabeçalho pelo campo AWB Number.
+    header_idx = None
+    for idx, row in raw.head(20).iterrows():
+        vals = [normalize_text(v) for v in row.tolist() if pd.notna(v)]
+        joined = " ".join(vals)
+        if "AWB NUMBER" in joined or "AWB" in joined:
+            header_idx = int(idx)
+            break
+
+    if header_idx is None:
+        header_idx = 0
+
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes), header=header_idx)
+        df = clean_columns(df)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    def _col(cands):
+        return find_column(df, cands)
+
+    awb_col = _col(["AWB Number", "AWB", "Nº AWB", "NUMERO AWB"])
+    if not awb_col:
+        return pd.DataFrame()
+
+    emissao_col = _col(["Data Emissão", "Data Emissao", "Emissão", "Emissao"])
+    previsao_col = _col(["Previsão", "Previsao", "SLA"])
+    data_entrega_col = _col(["Data Entrega", "Entrega"])
+    origem_col = _col(["Origem", "Origin"])
+    esta_em_col = _col(["Está Em", "Esta Em", "Está em", "OPSStation", "OPS Station"])
+    destino_col = _col(["Destino", "Destination"])
+    cliente_col = _col(["Cliente", "Client", "ClientName", "CLIENTNAME"])
+    produto_col = _col(["Produto"])
+    classificacao_col = _col(["Classificação", "Classificacao"])
+    ocorrencia_col = _col(["Ocorrência", "Ocorrencia"])
+    ultima_ocorrencia_col = _col(["Última Ocorrência", "Ultima Ocorrência", "Ultima Ocorrencia"])
+    data_ultima_col = _col(["Data Última Ocorrência", "Data Ultima Ocorrência", "Data Ultima Ocorrencia"])
+    valor_col = _col(["Valor NF", "Valor", "Valor Nota"])
+    performance_col = _col(["Performance"])
+    performance_station_col = _col(["Performance Station"])
+    performance_store_col = _col(["Performance Store"])
+
+    out = pd.DataFrame(index=df.index)
+    out["BASE_BI"] = str(base_bi).upper().strip()
+    out["AWB"] = df[awb_col].apply(normalize_awb)
+    out["DATA_EMISSAO"] = parse_date(df[emissao_col]) if emissao_col else pd.NaT
+    out["PREVISAO"] = parse_date(df[previsao_col]) if previsao_col else pd.NaT
+    out["DATA_ENTREGA"] = parse_date(df[data_entrega_col]) if data_entrega_col else pd.NaT
+    out["ORIGEM"] = df[origem_col].astype(str).str.strip() if origem_col else ""
+    out["ESTA_EM"] = df[esta_em_col].astype(str).str.strip() if esta_em_col else ""
+    out["DESTINO"] = df[destino_col].astype(str).str.strip() if destino_col else ""
+    out["CLIENTE"] = df[cliente_col].astype(str).str.strip() if cliente_col else ""
+    out["PRODUTO"] = df[produto_col].astype(str).str.strip() if produto_col else ""
+    out["CLASSIFICACAO"] = df[classificacao_col].astype(str).str.strip() if classificacao_col else ""
+    out["OCORRENCIA"] = df[ocorrencia_col].astype(str).str.strip() if ocorrencia_col else ""
+    out["ULTIMA_OCORRENCIA"] = df[ultima_ocorrencia_col].astype(str).str.strip() if ultima_ocorrencia_col else ""
+    out["DATA_ULTIMA_OCORRENCIA"] = parse_date(df[data_ultima_col]) if data_ultima_col else pd.NaT
+    out["VALOR_NF"] = df[valor_col] if valor_col else ""
+    out["VALOR_NF_NUM"] = _panel_money_to_num(df[valor_col]) if valor_col else 0
+    out["PERFORMANCE"] = df[performance_col].astype(str).str.strip() if performance_col else ""
+    out["PERFORMANCE_STATION"] = df[performance_station_col].astype(str).str.strip() if performance_station_col else ""
+    out["PERFORMANCE_STORE"] = df[performance_store_col].astype(str).str.strip() if performance_store_col else ""
+
+    # Status gerencial de entrega.
+    out["ENTREGUE_BI"] = out["DATA_ENTREGA"].notna() | out["ULTIMA_OCORRENCIA"].map(normalize_text).str.contains(
+        "ENTREGUE|DELIVERED|BAIXADO",
+        regex=True,
+        na=False,
+    )
+
+    ref = pd.to_datetime(out["PREVISAO"], errors="coerce")
+    today_ref = pd.Timestamp.today().normalize()
+    out["STATUS_SLA_BI"] = "SEM SLA"
+    out.loc[ref.notna() & (ref.dt.normalize() < today_ref), "STATUS_SLA_BI"] = "SLA VENCIDO"
+    out.loc[ref.notna() & (ref.dt.normalize() == today_ref), "STATUS_SLA_BI"] = "SLA HOJE"
+    out.loc[ref.notna() & (ref.dt.normalize() > today_ref), "STATUS_SLA_BI"] = "SLA FUTURO"
+
+    out["AWB"] = out["AWB"].fillna("").astype(str).str.strip()
+    out = out[out["AWB"].ne("")].copy()
+
+    return out
+
+
+def build_bi_azul_views(files_by_base, edi_detalhe=None):
+    frames = []
+
+    for base, uploaded_file in (files_by_base or {}).items():
+        if not uploaded_file:
+            continue
+        try:
+            df = read_bi_azul_report(uploaded_file.getvalue(), base)
+            if df is not None and not df.empty:
+                frames.append(df)
+        except Exception:
+            pass
+
+    detalhe = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+
+    if detalhe.empty:
+        resumo = pd.DataFrame(columns=["BASE_BI", "AWBS", "ENTREGUES", "PENDENTES", "SLA_VENCIDO_HOJE"])
+        conferencia = pd.DataFrame(columns=[
+            "AWB", "RESULTADO_CONFERENCIA", "BASE_BI", "BASE_EDI", "BI_ESTA_EM",
+            "BI_DESTINO", "EDI_INDICADOR", "BI_STATUS_SLA"
+        ])
+        return resumo, detalhe, conferencia
+
+    resumo = (
+        detalhe.groupby("BASE_BI", dropna=False)
+        .agg(
+            AWBS=("AWB", "nunique"),
+            ENTREGUES=("ENTREGUE_BI", "sum"),
+            PENDENTES=("ENTREGUE_BI", lambda s: int((~s.astype(bool)).sum())),
+            SLA_VENCIDO_HOJE=("STATUS_SLA_BI", lambda s: int(s.isin(["SLA VENCIDO", "SLA HOJE"]).sum())),
+        )
+        .reset_index()
+        .sort_values("BASE_BI")
+    )
+
+    # Conferência com EDI.
+    bi = detalhe.copy()
+    bi["_AWB_KEY"] = bi["AWB"].apply(normalize_awb)
+
+    edi = edi_detalhe.copy() if edi_detalhe is not None and not edi_detalhe.empty else pd.DataFrame()
+    if not edi.empty and "AWB" in edi.columns:
+        edi["_AWB_KEY"] = edi["AWB"].apply(normalize_awb)
+        edi_cols = [c for c in ["_AWB_KEY", "BASE", "INDICADOR", "CLIENTE", "STATUS", "SLA", "OPS_STATION", "DESTINO"] if c in edi.columns]
+        edi_small = edi[edi_cols].drop_duplicates("_AWB_KEY")
+    else:
+        edi_small = pd.DataFrame(columns=["_AWB_KEY"])
+
+    conf = bi.merge(
+        edi_small,
+        on="_AWB_KEY",
+        how="outer",
+        suffixes=("_BI", "_EDI"),
+        indicator=True,
+    )
+
+    def _resultado(row):
+        if row["_merge"] == "left_only":
+            return "NO BI E NÃO NO EDI"
+        if row["_merge"] == "right_only":
+            return "NO EDI E NÃO NO BI"
+
+        base_bi = normalize_text(row.get("BASE_BI", ""))
+        base_edi = normalize_text(row.get("BASE", ""))
+        esta_em = normalize_text(row.get("ESTA_EM", ""))
+        destino_bi = normalize_text(row.get("DESTINO_BI", row.get("DESTINO", "")))
+        indicador = normalize_text(row.get("INDICADOR", ""))
+
+        if base_bi and base_edi and base_bi != base_edi and base_edi in ["SAO12", "TRES1", "CDSP2"]:
+            return "BASE DIVERGENTE"
+
+        if esta_em and destino_bi and esta_em == destino_bi and "DESEMBARQUE" not in indicador:
+            return "BI INDICA DESTINO / EDI NÃO ESTÁ COMO DESEMBARQUE"
+
+        return "OK"
+
+    conf["RESULTADO_CONFERENCIA"] = conf.apply(_resultado, axis=1)
+    conf["AWB"] = conf.get("AWB_BI", conf.get("AWB", "")).fillna(conf.get("AWB_EDI", "")) if "AWB_BI" in conf.columns else conf.get("_AWB_KEY", "")
+
+    keep = []
+    for col in [
+        "AWB", "RESULTADO_CONFERENCIA", "BASE_BI", "BASE", "ESTA_EM",
+        "DESTINO_BI", "INDICADOR", "STATUS", "STATUS_SLA_BI", "CLIENTE_BI",
+        "CLIENTE", "PREVISAO", "DATA_ENTREGA", "ULTIMA_OCORRENCIA"
+    ]:
+        if col in conf.columns:
+            keep.append(col)
+
+    conferencia = conf[keep].copy() if keep else conf.copy()
+    conferencia = conferencia.rename(columns={
+        "BASE": "BASE_EDI",
+        "ESTA_EM": "BI_ESTA_EM",
+        "DESTINO_BI": "BI_DESTINO",
+        "INDICADOR": "EDI_INDICADOR",
+        "STATUS": "EDI_STATUS",
+        "CLIENTE": "CLIENTE_EDI",
+        "CLIENTE_BI": "CLIENTE_BI",
+        "PREVISAO": "BI_PREVISAO",
+        "DATA_ENTREGA": "BI_DATA_ENTREGA",
+        "ULTIMA_OCORRENCIA": "BI_ULTIMA_OCORRENCIA",
+    })
+
+    return resumo, detalhe, conferencia
+
+
 def read_last_mile(file_bytes):
     df = pd.read_excel(io.BytesIO(file_bytes))
     df = clean_columns(df)
@@ -1918,6 +2132,27 @@ with st.sidebar:
         help="Selecione todos os relatórios EDI dos clientes de uma só vez."
     )
 
+    st.divider()
+    st.subheader("BI Azul — Cobrança das Bases")
+    file_bi_tres1 = st.file_uploader(
+        "BI Azul TRES1 — opcional",
+        type=["xlsx", "xls"],
+        key="bi_azul_tres1",
+        help="Relatório extraído do Power BI Azul filtrado para TRES1."
+    )
+    file_bi_sao12 = st.file_uploader(
+        "BI Azul SAO12 — opcional",
+        type=["xlsx", "xls"],
+        key="bi_azul_sao12",
+        help="Relatório extraído do Power BI Azul filtrado para SAO12."
+    )
+    file_bi_cdsp2 = st.file_uploader(
+        "BI Azul CDSP2 — opcional",
+        type=["xlsx", "xls"],
+        key="bi_azul_cdsp2",
+        help="Relatório extraído do Power BI Azul filtrado para CDSP2."
+    )
+
     reference_date = st.date_input(
         "Data de análise",
         value=date.today(),
@@ -2285,6 +2520,15 @@ try:
                 reference_date,
             )
 
+            bi_azul_resumo_gerente, bi_azul_detalhe_gerente, bi_azul_conferencia_gerente = build_bi_azul_views(
+                {
+                    "TRES1": file_bi_tres1,
+                    "SAO12": file_bi_sao12,
+                    "CDSP2": file_bi_cdsp2,
+                },
+                edi_detalhe_gerente,
+            )
+
             g1, g2, g3, g4 = st.columns(4)
             g1.metric("AWBs monitoradas", carteira_total)
             g2.metric("AWBs com ação", awbs_acao)
@@ -2493,6 +2737,14 @@ try:
                         edi_detalhe_gerente["INDICADOR"].astype(str).eq("DISCREPÂNCIA")
                     ]["AWB"].nunique()
                 ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "BI Azul AWBs", "VALOR": int(
+                    bi_azul_detalhe_gerente["AWB"].nunique()
+                ) if not bi_azul_detalhe_gerente.empty and "AWB" in bi_azul_detalhe_gerente.columns else 0},
+                {"METRICA": "BI Azul divergências", "VALOR": int(
+                    bi_azul_conferencia_gerente[
+                        ~bi_azul_conferencia_gerente["RESULTADO_CONFERENCIA"].astype(str).eq("OK")
+                    ].shape[0]
+                ) if not bi_azul_conferencia_gerente.empty and "RESULTADO_CONFERENCIA" in bi_azul_conferencia_gerente.columns else 0},
             ])
 
             pacote_gerente = build_manager_pack_bytes(
@@ -2507,6 +2759,9 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
+                        "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
+                        "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
                 },
             )
 
@@ -2535,6 +2790,8 @@ try:
                 int(len(avarias_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
+                int(len(bi_azul_detalhe_gerente)),
+                int(len(bi_azul_conferencia_gerente)),
             )
 
             if st.session_state.get("_manager_last_sync_key") != _sync_key:
@@ -2549,6 +2806,9 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
+                        "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
+                        "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
                 },
                 )
                 if _sync_ok:
@@ -2567,6 +2827,9 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
+                        "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
+                        "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
                     },
                     )
                     if _sync_ok:

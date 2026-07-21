@@ -28,6 +28,9 @@ SHEET_NAMES = [
     "PENDENCIA_MOVIMENTOS",
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
+    "BI_AZUL_RESUMO",
+    "BI_AZUL_DETALHE",
+    "BI_AZUL_CONFERENCIA",
 ]
 
 
@@ -748,6 +751,119 @@ def render_edi_card_detail(card_key, edi_detalhe):
     with col_a:
         if st.button("Fechar detalhe", key="fechar_edi_detail", use_container_width=True):
             st.session_state["edi_detail_card"] = ""
+            st.session_state["bi_detail_card"] = ""
+            st.rerun()
+
+    render_table(df, height=500)
+    st.download_button(
+        "Baixar Excel deste card",
+        excel_bytes(df, sheet_name=item["sheet"]),
+        file_name=f"{safe_filename(item['title'])}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+
+def bi_rows(df, resultado=None, base=None):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    if resultado and "RESULTADO_CONFERENCIA" in data.columns:
+        data = data[data["RESULTADO_CONFERENCIA"].astype(str).eq(resultado)]
+
+    if base:
+        base_cols = [c for c in ["BASE_BI", "BASE_EDI"] if c in data.columns]
+        if base_cols:
+            mask = pd.Series(False, index=data.index)
+            for col in base_cols:
+                mask = mask | data[col].astype(str).str.upper().eq(str(base).upper())
+            data = data[mask]
+
+    return data.copy()
+
+
+def bi_count(df, resultado=None, base=None):
+    data = bi_rows(df, resultado=resultado, base=base)
+    if data.empty:
+        return 0
+    if "AWB" in data.columns:
+        awbs = data["AWB"].fillna("").astype(str).str.strip()
+        awbs = awbs[awbs.ne("")]
+        return int(awbs.nunique()) if not awbs.empty else int(len(data))
+    return int(len(data))
+
+
+def render_bi_card_detail(card_key):
+    mapping = {
+        "bi_tres1": {
+            "title": "BI Azul — TRES1",
+            "subtitle": "Relatório Power BI Azul filtrado para TRES1.",
+            "df": bi_rows(bi_azul_detalhe, base="TRES1"),
+            "sheet": "BI_TRES1",
+        },
+        "bi_sao12": {
+            "title": "BI Azul — SAO12",
+            "subtitle": "Relatório Power BI Azul filtrado para SAO12.",
+            "df": bi_rows(bi_azul_detalhe, base="SAO12"),
+            "sheet": "BI_SAO12",
+        },
+        "bi_cdsp2": {
+            "title": "BI Azul — CDSP2",
+            "subtitle": "Relatório Power BI Azul filtrado para CDSP2.",
+            "df": bi_rows(bi_azul_detalhe, base="CDSP2"),
+            "sheet": "BI_CDSP2",
+        },
+        "bi_divergentes": {
+            "title": "BI Azul — Divergências",
+            "subtitle": "AWBs com divergência entre BI Azul e EDI.",
+            "df": bi_azul_conferencia[
+                ~bi_azul_conferencia["RESULTADO_CONFERENCIA"].astype(str).eq("OK")
+            ].copy() if bi_azul_conferencia is not None and not bi_azul_conferencia.empty and "RESULTADO_CONFERENCIA" in bi_azul_conferencia.columns else pd.DataFrame(),
+            "sheet": "DIVERGENCIAS",
+        },
+        "bi_no_bi_nao_edi": {
+            "title": "BI Azul — No BI e não no EDI",
+            "subtitle": "AWBs cobradas no BI que não apareceram no EDI.",
+            "df": bi_rows(bi_azul_conferencia, resultado="NO BI E NÃO NO EDI"),
+            "sheet": "BI_NAO_EDI",
+        },
+        "bi_no_edi_nao_bi": {
+            "title": "BI Azul — No EDI e não no BI",
+            "subtitle": "AWBs do EDI que não apareceram no BI.",
+            "df": bi_rows(bi_azul_conferencia, resultado="NO EDI E NÃO NO BI"),
+            "sheet": "EDI_NAO_BI",
+        },
+        "bi_resumo": {
+            "title": "BI Azul — Resumo",
+            "subtitle": "Resumo por base enviada.",
+            "df": bi_azul_resumo.copy() if bi_azul_resumo is not None else pd.DataFrame(),
+            "sheet": "RESUMO_BI",
+        },
+    }
+
+    item = mapping.get(card_key)
+    if not item:
+        return
+
+    df = item["df"].copy()
+
+    st.markdown(
+        f"""
+        <div class="detail-box">
+            <div class="detail-title">{item["title"]}</div>
+            <div class="detail-sub">{item["subtitle"]}</div>
+            <span class="detail-count">{len(df)} registro(s) encontrado(s)</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_b = st.columns([1, 5])
+    with col_a:
+        if st.button("Fechar detalhe", key="fechar_bi_detail", use_container_width=True):
+            st.session_state["bi_detail_card"] = ""
             st.rerun()
 
     render_table(df, height=500)
@@ -1473,6 +1589,7 @@ with st.sidebar:
         ("motoristas", "☑  Motoristas ofensores"),
         ("retornos", "↩  Retornos em aberto"),
         ("edi", "✈  EDI"),
+        ("bi_azul", "▣  BI Azul"),
         ("acareacao", "⚖  Acareações"),
         ("pendcorp", "▣  Top clientes pendência"),
         ("relatorio", "▤  Download diretoria"),
@@ -1487,6 +1604,9 @@ with st.sidebar:
 
     if "edi_detail_card" not in st.session_state:
         st.session_state["edi_detail_card"] = ""
+
+    if "bi_detail_card" not in st.session_state:
+        st.session_state["bi_detail_card"] = ""
 
     for key, label in menu_items:
         active = st.session_state["menu_gerente"] == key
@@ -1534,6 +1654,9 @@ edi_detalhe = pack.get("EDI_DETALHE", pd.DataFrame())
 pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
+bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
+bi_azul_detalhe = pack.get("BI_AZUL_DETALHE", pd.DataFrame())
+bi_azul_conferencia = pack.get("BI_AZUL_CONFERENCIA", pd.DataFrame())
 
 periodo = summary_value(resumo, "Período analisado", "")
 if not periodo:
@@ -1789,6 +1912,58 @@ elif menu == "edi":
         render_edi_card_detail(detail, edi_detalhe)
 
 
+elif menu == "bi_azul":
+    st.markdown("### BI Azul — Cobrança das Bases")
+    st.caption(
+        "Relatório opcional do Power BI Azul por praça/base: TRES1, SAO12 e CDSP2. "
+        "Usado para conferência de cobrança das bases, principalmente contra o EDI."
+    )
+
+    if bi_azul_detalhe is None or bi_azul_detalhe.empty:
+        st.info("Nenhum relatório BI Azul foi sincronizado. Envie o arquivo no app operacional e clique em Sincronizar agora.")
+
+    cards_l1 = [
+        ("BI TRES1", fmt_int(bi_count(bi_azul_detalhe, base="TRES1")), "AWBs no relatório TRES1", "T1", "#1d4ed8", "#eff6ff", "bi_tres1"),
+        ("BI SAO12", fmt_int(bi_count(bi_azul_detalhe, base="SAO12")), "AWBs no relatório SAO12", "S12", "#2563eb", "#eff6ff", "bi_sao12"),
+        ("BI CDSP2", fmt_int(bi_count(bi_azul_detalhe, base="CDSP2")), "AWBs no relatório CDSP2", "CD", "#0f766e", "#f0fdfa", "bi_cdsp2"),
+        ("Resumo BI", fmt_int(len(bi_azul_resumo)), "Resumo por base", "Σ", "#334155", "#f8fafc", "bi_resumo"),
+    ]
+
+    divergencias_qtd = (
+        len(bi_azul_conferencia[
+            ~bi_azul_conferencia["RESULTADO_CONFERENCIA"].astype(str).eq("OK")
+        ])
+        if bi_azul_conferencia is not None
+        and not bi_azul_conferencia.empty
+        and "RESULTADO_CONFERENCIA" in bi_azul_conferencia.columns
+        else 0
+    )
+
+    cards_l2 = [
+        ("Divergências", fmt_int(divergencias_qtd), "BI x EDI", "!", "#d92d20", "#fff0ef", "bi_divergentes"),
+        ("No BI e não no EDI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO BI E NÃO NO EDI")), "Cobrado no BI, ausente no EDI", "BI", "#d97706", "#fff7e8", "bi_no_bi_nao_edi"),
+        ("No EDI e não no BI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO EDI E NÃO NO BI")), "No EDI, ausente no BI", "EDI", "#7c3aed", "#f5f3ff", "bi_no_edi_nao_bi"),
+    ]
+
+    for cards in [cards_l1, cards_l2]:
+        cols = st.columns(len(cards))
+        for idx, item in enumerate(cards):
+            label, value, sub, icon, accent, soft, key = item
+            with cols[idx]:
+                kpi_card(label, value, sub, icon, accent, soft)
+                button_label = "Aberto" if st.session_state.get("bi_detail_card") == key else "Abrir"
+                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                    if st.session_state.get("bi_detail_card") == key:
+                        st.session_state["bi_detail_card"] = ""
+                    else:
+                        st.session_state["bi_detail_card"] = key
+                    st.rerun()
+
+    detail = st.session_state.get("bi_detail_card", "")
+    if detail:
+        render_bi_card_detail(detail)
+
+
 elif menu == "acareacao":
     st.markdown("### Acareações em aberto")
     st.caption("Quantidade, valor e entregador responsável.")
@@ -1882,6 +2057,9 @@ elif menu == "config":
             {"Aba": "PENDENCIA_MOVIMENTOS", "Linhas": len(pendencia_movimentos)},
             {"Aba": "ACAREACOES_DETALHE", "Linhas": len(acareacoes_detalhe)},
             {"Aba": "AVARIAS_DETALHE", "Linhas": len(avarias_detalhe)},
+            {"Aba": "BI_AZUL_RESUMO", "Linhas": len(bi_azul_resumo)},
+            {"Aba": "BI_AZUL_DETALHE", "Linhas": len(bi_azul_detalhe)},
+            {"Aba": "BI_AZUL_CONFERENCIA", "Linhas": len(bi_azul_conferencia)},
             {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
             {"Filtro aplicado": "AWBs por dia", "Linhas após filtro": len(daily_df)},
             {"Filtro aplicado": "Acareações em aberto", "Linhas após filtro": len(acareacao_df)},
