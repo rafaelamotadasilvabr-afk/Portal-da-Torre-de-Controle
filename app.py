@@ -264,6 +264,98 @@ def read_torre_from_dataframe(source_df):
 
 
 @st.cache_data(show_spinner=False)
+def read_avarias_salvados_from_torre_workbook(file_bytes):
+    """
+    Lê as abas de avaria/salvados da planilha de Pendências da Torre.
+
+    Regras:
+    - Aba contendo AVARIA entra como AVARIAS.
+    - Aba contendo SALVAD entra como SALVADOS / AGUARDANDO APROVAÇÃO.
+    """
+    if not file_bytes:
+        return pd.DataFrame()
+
+    try:
+        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    except Exception:
+        return pd.DataFrame()
+
+    frames = []
+
+    for sheet in xls.sheet_names:
+        sheet_norm = normalize_text(sheet)
+
+        origem = None
+        if "AVARIA" in sheet_norm:
+            origem = "AVARIAS"
+        elif "SALVAD" in sheet_norm:
+            origem = "SALVADOS / AGUARDANDO APROVAÇÃO"
+
+        if origem is None:
+            continue
+
+        try:
+            df = pd.read_excel(xls, sheet_name=sheet)
+            df = clean_columns(df)
+        except Exception:
+            continue
+
+        if df is None or df.empty:
+            continue
+
+        awb_col = find_column(df, ["AWB", "awb", "Nº AWB", "NUMERO AWB", "Número AWB"])
+        cliente_col = find_column(df, ["CLIENTE", "CLIENTE FINAL", "CLIENTE_ORIGEM"])
+        status_col = find_column(df, ["STATUS", "STATUS AVARIA", "STATUS_TRATATIVA"])
+        motivo_col = find_column(df, ["MOTIVO", "MOTIVO DA PENDENCIA", "MOTIVO PENDENCIA", "OBS", "OBSERVAÇÃO", "OBSERVACAO"])
+        data_col = find_column(df, ["DATA", "DATA DA TRATATIVA", "DATA ABERTURA", "DATA DE ABERTURA", "DATA EVENTO"])
+        valor_col = find_column(df, ["VALOR", "VALOR DA CARGA", "VALOR_CARGA"])
+        resp_col = find_column(df, ["RESPONSÁVEL", "RESPONSAVEL", "ENTREGADOR", "MOTORISTA"])
+        nf_col = find_column(df, ["NF", "NOTA FISCAL", "Nº NF"])
+        pedido_col = find_column(df, ["PEDIDO", "ORDER", "Nº PEDIDO"])
+
+        out = pd.DataFrame(index=df.index)
+        out["ORIGEM_AVARIA"] = origem
+        out["ABA_ORIGEM"] = sheet
+
+        out["AWB"] = df[awb_col].apply(normalize_awb) if awb_col else ""
+        out["CLIENTE"] = df[cliente_col] if cliente_col else ""
+        out["STATUS"] = df[status_col] if status_col else ""
+        out["MOTIVO"] = df[motivo_col] if motivo_col else ""
+        out["DATA"] = parse_date(df[data_col]) if data_col else pd.NaT
+        out["VALOR"] = df[valor_col] if valor_col else ""
+        out["VALOR_NUM"] = _panel_money_to_num(df[valor_col]) if valor_col else 0
+        out["RESPONSAVEL"] = df[resp_col] if resp_col else ""
+        out["NF"] = df[nf_col] if nf_col else ""
+        out["PEDIDO"] = df[pedido_col] if pedido_col else ""
+
+        # Mantém também as colunas originais úteis, para auditoria quando o nome vier diferente.
+        for col in df.columns:
+            col_norm = normalize_text(col)
+            if col not in out.columns and col_norm not in {
+                "AWB", "CLIENTE", "STATUS", "MOTIVO", "DATA", "VALOR", "RESPONSAVEL", "NF", "PEDIDO"
+            }:
+                safe_col = f"ORIG_{str(col)[:24]}"
+                if safe_col not in out.columns:
+                    out[safe_col] = df[col]
+
+        out = out.dropna(how="all")
+        frames.append(out)
+
+    if not frames:
+        return pd.DataFrame(columns=[
+            "ORIGEM_AVARIA", "ABA_ORIGEM", "AWB", "CLIENTE", "STATUS",
+            "MOTIVO", "DATA", "VALOR", "VALOR_NUM", "RESPONSAVEL", "NF", "PEDIDO"
+        ])
+
+    result = pd.concat(frames, ignore_index=True, sort=False)
+
+    if "AWB" in result.columns:
+        # Remove linhas completamente vazias de AWB somente quando todas as demais info também estão vazias.
+        result["AWB"] = result["AWB"].fillna("").astype(str).str.strip()
+
+    return result
+
+
 def read_torre(file_bytes):
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
 
@@ -2137,6 +2229,15 @@ try:
             except Exception:
                 acareacoes_detalhe_gerente = pd.DataFrame()
 
+            # Detalhe gerencial de avarias e salvados aguardando aprovação.
+            # Fonte: planilha Pendências da Torre, abas AVARIAS e SALVADOS.
+            try:
+                avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
+                    pendencias_torre_workbook
+                )
+            except Exception:
+                avarias_detalhe_gerente = pd.DataFrame()
+
             resumo_dashboard = pd.DataFrame([
                 {"METRICA": "Data de análise", "VALOR": str(reference_date)},
                 {"METRICA": "Atualizado em", "VALOR": str(pd.Timestamp.now())},
@@ -2153,6 +2254,7 @@ try:
                 {"METRICA": "Entraram na pendência hoje", "VALOR": entradas_torre_hoje},
                 {"METRICA": "Saíram da pendência hoje", "VALOR": saidas_torre_hoje},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
+                {"METRICA": "Avarias / Salvados", "VALOR": int(len(avarias_detalhe_gerente))},
                 {"METRICA": "Valor em acareação", "VALOR": float(
                     _panel_money_to_num(
                         acar_andamento[_panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])]
@@ -2212,6 +2314,7 @@ try:
                     "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
+                        "AVARIAS_DETALHE": avarias_detalhe_gerente,
                 },
             )
 
@@ -2237,6 +2340,7 @@ try:
                 int(entradas_torre_hoje),
                 int(saidas_torre_hoje),
                 int(len(acar_andamento)),
+                int(len(avarias_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
             )
@@ -2252,6 +2356,7 @@ try:
                     "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
+                        "AVARIAS_DETALHE": avarias_detalhe_gerente,
                 },
                 )
                 if _sync_ok:
@@ -2269,6 +2374,7 @@ try:
                         "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
+                        "AVARIAS_DETALHE": avarias_detalhe_gerente,
                     },
                     )
                     if _sync_ok:
