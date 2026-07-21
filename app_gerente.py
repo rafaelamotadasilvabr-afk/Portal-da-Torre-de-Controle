@@ -615,14 +615,14 @@ def edi_rows(df, indicador=None, base=None, cliente=None):
 def render_edi_card_detail(card_key, edi_detalhe):
     mapping = {
         "edi_emb_sao12": {
-            "title": "EDI — Pendente de embarque SAO12",
-            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
+            "title": "EDI — Emb. origem SAO12/TRES1 SAO12",
+            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia e origem SAO12/TRES1.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
             "sheet": "EMB_SAO12",
         },
         "edi_emb_tres1": {
-            "title": "EDI — Pendente de embarque TRES1",
-            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
+            "title": "EDI — Emb. origem SAO12/TRES1 TRES1",
+            "subtitle": "Cliente TRES1: Três Corações. Regra: pendente de embarque com SLA vencido ou SLA do dia e origem SAO12/TRES1.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
             "sheet": "EMB_TRES1",
         },

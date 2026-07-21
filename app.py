@@ -541,10 +541,22 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
             } and status_sla not in {"SLA VENCIDO", "SLA HOJE"}:
                 continue
 
+            origem_operacional = pick(row, ["OriginCode", "FltOrigin"])
+            destino_operacional = pick(row, ["DestinationCode", "FltDestination", "OPSStation"])
+
+            # Regra solicitada:
+            # EDI pendente de embarque só pode entrar quando o local/origem do embarque
+            # for SAO12 ou TRES1. Exemplo: pendente embarque em VCP não entra.
+            if indicador == "PENDENTE DE EMBARQUE":
+                origem_norm = normalize_text(origem_operacional)
+                if origem_norm not in {"SAO12", "TRES1"}:
+                    continue
+                base = origem_norm
+
             trecho = (
-                pick(row, ["FltOrigin", "OriginCode"])
+                origem_operacional
                 + " → "
-                + pick(row, ["FltDestination", "DestinationCode", "OPSStation"])
+                + destino_operacional
             ).strip(" →")
 
             detail_rows.append({
@@ -557,8 +569,8 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "SLA": sla_date,
                 "STATUS_SLA": status_sla,
                 "DIAS_SLA": dias_sla,
-                "ORIGEM": pick(row, ["OriginCode", "FltOrigin"]),
-                "DESTINO": pick(row, ["DestinationCode", "FltDestination", "OPSStation"]),
+                "ORIGEM": origem_operacional,
+                "DESTINO": destino_operacional,
                 "TRECHO": trecho,
                 "VOO": row.get("FltNo", ""),
                 "DATA_VOO": row.get("FltDt", ""),
