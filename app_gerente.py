@@ -333,7 +333,7 @@ def load_source(url):
     spreadsheet = gc.open_by_url(url)
     result = {}
 
-    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE", "PENDENCIA_MOVIMENTOS"]:
+    for sheet_name in ["RESUMO", "FILA", "TOP_PROBLEMAS", "TOP_BASES", "EDI_RESUMO", "EDI_DETALHE", "PENDENCIA_MOVIMENTOS", "ACAREACOES_DETALHE"]:
         try:
             ws = spreadsheet.worksheet(sheet_name)
             values = ws.get_all_values()
@@ -849,6 +849,63 @@ def daily_awb_counts(df):
     return out.rename(columns={"_DATA_BASE": "DATA"}).sort_values("DATA")
 
 
+def avaria_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    problema_col = first_col(df, ["PROBLEMA", "PENDÊNCIA", "PENDENCIA", "MOTIVO"])
+    if problema_col:
+        problema = df[problema_col].astype(str).map(normalize_text)
+        exact = df[problema.str.contains("AVARIA", na=False)].copy()
+        if not exact.empty:
+            return exact
+
+    return filter_terms(df, ["AVARIA", "DANIFICAD", "QUEBRAD", "RESSALVA"])
+
+
+def acareacao_rows_prefer_sheet(fila_df):
+    sheet = acareacoes_detalhe if "acareacoes_detalhe" in globals() else pd.DataFrame()
+    if sheet is not None and not sheet.empty:
+        return sheet.copy()
+    return acareacao_rows(fila_df)
+
+
+def acareacao_driver_summary_prefer_sheet(fila_df):
+    df = acareacao_rows_prefer_sheet(fila_df)
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    driver_col = first_col(df, [
+        "ACAREACAO ENTREGADOR",
+        "ENTREGADOR",
+        "MOTORISTA",
+        "NOME ENTREGADOR",
+        "NOME DO ENTREGADOR",
+    ])
+    value_col = first_col(df, [
+        "ACAREACAO VALOR",
+        "VALOR_NUM",
+        "VALOR DA CARGA",
+        "VALOR",
+    ])
+
+    if not driver_col:
+        return pd.DataFrame()
+
+    base = df.copy()
+    base["_ENTREGADOR"] = base[driver_col].fillna("Não informado").astype(str).str.strip()
+    base["_VALOR"] = numeric_series(base[value_col]) if value_col else 0
+    count_col = "AWB" if "AWB" in base.columns else "_ENTREGADOR"
+
+    return (
+        base.groupby("_ENTREGADOR", dropna=False)
+        .agg(QTDE=(count_col, "count"), VALOR_TOTAL=("_VALOR", "sum"))
+        .reset_index()
+        .rename(columns={"_ENTREGADOR": "ENTREGADOR"})
+        .sort_values(["QTDE", "VALOR_TOTAL"], ascending=False)
+    )
+
+
 def acareacao_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -992,7 +1049,12 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "acareacao":
         title = "Detalhe — Acareações em aberto"
         subtitle = "Quantidade, valor e entregador responsável pelas acareações/ressalvas em aberto."
-        df = acareacao_df.copy()
+        df = acareacao_rows_prefer_sheet(fila_filtrada)
+
+    elif card_key == "avaria":
+        title = "Detalhe — Avarias"
+        subtitle = "Cargas com indicação de avaria, dano, ressalva ou ocorrência equivalente."
+        df = avaria_rows(fila_filtrada)
 
     else:
         return
@@ -1032,7 +1094,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     if card_key == "acareacao":
         st.markdown("#### Entregadores responsáveis")
-        resumo_ent = acareacao_driver_summary(fila_filtrada)
+        resumo_ent = acareacao_driver_summary_prefer_sheet(fila_filtrada)
         render_table(resumo_ent, height=260)
         st.markdown("#### Detalhe por AWB")
         render_table(detail_df.head(500), height=360)
@@ -1320,6 +1382,7 @@ fila = pack.get("FILA", pd.DataFrame())
 edi_resumo = pack.get("EDI_RESUMO", pd.DataFrame())
 edi_detalhe = pack.get("EDI_DETALHE", pd.DataFrame())
 pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
+acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 
 periodo = summary_value(resumo, "Período analisado", "")
 if not periodo:
@@ -1373,7 +1436,8 @@ with top_info_col:
 motoristas_df = driver_offenders(fila_filtrada)
 retornos_df = open_returns(fila_filtrada)
 pendcorp_df = top5_pendencia_corp(fila_filtrada)
-acareacao_df = acareacao_rows(fila_filtrada)
+acareacao_df = acareacao_rows_prefer_sheet(fila_filtrada)
+avaria_df = avaria_rows(fila_filtrada)
 daily_df = daily_awb_counts(fila_filtrada)
 
 resumo_entrega_atraso = number(summary_value(resumo, "Entrega em atraso", len(overdue_delivery_rows(fila_filtrada))))
@@ -1403,6 +1467,7 @@ alert_distribution_df = pd.DataFrame(
         {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
         {"INDICADOR": "Retornos em aberto", "QTDE": len(retornos_df)},
         {"INDICADOR": "Acareações em aberto", "QTDE": resumo_acareacao_qtd},
+        {"INDICADOR": "Avarias", "QTDE": len(avaria_df)},
     ]
 )
 alert_distribution_df = alert_distribution_df[alert_distribution_df["QTDE"] > 0].copy()
@@ -1431,6 +1496,7 @@ kpis_df = pd.DataFrame(
         {"INDICADOR": "Entradas na Torre hoje", "VALOR": resumo_entraram_pendencia_hoje},
         {"INDICADOR": "Saíram da pendência hoje", "VALOR": resumo_sairam_pendencia_hoje},
         {"INDICADOR": "Acareações em aberto", "VALOR": resumo_acareacao_qtd},
+        {"INDICADOR": "Avarias", "VALOR": len(avaria_df)},
         {"INDICADOR": "Valor em acareação", "VALOR": summary_value(resumo, "Valor em acareação", 0)},
     ]
 )
@@ -1473,6 +1539,7 @@ if menu == "visao":
     cards_linha3 = [
         ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
         ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
+        ("Avarias", fmt_int(len(avaria_df)), "Cargas com avaria/ressalva", "!", "#d92d20", "#fff0ef", "avaria"),
         ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
     ]
 
@@ -1661,6 +1728,7 @@ elif menu == "config":
             {"Aba": "EDI_RESUMO", "Linhas": len(edi_resumo)},
             {"Aba": "EDI_DETALHE", "Linhas": len(edi_detalhe)},
             {"Aba": "PENDENCIA_MOVIMENTOS", "Linhas": len(pendencia_movimentos)},
+            {"Aba": "ACAREACOES_DETALHE", "Linhas": len(acareacoes_detalhe)},
             {"Filtro aplicado": filtro_msg, "Linhas após filtro": len(fila_filtrada)},
             {"Filtro aplicado": "AWBs por dia", "Linhas após filtro": len(daily_df)},
             {"Filtro aplicado": "Acareações em aberto", "Linhas após filtro": len(acareacao_df)},

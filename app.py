@@ -2104,6 +2104,39 @@ try:
                 "AWBs monitoradas = total de AWBs únicas na carteira atual. "
                 "Não representa entregas concluídas."
             )
+            # Detalhe gerencial de acareação/ressalva.
+            # Esta aba alimenta o detalhe do card no dashboard do gerente.
+            acareacoes_detalhe_gerente = pd.DataFrame()
+            try:
+                if acar_andamento is not None and not acar_andamento.empty:
+                    acareacoes_detalhe_gerente = acar_andamento.copy()
+                    _cols_pref_acar = [
+                        "AWB",
+                        "ENTREGADOR",
+                        "MOTORISTA",
+                        "NOME ENTREGADOR",
+                        "VALOR DA CARGA",
+                        "VALOR",
+                        "STATUS",
+                        "TIPO",
+                        "OBSERVAÇÃO",
+                        "OBSERVACAO",
+                        "DATA",
+                        "DATA ABERTURA",
+                        "CLIENTE",
+                        "NF",
+                        "PEDIDO",
+                    ]
+                    _cols_acar = [c for c in _cols_pref_acar if c in acareacoes_detalhe_gerente.columns]
+                    if _cols_acar:
+                        acareacoes_detalhe_gerente = acareacoes_detalhe_gerente[_cols_acar].copy()
+                    if "VALOR DA CARGA" in acareacoes_detalhe_gerente.columns:
+                        acareacoes_detalhe_gerente["VALOR_NUM"] = _panel_money_to_num(acareacoes_detalhe_gerente["VALOR DA CARGA"])
+                    elif "VALOR" in acareacoes_detalhe_gerente.columns:
+                        acareacoes_detalhe_gerente["VALOR_NUM"] = _panel_money_to_num(acareacoes_detalhe_gerente["VALOR"])
+            except Exception:
+                acareacoes_detalhe_gerente = pd.DataFrame()
+
             resumo_dashboard = pd.DataFrame([
                 {"METRICA": "Data de análise", "VALOR": str(reference_date)},
                 {"METRICA": "Atualizado em", "VALOR": str(pd.Timestamp.now())},
@@ -2178,6 +2211,7 @@ try:
                     "EDI_RESUMO": edi_resumo_gerente,
                     "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
+                        "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                 },
             )
 
@@ -2217,6 +2251,7 @@ try:
                     "EDI_RESUMO": edi_resumo_gerente,
                     "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
+                        "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                 },
                 )
                 if _sync_ok:
@@ -2233,6 +2268,7 @@ try:
                         "EDI_RESUMO": edi_resumo_gerente,
                         "EDI_DETALHE": edi_detalhe_gerente,
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
+                        "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                     },
                     )
                     if _sync_ok:
