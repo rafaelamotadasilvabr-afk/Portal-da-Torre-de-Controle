@@ -487,6 +487,9 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "TANIA BULHÕES",
                 "INBRANDS",
                 "IMBRANDS",
+                "ATS",
+                "NEODENT",
+                "JJC",
             ]
 
             if base == "SAO12" and not any(c in cliente_norm for c in clientes_sao12):

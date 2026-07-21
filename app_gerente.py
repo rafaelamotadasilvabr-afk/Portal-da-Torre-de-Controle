@@ -616,7 +616,7 @@ def render_edi_card_detail(card_key, edi_detalhe):
     mapping = {
         "edi_emb_sao12": {
             "title": "EDI — Pendente de embarque SAO12",
-            "subtitle": "Clientes SAO12 monitorados: Riachuelo, Della Via, Stone, Tania Bulhões e Inbrands.",
+            "subtitle": "Clientes SAO12 monitorados: Riachuelo, Della Via, Stone, Tania Bulhões, Inbrands, ATS e Neodent.",
             "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
             "sheet": "EMB_SAO12",
         },
@@ -1468,7 +1468,7 @@ elif menu == "edi":
     )
 
     st.info(
-        "SAO12: Riachuelo, Della Via, Stone, Tania Bulhões e Inbrands. "
+        "SAO12: Riachuelo, Della Via, Stone, Tania Bulhões, Inbrands, ATS e Neodent. "
         "TRES1: Três Corações."
     )
 
