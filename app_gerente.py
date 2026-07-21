@@ -219,6 +219,22 @@ st.markdown(
         border-radius: 10px;
         font-weight: 750;
     }
+
+    .filter-caption {
+        color: #475569;
+        font-size: .76rem;
+        font-weight: 800;
+        margin-bottom: 4px;
+        text-align: right;
+    }
+
+    .filter-note-compact {
+        color: #64748b;
+        font-size: .72rem;
+        text-align: right;
+        margin-top: -6px;
+        margin-bottom: 8px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -646,29 +662,33 @@ st.markdown(
 )
 
 # =========================================================
-# FILTRO DE DATA
+# FILTRO DE DATA — COMPACTO NO CANTO DIREITO
 # =========================================================
 today = date.today()
 default_start = today - timedelta(days=7)
-with st.expander("Filtros", expanded=True):
-    f1, f2 = st.columns([1.2, 2.2])
-    with f1:
-        date_range = st.date_input(
-            "Filtro de data",
-            value=(default_start, today),
-            format="DD/MM/YYYY",
-        )
-    with f2:
-        st.caption(
-            "O filtro é aplicado aos detalhes do relatório usando a primeira coluna de data disponível: "
-            "Data análise, SLA, última rota, data evento Torre ou última alteração."
-        )
+
+top_info_col, top_filter_col = st.columns([4.5, 1.35])
+
+with top_filter_col:
+    st.markdown('<div class="filter-caption">Filtro de data</div>', unsafe_allow_html=True)
+    date_range = st.date_input(
+        "Filtro de data",
+        value=(default_start, today),
+        format="DD/MM/YYYY",
+        label_visibility="collapsed",
+    )
+    st.markdown(
+        '<div class="filter-note-compact">Aplica nos detalhes do relatório</div>',
+        unsafe_allow_html=True,
+    )
 
 fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
-st.markdown(
-    f'<div class="info">ⓘ {filtro_msg}. AWBs monitoradas representam AWBs únicas da carteira atual, não entregas concluídas.</div>',
-    unsafe_allow_html=True,
-)
+
+with top_info_col:
+    st.markdown(
+        f'<div class="info">ⓘ {filtro_msg}. AWBs monitoradas representam AWBs únicas da carteira atual, não entregas concluídas.</div>',
+        unsafe_allow_html=True,
+    )
 
 motoristas_df = driver_offenders(fila_filtrada)
 retornos_df = open_returns(fila_filtrada)
