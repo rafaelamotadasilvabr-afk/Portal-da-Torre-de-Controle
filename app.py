@@ -463,6 +463,80 @@ def read_eu_entrego(file_bytes):
 
 
 
+def read_eu_entrego_files(uploaded_files):
+    """
+    Lê uma ou várias planilhas do Eu Entrego.
+
+    - Junta todos os arquivos.
+    - Mantém a última informação por AWB.
+    - Preserva todas as datas de rota para validar saída/rota no dia.
+    """
+    if not uploaded_files:
+        return pd.DataFrame(), pd.DataFrame()
+
+    if not isinstance(uploaded_files, (list, tuple)):
+        uploaded_files = [uploaded_files]
+
+    latest_parts = []
+    route_parts = []
+
+    for uploaded in uploaded_files:
+        if uploaded is None:
+            continue
+
+        try:
+            file_name = getattr(uploaded, "name", "EU_ENTREGO")
+            file_bytes = uploaded.getvalue()
+            latest, routes = read_eu_entrego(file_bytes)
+
+            if latest is not None and not latest.empty:
+                latest = latest.copy()
+                latest["ARQUIVO_EU_ENTREGO"] = file_name
+                latest_parts.append(latest)
+
+            if routes is not None and not routes.empty:
+                routes = routes.copy()
+                routes["ARQUIVO_EU_ENTREGO"] = file_name
+                route_parts.append(routes)
+
+        except Exception as exc:
+            raise ValueError(f"Erro ao ler Eu Entrego '{getattr(uploaded, 'name', '')}': {exc}") from exc
+
+    if latest_parts:
+        all_latest = pd.concat(latest_parts, ignore_index=True, sort=False)
+
+        # Recalcula ordenação para escolher o evento mais recente por AWB.
+        _dt_candidates = []
+        for col in ["ULTIMA_ALTERACAO", "ULTIMA_ROTA", "EXECUTADA_DT"]:
+            if col in all_latest.columns:
+                _dt_candidates.append(pd.to_datetime(all_latest[col], errors="coerce"))
+
+        if _dt_candidates:
+            all_latest["_DT_ORDEM_MULTI"] = _dt_candidates[0]
+            for s in _dt_candidates[1:]:
+                all_latest["_DT_ORDEM_MULTI"] = all_latest["_DT_ORDEM_MULTI"].fillna(s)
+        else:
+            all_latest["_DT_ORDEM_MULTI"] = pd.NaT
+
+        eu_latest = (
+            all_latest.sort_values(["AWB", "_DT_ORDEM_MULTI"], na_position="first")
+            .drop_duplicates("AWB", keep="last")
+            .drop(columns=["_DT_ORDEM_MULTI"], errors="ignore")
+            .reset_index(drop=True)
+        )
+    else:
+        eu_latest = pd.DataFrame()
+
+    if route_parts:
+        route_dates = pd.concat(route_parts, ignore_index=True, sort=False)
+        route_dates = route_dates.dropna(subset=["AWB", "DATA_ROTA"], how="any")
+    else:
+        route_dates = pd.DataFrame(columns=["AWB", "DATA_ROTA", "ARQUIVO_EU_ENTREGO"])
+
+    return eu_latest, route_dates
+
+
+
 @st.cache_data(show_spinner=False)
 def read_torre_from_dataframe(source_df):
     """
@@ -2423,9 +2497,10 @@ with st.sidebar:
         help="O Portal manterá apenas OPSStation = CDSP2."
     )
     file_eu = st.file_uploader(
-        "2. Eu Entrego",
+        "2. Eu Entrego — uma ou várias planilhas",
         type=["xlsx", "xls"],
-        help="Pedido será tratado como AWB."
+        accept_multiple_files=True,
+        help="Pedido será tratado como AWB. Você pode anexar mais de uma planilha do Eu Entrego."
     )
     st.markdown("**3. Pendências da Torre — Google Sheets**")
     url_pendencias_torre = st.text_input("Link da planilha de Pendências", value=DEFAULT_GOOGLE_SHEETS["Pendências da Torre"], key="url_pendencias_torre")
@@ -2623,7 +2698,11 @@ if not (file_lm and file_eu):
 try:
     with st.spinner("Processando bases e aplicando regras da V0..."):
         lm = read_last_mile(file_lm.getvalue())
-        eu_latest, route_dates = read_eu_entrego(file_eu.getvalue())
+        eu_latest, route_dates = read_eu_entrego_files(file_eu)
+        st.caption(
+            f"Eu Entrego: {len(file_eu) if isinstance(file_eu, list) else 1} arquivo(s) processado(s). "
+            f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) únicas."
+        )
 
         # Índice de retorno do entregador:
         # WhatsApp prevalece; quando a AWB não estiver no WhatsApp,
