@@ -65,7 +65,7 @@ st.markdown(
     }
 
     .block-container {
-        padding-top: 0.38rem;
+        padding-top: 0.18rem;
         padding-bottom: 1.2rem;
         max-width: 1540px;
     }
@@ -148,9 +148,9 @@ st.markdown(
         background: linear-gradient(120deg, #ffffff 0%, #eef5ff 58%, #dcecff 100%);
         color: var(--gds-text);
         border: 1px solid #cfe0f5;
-        border-radius: 18px;
-        padding: 14px 20px;
-        margin-bottom: 10px;
+        border-radius: 14px;
+        padding: 12px 18px;
+        margin-bottom: 8px;
         box-shadow: var(--gds-shadow);
         position: relative;
         overflow: hidden;
@@ -161,14 +161,14 @@ st.markdown(
         position: absolute;
         top: 0;
         left: 0;
-        width: 5px;
+        width: 4px;
         height: 100%;
         background: linear-gradient(180deg, var(--gds-blue) 0%, var(--gds-blue-2) 100%);
     }
 
     .hero h1 {
-        margin: 0 0 4px 0;
-        font-size: 1.68rem;
+        margin: 0 0 3px 0;
+        font-size: 1.42rem;
         line-height: 1.12;
         letter-spacing: -0.045em;
         color: var(--gds-navy);
@@ -178,7 +178,7 @@ st.markdown(
     .hero p {
         margin: 0;
         color: #4d6076;
-        font-size: 0.86rem;
+        font-size: 0.78rem;
     }
 
     .badge {
@@ -192,6 +192,38 @@ st.markdown(
         font-size: 0.68rem;
         font-weight: 850;
         letter-spacing: .015em;
+    }
+
+
+    .status-strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: #ffffff;
+        border: 1px solid var(--gds-border);
+        border-left: 4px solid var(--gds-blue);
+        border-radius: 12px;
+        padding: 8px 11px;
+        margin-bottom: 8px;
+        box-shadow: var(--gds-shadow-soft);
+        color: #4f6279;
+        font-size: .72rem;
+        line-height: 1.35;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        background: var(--gds-blue);
+        border-radius: 999px;
+        display: inline-block;
+        box-shadow: 0 0 0 4px rgba(11, 99, 206, .10);
+        flex: 0 0 auto;
+    }
+
+    .status-strong {
+        color: var(--gds-navy);
+        font-weight: 850;
     }
 
     .info {
@@ -2375,7 +2407,7 @@ st.markdown(
     f"""
     <div class="hero">
         <h1>Dashboard Torre de Controle</h1>
-        <p>Visão gerencial de SLA, retornos, motoristas ofensores e pendências corporativas.</p>
+        <p>Visão executiva de SLA, pendências, integração e ofensores operacionais.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -2405,8 +2437,17 @@ with top_filter_col:
 fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
 
 with top_info_col:
+    _filtro_msg_display = str(filtro_msg or "").strip()
+    if not _filtro_msg_display or _filtro_msg_display.lower() == "sem período definido":
+        _filtro_msg_display = "Filtro por SLA: selecione 1 dia para SLA do dia ou um intervalo para SLA no período"
+
     st.markdown(
-        f'<div class="info">ⓘ Cards críticos usam o RESUMO sincronizado pelo operacional. O filtro de data atua nos detalhes abertos, rankings e tabelas. {filtro_msg}.</div>',
+        f"""
+        <div class="status-strip">
+            <span class="status-dot"></span>
+            <span><span class="status-strong">Filtro:</span> {_filtro_msg_display}</span>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
