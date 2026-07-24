@@ -735,6 +735,150 @@ def render_alert_pie_chart(alert_df):
     st.altair_chart(pie + labels, use_container_width=True)
 
 
+def edi_reference_date():
+    """
+    Usa a data final do filtro lateral como data de análise do EDI.
+    Fallback: período do resumo ou data atual.
+    """
+    try:
+        dr = globals().get("date_range")
+        if isinstance(dr, (list, tuple)) and len(dr) == 2 and dr[1] is not None:
+            return pd.Timestamp(dr[1]).normalize()
+    except Exception:
+        pass
+
+    try:
+        periodo_txt = str(globals().get("periodo", "")).strip()
+        parsed = pd.to_datetime(periodo_txt, errors="coerce")
+        if pd.notna(parsed):
+            return pd.Timestamp(parsed).normalize()
+    except Exception:
+        pass
+
+    return pd.Timestamp(date.today()).normalize()
+
+
+def edi_sla_series(df):
+    if df is None or df.empty:
+        return pd.Series(pd.NaT, index=df.index if df is not None else None)
+
+    sla_col = first_col(df, ["SLA", "PREVISAO", "PREVISÃO", "DATA SLA", "DT SLA"])
+    if not sla_col:
+        return pd.Series(pd.NaT, index=df.index)
+
+    return parse_date_col(df[sla_col]).dt.normalize()
+
+
+def edi_rows_embarque_atrasado(df):
+    """
+    Pendente de embarque EDI dos dias anteriores.
+    Não entra SLA do dia atual.
+    """
+    data = edi_rows(df, "PENDENTE DE EMBARQUE")
+    if data is None or data.empty:
+        return pd.DataFrame()
+
+    ref = edi_reference_date()
+    sla = edi_sla_series(data)
+
+    if sla.notna().any():
+        data = data[sla.lt(ref)].copy()
+    elif "STATUS_SLA" in data.columns:
+        status = data["STATUS_SLA"].astype(str).map(normalize_text)
+        data = data[status.eq("SLA VENCIDO")].copy()
+    else:
+        data = pd.DataFrame()
+
+    return data
+
+
+def edi_rows_entrega_destino_sla(df):
+    """
+    Cargas pendentes de entrega no destino, por SLA.
+    Mantém SLA vencido e SLA do dia.
+    """
+    data = edi_rows(df, "ENTREGA NO DESTINO PELO SLA")
+    if data is None or data.empty:
+        return pd.DataFrame()
+
+    ref = edi_reference_date()
+    sla = edi_sla_series(data)
+
+    if sla.notna().any():
+        data = data[sla.le(ref)].copy()
+    elif "STATUS_SLA" in data.columns:
+        status = data["STATUS_SLA"].astype(str).map(normalize_text)
+        data = data[status.isin(["SLA VENCIDO", "SLA HOJE"])].copy()
+
+    return data
+
+
+def edi_rows_desembarque(df):
+    """
+    Cargas pendentes de desembarque, independente da base.
+    O detalhe mostra onde está por OPS_STATION / destino.
+    """
+    return edi_rows(df, "PENDENTE DE DESEMBARQUE")
+
+
+def edi_resumo_desembarque_onde_esta(df):
+    data = edi_rows_desembarque(df)
+    if data is None or data.empty:
+        return pd.DataFrame()
+
+    ops_col = first_col(data, ["OPS_STATION", "OPS STATION", "ESTA_EM", "ESTÁ EM"])
+    destino_col = first_col(data, ["DESTINO", "FLTDESTINATION", "FLT DESTINATION"])
+    base_col = first_col(data, ["BASE"])
+    awb_col = first_col(data, ["AWB"])
+
+    group_cols = []
+    rename_map = {}
+
+    if ops_col:
+        group_cols.append(ops_col)
+        rename_map[ops_col] = "ONDE ESTÁ"
+    if destino_col:
+        group_cols.append(destino_col)
+        rename_map[destino_col] = "DESTINO"
+    if base_col:
+        group_cols.append(base_col)
+        rename_map[base_col] = "BASE"
+
+    if not group_cols:
+        return pd.DataFrame()
+
+    if awb_col:
+        resumo = (
+            data.groupby(group_cols, dropna=False)
+            .agg(QTDE_AWBS=(awb_col, "nunique"))
+            .reset_index()
+        )
+    else:
+        resumo = (
+            data.groupby(group_cols, dropna=False)
+            .size()
+            .reset_index(name="QTDE_AWBS")
+        )
+
+    return (
+        resumo.rename(columns=rename_map)
+        .sort_values("QTDE_AWBS", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def edi_count_df(data):
+    if data is None or data.empty:
+        return 0
+
+    if "AWB" in data.columns:
+        awbs = data["AWB"].fillna("").astype(str).str.strip()
+        awbs = awbs[awbs.ne("")]
+        return int(awbs.nunique()) if not awbs.empty else int(len(data))
+
+    return int(len(data))
+
+
 def edi_count(df, indicador=None, base=None, cliente=None):
     if df is None or df.empty:
         return 0
@@ -797,41 +941,17 @@ def edi_rows(df, indicador=None, base=None, cliente=None):
 
 def render_edi_card_detail(card_key, edi_detalhe):
     mapping = {
-        "edi_emb_sao12": {
-            "title": "EDI — Embarque em SAO12/TRES1 SAO12",
-            "subtitle": "Clientes SAO12 monitorados. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
-            "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12"),
-            "sheet": "EMB_SAO12",
-        },
-        "edi_emb_tres1": {
-            "title": "EDI — Embarque em SAO12/TRES1 TRES1",
-            "subtitle": "Cliente TRES1: Três Corações. Para Bag Create, valida se a AWB já foi entregue antes de classificar como pendente. Regra: pendente de embarque com SLA vencido ou SLA do dia.",
-            "df": edi_rows(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1"),
-            "sheet": "EMB_TRES1",
-        },
-        "edi_des_sao12": {
-            "title": "EDI — Pendente de desembarque SAO12",
-            "subtitle": "Cargas onde OPSStation bate com FltDestination ou status pendente desembarque, até o SLA do dia.",
-            "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12"),
-            "sheet": "DES_SAO12",
-        },
-        "edi_des_tres1": {
-            "title": "EDI — Pendente de desembarque TRES1",
-            "subtitle": "Cargas onde OPSStation bate com FltDestination ou status pendente desembarque, até o SLA do dia.",
-            "df": edi_rows(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1"),
-            "sheet": "DES_TRES1",
-        },
         "edi_entrega_sla": {
-            "title": "EDI — Entrega destino / SLA",
-            "subtitle": "Pendentes no destino com SLA vencido ou SLA do dia.",
-            "df": edi_rows(edi_detalhe, "ENTREGA NO DESTINO PELO SLA"),
-            "sheet": "ENTREGA_SLA",
+            "title": "EDI — Pendente entrega destino / SLA",
+            "subtitle": "Cargas pendentes de entrega no destino com SLA vencido ou SLA do dia.",
+            "df": edi_rows_entrega_destino_sla(edi_detalhe),
+            "sheet": "ENTREGA_DESTINO",
         },
-        "edi_missing": {
-            "title": "EDI — Missing",
-            "subtitle": "Cargas classificadas como missing no First Mile.",
-            "df": edi_rows(edi_detalhe, "MISSING"),
-            "sheet": "MISSING",
+        "edi_emb_atrasado": {
+            "title": "EDI — Pendente embarque atrasado",
+            "subtitle": "Pendente de embarque apenas dos dias anteriores. SLA do dia atual não entra.",
+            "df": edi_rows_embarque_atrasado(edi_detalhe),
+            "sheet": "EMBARQUE_ATRASADO",
         },
         "edi_discrepancia": {
             "title": "EDI — Discrepância",
@@ -839,11 +959,11 @@ def render_edi_card_detail(card_key, edi_detalhe):
             "df": edi_rows(edi_detalhe, "DISCREPÂNCIA"),
             "sheet": "DISCREPANCIA",
         },
-        "edi_resumo": {
-            "title": "EDI — Resumo",
-            "subtitle": "Resumo consolidado por base e indicador.",
-            "df": edi_resumo if "edi_resumo" in globals() else pd.DataFrame(),
-            "sheet": "RESUMO_EDI",
+        "edi_desembarque": {
+            "title": "EDI — Pendente desembarque",
+            "subtitle": "Cargas pendentes de desembarque. O resumo mostra onde a carga está.",
+            "df": edi_rows_desembarque(edi_detalhe),
+            "sheet": "DESEMBARQUE",
         },
     }
 
@@ -870,6 +990,29 @@ def render_edi_card_detail(card_key, edi_detalhe):
             st.session_state["edi_detail_card"] = ""
             st.session_state["bi_detail_card"] = ""
             st.rerun()
+
+    if card_key == "edi_desembarque":
+        st.markdown("#### Resumo — onde está")
+        resumo_onde = edi_resumo_desembarque_onde_esta(edi_detalhe)
+        render_table(resumo_onde, height=260)
+
+        st.markdown("#### Detalhe por AWB")
+        render_table(df, height=500)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            resumo_onde.to_excel(writer, sheet_name="RESUMO_ONDE_ESTA", index=False)
+            df.to_excel(writer, sheet_name="DETALHE_AWB", index=False)
+        output.seek(0)
+
+        st.download_button(
+            "Baixar Excel deste card",
+            output.getvalue(),
+            file_name="edi_pendente_desembarque_onde_esta.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        return
 
     render_table(df, height=500)
     st.download_button(
@@ -2313,41 +2456,70 @@ elif menu == "retornos":
 elif menu == "edi":
     st.markdown("### EDI — First Mile")
     st.caption(
-        "Cards expansivos. Regra: embarque só entra se OPSStation for SAO12/TRES1; Bag Create é validado contra entrega; desembarque entra quando OPSStation bate com FltDestination. Clique em Abrir para ver o detalhe e baixar Excel."
+        "Visão simplificada do EDI: pendente de entrega por SLA, embarque atrasado, discrepância e desembarque com localização."
     )
 
     st.info(
-        "SAO12: Riachuelo, Della Via, Stone, Tania Bulhões, Inbrands, ATS e Neodent. "
-        "TRES1: Três Corações."
+        "Regra simplificada: embarque mostra apenas dias anteriores; SLA do dia atual não entra no embarque atrasado. "
+        "Desembarque mostra onde a carga está pelo OPS Station / destino."
     )
 
-    edi_cards_l1 = [
-        ("Emb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "SAO12")), "Até SLA do dia", "S12", "#2563eb", "#eff6ff", "edi_emb_sao12"),
-        ("Emb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE EMBARQUE", "TRES1")), "Até SLA do dia", "T1", "#1d4ed8", "#eff6ff", "edi_emb_tres1"),
-        ("Desemb. SAO12", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "SAO12")), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_sao12"),
-        ("Desemb. TRES1", fmt_int(edi_count(edi_detalhe, "PENDENTE DE DESEMBARQUE", "TRES1")), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "edi_des_tres1"),
+    edi_entrega_df = edi_rows_entrega_destino_sla(edi_detalhe)
+    edi_emb_atrasado_df = edi_rows_embarque_atrasado(edi_detalhe)
+    edi_discrepancia_df = edi_rows(edi_detalhe, "DISCREPÂNCIA")
+    edi_desembarque_df = edi_rows_desembarque(edi_detalhe)
+
+    edi_cards = [
+        (
+            "Pendente entrega destino",
+            fmt_int(edi_count_df(edi_entrega_df)),
+            "SLA vencido ou SLA do dia",
+            "SLA",
+            "#d97706",
+            "#fff7e8",
+            "edi_entrega_sla",
+        ),
+        (
+            "Pendente embarque atrasado",
+            fmt_int(edi_count_df(edi_emb_atrasado_df)),
+            "Somente dias anteriores",
+            "↗",
+            "#2563eb",
+            "#eff6ff",
+            "edi_emb_atrasado",
+        ),
+        (
+            "Discrepância",
+            fmt_int(edi_count_df(edi_discrepancia_df)),
+            "Divergências First Mile",
+            "≠",
+            "#7c3aed",
+            "#f5f3ff",
+            "edi_discrepancia",
+        ),
+        (
+            "Pendente desembarque",
+            fmt_int(edi_count_df(edi_desembarque_df)),
+            "Abrir para ver onde está",
+            "⇣",
+            "#0f766e",
+            "#f0fdfa",
+            "edi_desembarque",
+        ),
     ]
 
-    edi_cards_l2 = [
-        ("Pendente entrega destino", fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")), "SLA vencido ou SLA do dia", "SLA", "#d97706", "#fff7e8", "edi_entrega_sla"),
-        ("Missing", fmt_int(edi_count(edi_detalhe, "MISSING")), "Cargas missing", "!", "#d92d20", "#fff0ef", "edi_missing"),
-        ("Discrepância", fmt_int(edi_count(edi_detalhe, "DISCREPÂNCIA")), "Divergências First Mile", "≠", "#7c3aed", "#f5f3ff", "edi_discrepancia"),
-        ("Resumo EDI", fmt_int(len(edi_resumo)), "Resumo por base/indicador", "Σ", "#334155", "#f8fafc", "edi_resumo"),
-    ]
-
-    for cards in [edi_cards_l1, edi_cards_l2]:
-        cols = st.columns(len(cards))
-        for idx, item in enumerate(cards):
-            label, value, sub, icon, accent, soft, key = item
-            with cols[idx]:
-                kpi_card(label, value, sub, icon, accent, soft)
-                button_label = "Aberto" if st.session_state.get("edi_detail_card") == key else "Abrir"
-                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                    if st.session_state.get("edi_detail_card") == key:
-                        st.session_state["edi_detail_card"] = ""
-                    else:
-                        st.session_state["edi_detail_card"] = key
-                    st.rerun()
+    cols = st.columns(4)
+    for idx, item in enumerate(edi_cards):
+        label, value, sub, icon, accent, soft, key = item
+        with cols[idx]:
+            kpi_card(label, value, sub, icon, accent, soft)
+            button_label = "Aberto" if st.session_state.get("edi_detail_card") == key else "Abrir"
+            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                if st.session_state.get("edi_detail_card") == key:
+                    st.session_state["edi_detail_card"] = ""
+                else:
+                    st.session_state["edi_detail_card"] = key
+                st.rerun()
 
     detail = st.session_state.get("edi_detail_card", "")
     if detail:
