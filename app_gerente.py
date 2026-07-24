@@ -1137,6 +1137,134 @@ def backlog_baixado_eu_entrego_rows(df):
     return entregue_eu_entrego_pendente_sk_rows(df)
 
 
+def resumo_insucesso_por_motivo(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    motivo_col = first_col(df, [
+        "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO ULTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "TIPO INSUCESSO",
+    ])
+    cliente_col = first_col(df, ["CLIENTE"])
+    awb_col = first_col(df, ["AWB"])
+
+    if not motivo_col:
+        return pd.DataFrame()
+
+    base = df.copy()
+    base["_MOTIVO_INSUCESSO"] = base[motivo_col].fillna("Não informado").astype(str).str.strip()
+    base["_MOTIVO_INSUCESSO"] = base["_MOTIVO_INSUCESSO"].replace("", "Não informado")
+
+    if awb_col:
+        resumo = (
+            base.groupby("_MOTIVO_INSUCESSO", dropna=False)
+            .agg(QTDE_AWBS=(awb_col, "nunique"))
+            .reset_index()
+        )
+    else:
+        resumo = (
+            base.groupby("_MOTIVO_INSUCESSO", dropna=False)
+            .size()
+            .reset_index(name="QTDE_AWBS")
+        )
+
+    if cliente_col:
+        clientes = (
+            base.groupby("_MOTIVO_INSUCESSO", dropna=False)[cliente_col]
+            .apply(lambda s: s.dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
+            .reset_index(name="CLIENTES")
+        )
+        resumo = resumo.merge(clientes, on="_MOTIVO_INSUCESSO", how="left")
+
+    return (
+        resumo.rename(columns={"_MOTIVO_INSUCESSO": "MOTIVO INSUCESSO"})
+        .sort_values("QTDE_AWBS", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def resumo_insucesso_por_entregador(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    entregador_col = first_col(df, [
+        "MOTORISTA / ENTREGADOR",
+        "ENTREGADOR",
+        "MOTORISTA",
+        "ULTIMO_ENTREGADOR",
+        "ÚLTIMO ENTREGADOR",
+        "ULTIMO ENTREGADOR",
+    ])
+    motivo_col = first_col(df, [
+        "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO ULTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "TIPO INSUCESSO",
+    ])
+    awb_col = first_col(df, ["AWB"])
+
+    if not entregador_col:
+        return pd.DataFrame()
+
+    base = df.copy()
+    base["_ENTREGADOR"] = base[entregador_col].fillna("Não informado").astype(str).str.strip()
+    base["_ENTREGADOR"] = base["_ENTREGADOR"].replace("", "Não informado")
+
+    if awb_col:
+        resumo = (
+            base.groupby("_ENTREGADOR", dropna=False)
+            .agg(QTDE_AWBS=(awb_col, "nunique"))
+            .reset_index()
+        )
+    else:
+        resumo = (
+            base.groupby("_ENTREGADOR", dropna=False)
+            .size()
+            .reset_index(name="QTDE_AWBS")
+        )
+
+    if motivo_col:
+        motivos = (
+            base.groupby("_ENTREGADOR", dropna=False)[motivo_col]
+            .apply(lambda s: s.dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
+            .reset_index(name="MOTIVOS_DISTINTOS")
+        )
+        resumo = resumo.merge(motivos, on="_ENTREGADOR", how="left")
+
+    return (
+        resumo.rename(columns={"_ENTREGADOR": "ENTREGADOR"})
+        .sort_values("QTDE_AWBS", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def excel_insucesso_sem_pendencia(detail_df):
+    output = io.BytesIO()
+    detail_df = detail_df.copy() if detail_df is not None else pd.DataFrame()
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        resumo_insucesso_por_motivo(detail_df).to_excel(
+            writer,
+            sheet_name="RESUMO_MOTIVO",
+            index=False,
+        )
+        resumo_insucesso_por_entregador(detail_df).to_excel(
+            writer,
+            sheet_name="RESUMO_ENTREGADOR",
+            index=False,
+        )
+        detail_df.to_excel(
+            writer,
+            sheet_name="DETALHE_AWB",
+            index=False,
+        )
+
+    output.seek(0)
+    return output.getvalue()
+
+
 def insucesso_sem_pendencia_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1746,6 +1874,27 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
             "Baixar Excel deste card",
             excel_bytes(detail_df, sheet_name="AWBS_POR_DIA"),
             file_name="card_awbs_por_dia.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        return
+
+    if card_key == "insucesso_sem_pendencia":
+        st.markdown("#### Resumo por motivo de insucesso")
+        resumo_motivo = resumo_insucesso_por_motivo(detail_df)
+        render_table(resumo_motivo, height=260)
+
+        st.markdown("#### Resumo por entregador")
+        resumo_entregador = resumo_insucesso_por_entregador(detail_df)
+        render_table(resumo_entregador, height=260)
+
+        st.markdown("#### Detalhe por AWB")
+        render_table(detail_df.head(500), height=420)
+
+        st.download_button(
+            "Baixar Excel deste card",
+            excel_insucesso_sem_pendencia(detail_df),
+            file_name="card_insucesso_sem_pendencia.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
