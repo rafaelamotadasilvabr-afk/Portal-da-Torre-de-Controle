@@ -1025,6 +1025,145 @@ def detail_columns(df):
     return df[cols].copy() if cols else df.copy()
 
 
+def truthy_series(series, index=None):
+    if series is None:
+        return pd.Series(False, index=index)
+
+    return series.fillna(False).astype(str).str.strip().str.lower().isin(
+        ["true", "1", "sim", "yes", "y", "verdadeiro"]
+    )
+
+
+def entregue_eu_entrego_pendente_sk_rows(df):
+    """
+    Cargas que constam como entregues/fechadas/baixadas no Eu Entrego,
+    mas continuam como PENDENTE ENTREGA no SK.
+
+    Esta função precisa existir antes de overdue_delivery_rows,
+    porque o backlog usa ela para remover sobreposição.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    flag_col = first_col(data, [
+        "EU ENTREGO BAIXADO ENTREGUE",
+        "EU_ENTREGO_BAIXADO_ENTREGUE",
+        "BAIXADO EU ENTREGO",
+    ])
+
+    status_col = first_col(data, [
+        "STATUS ÚLTIMA ROTA",
+        "STATUS ULTIMA ROTA",
+        "STATUS_ULTIMA_ROTA",
+    ])
+
+    motivo_col = first_col(data, [
+        "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO ULTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+    ])
+
+    analise_col = first_col(data, [
+        "STATUS ANALISE EU ENTREGO",
+        "EU_ENTREGO_STATUS_ANALISE",
+    ])
+
+    mask_flag = (
+        truthy_series(data[flag_col], index=data.index)
+        if flag_col
+        else pd.Series(False, index=data.index)
+    )
+
+    texto = pd.Series("", index=data.index, dtype="object")
+    for col in [status_col, motivo_col, analise_col]:
+        if col:
+            texto = texto + " " + data[col].fillna("").astype(str)
+
+    texto_norm = texto.map(normalize_text)
+
+    status_eu_norm = (
+        data[status_col].fillna("").astype(str).map(normalize_text)
+        if status_col
+        else pd.Series("", index=data.index, dtype="object")
+    )
+
+    fechada_status = status_eu_norm.str.fullmatch(
+        r"FECHAD[AO]?|FECHADA|FECHADO",
+        na=False,
+    )
+
+    entregue = mask_flag | fechada_status | texto_norm.str.contains(
+        "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
+        regex=True,
+        na=False,
+    )
+
+    negativo = texto_norm.str.contains(
+        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
+        regex=True,
+        na=False,
+    )
+
+    status_sk_col = first_col(data, [
+        "STATUS SK",
+        "STATUS_SISTEMA",
+        "STATUS SISTEMA",
+    ])
+
+    sk_flag_col = first_col(data, [
+        "SK PENDENTE ENTREGA",
+        "SK_PENDENTE_ENTREGA",
+    ])
+
+    sk_flag = (
+        truthy_series(data[sk_flag_col], index=data.index)
+        if sk_flag_col
+        else pd.Series(False, index=data.index)
+    )
+
+    if status_sk_col:
+        status_sk_norm = data[status_sk_col].fillna("").astype(str).map(normalize_text)
+        sk_pendente = sk_flag | status_sk_norm.str.contains(
+            "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+            regex=True,
+            na=False,
+        )
+    else:
+        sk_pendente = sk_flag
+
+    out = data[sk_pendente & entregue & (~negativo)].copy()
+
+    preferred = [
+        "AWB",
+        "CLIENTE",
+        "STATUS SK",
+        "SITUAÇÃO",
+        "PROBLEMA",
+        "SLA",
+        "DIAS EM ATRASO",
+        "STATUS ÚLTIMA ROTA",
+        "MOTIVO ÚLTIMA ROTA",
+        "ÚLTIMA ROTA",
+        "ÚLTIMA ALTERAÇÃO",
+        "EXECUTADA EU ENTREGO",
+        "STATUS ANALISE EU ENTREGO",
+        "STATUS ROTA EU ENTREGO NORMALIZADO",
+        "EU ENTREGO BAIXADO ENTREGUE",
+        "LOCALIZAÇÃO / RESPONSÁVEL",
+        "TRATATIVA ESPECIAL",
+    ]
+
+    cols = [c for c in preferred if c in out.columns]
+    return out[cols].copy() if cols else out
+
+
+def backlog_baixado_eu_entrego_rows(df):
+    # Compatibilidade com versões anteriores.
+    return entregue_eu_entrego_pendente_sk_rows(df)
+
+
 def overdue_delivery_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1042,7 +1181,7 @@ def overdue_delivery_rows(df):
     # Regra de não sobreposição:
     # Se Eu Entrego está Fechada/Entregue e SK está PENDENTE ENTREGA,
     # a carga pertence ao card "Entregue Eu Entrego x SK", não ao backlog.
-    eu_sk = entregue_eu_entrego_pendente_sk_rows(data)
+    eu_sk = entregue_eu_entrego_pendente_sk_rows(data) if "entregue_eu_entrego_pendente_sk_rows" in globals() else pd.DataFrame()
     if eu_sk is not None and not eu_sk.empty and "AWB" in eu_sk.columns and "AWB" in data.columns:
         awbs_eu_sk = set(
             eu_sk["AWB"]
