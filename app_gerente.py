@@ -149,7 +149,7 @@ st.markdown(
         color: var(--gds-text);
         border: 1px solid #cfe0f5;
         border-radius: 18px;
-        padding: 16px 20px;
+        padding: 14px 20px;
         margin-bottom: 10px;
         box-shadow: var(--gds-shadow);
         position: relative;
@@ -167,7 +167,7 @@ st.markdown(
     }
 
     .hero h1 {
-        margin: 8px 0 4px 0;
+        margin: 0 0 4px 0;
         font-size: 1.68rem;
         line-height: 1.12;
         letter-spacing: -0.045em;
@@ -182,7 +182,7 @@ st.markdown(
     }
 
     .badge {
-        display: inline-block;
+        display: none;
         padding: 5px 9px;
         margin: 0 6px 6px 0;
         border-radius: 8px;
@@ -734,6 +734,17 @@ def filter_terms(df, terms):
 
 
 def apply_date_filter(df, date_range):
+    """
+    Filtro dinâmico da visão gerencial.
+
+    Regra:
+    - Se o usuário selecionar 1 único dia, prioriza SLA = dia selecionado.
+    - Se selecionar período, prioriza SLA dentro do período.
+    - Se não existir coluna SLA válida, usa fallback por outras datas operacionais.
+
+    Motivo:
+    A maior parte da visão executiva é análise de vencimento/SLA.
+    """
     if df is None or df.empty:
         return df, "sem dados"
 
@@ -744,12 +755,34 @@ def apply_date_filter(df, date_range):
     if start is None or end is None:
         return df, "sem período definido"
 
+    start_ts = pd.Timestamp(start).normalize()
+    end_ts = pd.Timestamp(end).normalize()
+    single_day = start_ts == end_ts
+
+    # 1) Prioridade: SLA.
+    sla_col = first_col(df, ["SLA", "DATA SLA", "DT SLA", "PREVISÃO", "PREVISAO"])
+    if sla_col:
+        sla_dates = parse_date_col(df[sla_col])
+        if sla_dates.notna().any():
+            sla_norm = sla_dates.dt.normalize()
+
+            if single_day:
+                mask = sla_norm.eq(start_ts)
+                return df[mask].copy(), f"Filtro aplicado por SLA do dia {start_ts.strftime('%d/%m/%Y')}"
+
+            mask = sla_norm.between(start_ts, end_ts)
+            return df[mask].copy(), f"Filtro aplicado por SLA de {start_ts.strftime('%d/%m/%Y')} a {end_ts.strftime('%d/%m/%Y')}"
+
+    # 2) Fallback: outras datas operacionais.
     date_candidates = [
         "DATA ANÁLISE",
-        "SLA",
+        "DATA ANALISE",
         "ÚLTIMA ROTA",
+        "ULTIMA ROTA",
         "DATA EVENTO TORRE",
+        "DATA_EVENTO_TORRE",
         "ÚLTIMA ALTERAÇÃO",
+        "ULTIMA ALTERACAO",
     ]
 
     for col_name in date_candidates:
@@ -757,12 +790,18 @@ def apply_date_filter(df, date_range):
         if col:
             dates = parse_date_col(df[col])
             if dates.notna().any():
-                start_ts = pd.Timestamp(start)
-                end_ts = pd.Timestamp(end)
-                mask = dates.dt.normalize().between(start_ts.normalize(), end_ts.normalize())
+                dates_norm = dates.dt.normalize()
+
+                if single_day:
+                    mask = dates_norm.eq(start_ts)
+                    return df[mask].copy(), f"Filtro aplicado por {col} no dia {start_ts.strftime('%d/%m/%Y')}"
+
+                mask = dates_norm.between(start_ts, end_ts)
                 return df[mask].copy(), f"Filtro aplicado por {col}"
 
     return df, "sem coluna de data disponível na fila"
+
+
 
 
 def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None):
@@ -2335,10 +2374,6 @@ atualizado = summary_value(resumo, "Atualizado em", "")
 st.markdown(
     f"""
     <div class="hero">
-        <span class="badge">TORRE DE CONTROLE</span>
-        <span class="badge">VISÃO EXECUTIVA</span>
-        <span class="badge">PERÍODO ANALISADO: {periodo}</span>
-        <span class="badge">ATUALIZADO EM: {atualizado}</span>
         <h1>Dashboard Torre de Controle</h1>
         <p>Visão gerencial de SLA, retornos, motoristas ofensores e pendências corporativas.</p>
     </div>
@@ -2363,7 +2398,7 @@ with top_filter_col:
         label_visibility="collapsed",
     )
     st.markdown(
-        '<div class="filter-note-compact">Aplica nos detalhes do relatório</div>',
+        '<div class="filter-note-compact">1 dia = SLA do dia | período = SLA no período</div>',
         unsafe_allow_html=True,
     )
 
@@ -2534,7 +2569,6 @@ if menu == "visao":
 
     detail = st.session_state.get("detail_card", "")
 
-    render_alert_pie_chart(alert_distribution_df)
 
     if detail:
         render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
