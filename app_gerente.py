@@ -485,6 +485,96 @@ def numeric_series(series):
     ).fillna(0)
 
 
+def money_series_flexible(series):
+    if series is None:
+        return pd.Series(dtype="float64")
+
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors="coerce").fillna(0)
+
+    txt = (
+        series.fillna("")
+        .astype(str)
+        .str.strip()
+        .str.replace("R$", "", regex=False)
+        .str.replace("\u00a0", "", regex=False)
+        .str.replace(" ", "", regex=False)
+    )
+
+    def _parse_money(value):
+        value = str(value).strip()
+        if not value:
+            return 0.0
+
+        value = re.sub(r"[^0-9,\.\-]", "", value)
+        if not value:
+            return 0.0
+
+        if "," in value and "." in value:
+            # 1.234,56
+            if value.rfind(",") > value.rfind("."):
+                value = value.replace(".", "").replace(",", ".")
+            # 1,234.56
+            else:
+                value = value.replace(",", "")
+        elif "," in value:
+            value = value.replace(",", ".")
+
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+    return txt.map(_parse_money).fillna(0)
+
+
+def find_value_column_flexible(df):
+    if df is None or df.empty:
+        return None
+
+    preferred = [
+        "ACAREACAO VALOR",
+        "VALOR_NUM",
+        "VALOR DA CARGA",
+        "VALOR CARGA",
+        "VALOR NF",
+        "VALOR_TOTAL",
+        "VALOR",
+        "VL",
+    ]
+
+    col = first_col(df, preferred)
+    if col:
+        return col
+
+    for col in df.columns:
+        col_norm = normalize_text(col)
+        if "VALOR" in col_norm or "VL" == col_norm or col_norm.startswith("ORIG_VALOR"):
+            return col
+
+    for col in df.columns:
+        try:
+            sample = " ".join(df[col].dropna().astype(str).head(30).tolist()).upper()
+            if "R$" in sample:
+                return col
+        except Exception:
+            continue
+
+    return None
+
+
+def acareacao_total_value(df):
+    if df is None or df.empty:
+        return 0.0
+
+    col = find_value_column_flexible(df)
+    if not col:
+        return 0.0
+
+    return float(money_series_flexible(df[col]).sum())
+
+
+
 def as_text_blob(df):
     if df is None or df.empty:
         return pd.Series(dtype=str)
@@ -1133,29 +1223,19 @@ def acareacao_driver_summary_prefer_sheet(fila_df):
                 driver_col = col
                 break
 
-    value_col = first_col(df, [
-        "ACAREACAO VALOR",
-        "VALOR_NUM",
-        "VALOR DA CARGA",
-        "VALOR",
-    ])
+    value_col = find_value_column_flexible(df)
 
     if not driver_col:
-        # Não há nome de entregador reconhecido. Devolve diagnóstico em vez de ficar vazio.
         return pd.DataFrame({
             "ENTREGADOR": ["Coluna de entregador não localizada"],
             "QTDE": [len(df)],
-            "VALOR_TOTAL": [0],
+            "VALOR_TOTAL": [acareacao_total_value(df)],
         })
 
     base = df.copy()
     base["_ENTREGADOR"] = base[driver_col].fillna("Não informado").astype(str).str.strip()
     base["_ENTREGADOR"] = base["_ENTREGADOR"].replace("", "Não informado")
-
-    if value_col:
-        base["_VALOR"] = numeric_series(base[value_col])
-    else:
-        base["_VALOR"] = 0
+    base["_VALOR"] = money_series_flexible(base[value_col]) if value_col else 0
 
     count_col = "AWB" if "AWB" in base.columns else "_ENTREGADOR"
 
@@ -1795,10 +1875,17 @@ if menu == "visao":
         st.rerun()
 
     acareacao_qtd = resumo_acareacao_qtd
-    acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
+    _acareacao_valor_total = acareacao_total_value(acareacao_df)
+    if _acareacao_valor_total <= 0:
+        _acareacao_valor_total = pd.to_numeric(
+            summary_value(resumo, "Valor em acareação", 0),
+            errors="coerce",
+        )
+        _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
+    acareacao_valor = brl(_acareacao_valor_total)
 
     cards_linha1 = [
-        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
         ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
