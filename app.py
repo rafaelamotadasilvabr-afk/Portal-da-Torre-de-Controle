@@ -374,7 +374,7 @@ def read_last_mile(file_bytes):
 
 
 @st.cache_data(show_spinner=False)
-def read_eu_entrego(file_bytes):
+def read_eu_entrego(file_bytes, awb_filter_key=None):
     df = pd.read_excel(io.BytesIO(file_bytes))
     df = clean_columns(df)
 
@@ -382,6 +382,31 @@ def read_eu_entrego(file_bytes):
         raise ValueError("Eu Entrego: coluna 'Pedido' não encontrada.")
 
     df["AWB"] = df["Pedido"].apply(normalize_awb)
+
+    # Otimização:
+    # O Eu Entrego pode vir com dezenas de milhares de AWBs.
+    # O painel precisa apenas das AWBs que estão no AWBStatus/CDSP2.
+    # Filtrar aqui reduz drasticamente o tempo de processamento.
+    if awb_filter_key:
+        _awb_filter = {
+            str(x).strip()
+            for x in awb_filter_key
+            if str(x).strip() not in {"", "nan", "None"}
+        }
+        if _awb_filter:
+            df = df[df["AWB"].astype(str).str.strip().isin(_awb_filter)].copy()
+
+    if df.empty:
+        latest_cols = [
+            "AWB", "ULTIMA_ROTA", "STATUS_ULTIMA_ROTA",
+            "ULTIMO_ENTREGADOR", "MOTIVO_ULTIMA_ROTA",
+            "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO",
+            "EXECUTADA_DT", "EU_ENTREGO_STATUS_ANALISE",
+            "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
+            "EU_ENTREGO_BAIXADO_ENTREGUE"
+        ]
+        return pd.DataFrame(columns=latest_cols), pd.DataFrame(columns=["AWB", "DATA_ROTA"])
+
     df["DATA_ROTA"] = parse_date(df.get("Data da Rota"))
     df["ULTIMA_ALTERACAO_DT"] = parse_date(df.get("Última alteração"))
     df["EXECUTADA_DT"] = parse_date(df.get("Executada"))
@@ -485,7 +510,7 @@ def read_eu_entrego(file_bytes):
 
 
 
-def read_eu_entrego_files(uploaded_files):
+def read_eu_entrego_files(uploaded_files, awb_filter=None):
     """
     Lê uma ou várias planilhas do Eu Entrego.
 
@@ -502,6 +527,16 @@ def read_eu_entrego_files(uploaded_files):
     latest_parts = []
     route_parts = []
 
+    awb_filter_key = None
+    if awb_filter is not None:
+        awb_filter_key = tuple(
+            sorted({
+                str(x).strip()
+                for x in awb_filter
+                if str(x).strip() not in {"", "nan", "None"}
+            })
+        )
+
     for uploaded in uploaded_files:
         if uploaded is None:
             continue
@@ -509,7 +544,7 @@ def read_eu_entrego_files(uploaded_files):
         try:
             file_name = getattr(uploaded, "name", "EU_ENTREGO")
             file_bytes = uploaded.getvalue()
-            latest, routes = read_eu_entrego(file_bytes)
+            latest, routes = read_eu_entrego(file_bytes, awb_filter_key=awb_filter_key)
 
             if latest is not None and not latest.empty:
                 latest = latest.copy()
@@ -2805,12 +2840,24 @@ if not (file_lm and file_eu):
     st.stop()
 
 try:
-    with st.spinner("Processando bases e aplicando regras da V0..."):
+    with st.spinner("Processando bases filtradas e aplicando regras da Torre..."):
         lm = read_last_mile(file_lm.getvalue())
-        eu_latest, route_dates = read_eu_entrego_files(file_eu)
+
+        _lm_awb_filter = (
+            tuple(sorted(lm["AWB"].dropna().astype(str).str.strip().unique()))
+            if not lm.empty and "AWB" in lm.columns
+            else None
+        )
+
+        eu_latest, route_dates = read_eu_entrego_files(
+            file_eu,
+            awb_filter=_lm_awb_filter,
+        )
+
         st.caption(
             f"Eu Entrego: {len(file_eu) if isinstance(file_eu, list) else 1} arquivo(s) processado(s). "
-            f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) únicas."
+            f"{len(_lm_awb_filter) if _lm_awb_filter else 0} AWB(s) da carteira CDSP2 usadas como filtro. "
+            f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) encontradas no Eu Entrego após o filtro."
         )
 
         # Índice de retorno do entregador:
