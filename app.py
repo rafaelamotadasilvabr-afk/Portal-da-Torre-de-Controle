@@ -1891,6 +1891,36 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
 
+        status_rota_norm = normalize_text(value(row, "STATUS_ULTIMA_ROTA"))
+        motivo_rota_norm = normalize_text(value(row, "MOTIVO_ULTIMA_ROTA"))
+        texto_rota_norm = f"{status_rota_norm} {motivo_rota_norm}".strip()
+
+        tem_insucesso_rota = (
+            "INSUCESS" in texto_rota_norm
+            or status_rota_norm in {"INSUCESSO", "INSUCCESSO"}
+        )
+
+        motivo_ausente_ou_fechado = (
+            "AUSENTE" in motivo_rota_norm
+            or "ESTABELECIMENTO FECHADO" in motivo_rota_norm
+            or motivo_rota_norm == "FECHADO"
+            or "FECHADO" in motivo_rota_norm
+        )
+
+        insucesso_exige_pendencia = (
+            tem_insucesso_rota
+            and not motivo_ausente_ou_fechado
+            and not em_torre_ativa
+            and not pendencia_torre_dia
+            and (
+                status_sistema == "PENDENTE ENTREGA"
+                or status_sistema == "PENDENTE DE ENTREGA"
+                or "PENDENTE ENTREGA" in situacao
+                or "PENDENTE DE ENTREGA" in situacao
+                or "ENTREGA" in situacao
+            )
+        )
+
         # Last Mile: pendente de desembarque até o SLA do dia.
         # Inclui SLA vencido e SLA hoje; não inclui SLA futuro.
         if (
@@ -1902,10 +1932,34 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 2, prioridade_des, "PENDENTE DE DESEMBARQUE", \
                 "Cobrar desembarque da carga até o SLA do dia"
 
+        # Insucesso com motivo que precisa virar pendência.
+        # Exemplo: Destinatário desconhecido no local, endereço não localizado etc.
+        # Ausente/fechado só fica em 3ª tentativa quando chegar em 3 tentativas.
+        if insucesso_exige_pendencia:
+            prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
+            return 3, prioridade, "INSUCESSO SEM PENDÊNCIA", \
+                "Direcionar para pendência para tratativa do motivo de insucesso"
+
+        # Regra gerencial: ausente/fechado com 3 ou mais tentativas fica em 3ª tentativa.
+        # Outros motivos já foram direcionados para Insucesso sem pendência acima.
+        if (
+            tentativas >= 3
+            and tem_insucesso_rota
+            and motivo_ausente_ou_fechado
+            and (
+                "ENTREGA" in situacao
+                or "PENDENTE" in situacao
+                or "INSUCESSO" in situacao
+                or "RETORNO" in situacao
+            )
+        ):
+            prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
+            return 4, prioridade, "3ª TENTATIVA DE ENTREGA", \
+                "Validar direcionamento para a Torre após 3 tentativas por ausente/fechado"
+
         # SLA do dia sem rota:
-        # Só é sem rota quando realmente não houve saída/rota no dia do SLA.
-        # Se teve rota no dia e deu insucesso, não entra, pois já teve saída criada.
-        # Se está na pendência, não entra; é tratativa da Torre.
+        # Só é sem rota quando não houve rota/saída no dia do SLA e também não existe
+        # insucesso que precise ser direcionado para pendência.
         if (
             status_sistema == "PENDENTE ENTREGA"
             and pd.notna(sla_row)
@@ -1913,44 +1967,42 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not teve_saida_dia_sla
             and not pendencia_torre_dia
             and not em_torre_ativa
+            and not tem_insucesso_rota
         ):
-            return 3, "ALTA", "SLA DO DIA SEM ROTA", \
+            return 5, "ALTA", "SLA DO DIA SEM ROTA", \
                 "Criar rota no Eu Entrego ou justificar carga no piso sem saída no dia do SLA"
 
-        # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
-        # Entra antes de PENDENTE DE ENTREGA para não ficar escondido no grupo genérico.
+        # Regra residual de 3ª tentativa para status já classificados assim no SK.
         if tentativas >= 3 and (
-            "ENTREGA" in situacao
-            or "PENDENTE" in situacao
-            or "INSUCESSO" in situacao
-            or "RETORNO" in situacao
+            "3A TENTATIVA" in situacao
+            or "3ª TENTATIVA" in situacao
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 4, prioridade, "3ª TENTATIVA DE ENTREGA", \
-                "Validar direcionamento para a Torre e definir nova tratativa de entrega"
+            return 6, prioridade, "3ª TENTATIVA DE ENTREGA", \
+                "Validar direcionamento para a Torre após a terceira tentativa"
 
         if atraso > 0 and "ENTREGA" in situacao:
-            return 5, "CRÍTICA", "ENTREGA EM ATRASO", \
+            return 7, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
-            return 6, "ALTA", "PENDENTE DE ENTREGA", \
+            return 8, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
 
         if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 7, "ALTA", "3ª TENTATIVA DE ENTREGA", \
+            return 9, "ALTA", "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
-            return 8, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
+            return 10, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
                 "Acompanhar devolutiva e prazo da acareação"
 
         if "INDENIZA" in controle or "DEBITO" in controle:
-            return 9, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
+            return 11, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
                 "Acompanhar o andamento do processo"
 
         if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-            return 10, "MÉDIA", "BOOKING / EDI", \
+            return 12, "MÉDIA", "BOOKING / EDI", \
                 "Validar execução do booking"
 
         return 99, "MONITORAR", value(row, "SITUACAO_GERENCIAL") or "SEM AÇÃO", \
@@ -2005,6 +2057,11 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["MOTORISTA / ENTREGADOR"] = df["ULTIMO_ENTREGADOR"] if "ULTIMO_ENTREGADOR" in df.columns else ""
     queue["STATUS ÚLTIMA ROTA"] = df["STATUS_ULTIMA_ROTA"] if "STATUS_ULTIMA_ROTA" in df.columns else ""
     queue["MOTIVO ÚLTIMA ROTA"] = df["MOTIVO_ULTIMA_ROTA"] if "MOTIVO_ULTIMA_ROTA" in df.columns else ""
+    queue["TIPO INSUCESSO"] = (
+        df["MOTIVO_ULTIMA_ROTA"].astype(str).map(normalize_text)
+        if "MOTIVO_ULTIMA_ROTA" in df.columns
+        else ""
+    )
     queue["ÚLTIMA ROTA"] = df["ULTIMA_ROTA"] if "ULTIMA_ROTA" in df.columns else ""
     queue["ÚLTIMA ALTERAÇÃO"] = df["ULTIMA_ALTERACAO"] if "ULTIMA_ALTERACAO" in df.columns else ""
     queue["EXECUTADA EU ENTREGO"] = df["EXECUTADA_DT"] if "EXECUTADA_DT" in df.columns else ""
@@ -2776,6 +2833,7 @@ try:
             awbs_acao = int(len(fila_gerencial))
             criticas = int((fila_gerencial["PRIORIDADE"] == "CRÍTICA").sum()) if not fila_gerencial.empty else 0
             entrega_atraso = int((fila_gerencial["PROBLEMA"] == "ENTREGA EM ATRASO").sum()) if not fila_gerencial.empty else 0
+            insucesso_sem_pendencia = int((fila_gerencial["PROBLEMA"] == "INSUCESSO SEM PENDÊNCIA").sum()) if not fila_gerencial.empty else 0
 
             if not fila_gerencial.empty:
                 _eu_flag = (
@@ -3265,6 +3323,7 @@ try:
                 {"METRICA": "Ações imediatas", "VALOR": criticas},
                 {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
+                {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
