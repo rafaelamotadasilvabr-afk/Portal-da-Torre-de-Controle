@@ -1114,22 +1114,95 @@ def insucesso_sem_pendencia_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    problema_col = first_col(df, ["PROBLEMA"])
-    if problema_col:
-        problema = df[problema_col].astype(str).map(normalize_text)
-        exact = df[problema.eq("INSUCESSO SEM PENDÊNCIA")].copy()
-        if not exact.empty:
-            preferred = [
-                "AWB", "CLIENTE", "STATUS SK", "SITUAÇÃO", "PROBLEMA",
-                "PRÓXIMA AÇÃO", "SLA", "DIAS EM ATRASO",
-                "STATUS ÚLTIMA ROTA", "MOTIVO ÚLTIMA ROTA", "TIPO INSUCESSO",
-                "ÚLTIMA ROTA", "ÚLTIMA ALTERAÇÃO", "MOTORISTA / ENTREGADOR",
-                "EVENTO TORRE", "ABA TORRE", "STATUS TORRE", "ORIGEM TORRE"
-            ]
-            cols = [c for c in preferred if c in exact.columns]
-            return exact[cols].copy() if cols else exact
+    data = df.copy()
 
-    return filter_terms(df, ["INSUCESSO SEM PENDÊNCIA", "DESTINATÁRIO DESCONHECIDO", "ENDEREÇO NÃO LOCALIZADO"])
+    problema_col = first_col(data, ["PROBLEMA"])
+    if problema_col:
+        problema = data[problema_col].astype(str).map(normalize_text)
+        data = data[problema.eq("INSUCESSO SEM PENDÊNCIA")].copy()
+    else:
+        data = filter_terms(data, ["INSUCESSO SEM PENDÊNCIA", "DESTINATÁRIO DESCONHECIDO", "ENDEREÇO NÃO LOCALIZADO"])
+
+    if data is None or data.empty:
+        return pd.DataFrame()
+
+    status_sk_col = first_col(data, ["STATUS SK", "STATUS_SISTEMA", "STATUS SISTEMA"])
+    status_rota_col = first_col(data, ["STATUS ÚLTIMA ROTA", "STATUS ULTIMA ROTA", "STATUS_ULTIMA_ROTA"])
+    motivo_col = first_col(data, ["MOTIVO ÚLTIMA ROTA", "MOTIVO ULTIMA ROTA", "MOTIVO_ULTIMA_ROTA"])
+
+    evento_torre_col = first_col(data, ["EVENTO TORRE", "EVENTO_TORRE"])
+    na_pendencia_col = first_col(data, ["NA PENDENCIA TORRE LINK", "NA_PENDENCIA_TORRE_LINK"])
+    em_torre_col = first_col(data, ["EM TORRE ATIVA", "EM_TORRE_ATIVA"])
+
+    if status_sk_col:
+        status_sk = data[status_sk_col].fillna("").astype(str).map(normalize_text)
+    else:
+        status_sk = pd.Series("", index=data.index)
+
+    sk_pendente = status_sk.str.contains(
+        "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+        regex=True,
+        na=False,
+    )
+
+    sk_baixado = status_sk.str.contains(
+        "ENTREGUE|BAIXAD|FINALIZAD|DEVOLVID|CANCELAD|ENCERRAD",
+        regex=True,
+        na=False,
+    )
+
+    texto_rota = pd.Series("", index=data.index, dtype="object")
+    for col in [status_rota_col, motivo_col]:
+        if col:
+            texto_rota = texto_rota + " " + data[col].fillna("").astype(str)
+
+    texto_rota_norm = texto_rota.map(normalize_text)
+
+    tem_insucesso = texto_rota_norm.str.contains("INSUCESS", regex=True, na=False)
+
+    # Ausente/fechado ficam fora deste card quando forem fluxo de 3 tentativas.
+    motivo_norm = (
+        data[motivo_col].fillna("").astype(str).map(normalize_text)
+        if motivo_col
+        else pd.Series("", index=data.index)
+    )
+    ausente_fechado = motivo_norm.str.contains(
+        "AUSENTE|ESTABELECIMENTO FECHADO|FECHADO",
+        regex=True,
+        na=False,
+    )
+
+    if evento_torre_col:
+        evento_torre = data[evento_torre_col].fillna("").astype(str).map(normalize_text)
+        evento_pend = evento_torre.isin(["PENDENCIA", "PENDENCIA_CORP"])
+    else:
+        evento_pend = pd.Series(False, index=data.index)
+
+    flag_pend = truthy_series(data[na_pendencia_col], index=data.index) if na_pendencia_col else pd.Series(False, index=data.index)
+    flag_torre = truthy_series(data[em_torre_col], index=data.index) if em_torre_col else pd.Series(False, index=data.index)
+
+    data = data[
+        sk_pendente
+        & (~sk_baixado)
+        & tem_insucesso
+        & (~ausente_fechado)
+        & (~evento_pend)
+        & (~flag_pend)
+        & (~flag_torre)
+    ].copy()
+
+    preferred = [
+        "AWB", "CLIENTE", "STATUS SK", "SITUAÇÃO", "PROBLEMA",
+        "PRÓXIMA AÇÃO", "SLA", "DIAS EM ATRASO",
+        "STATUS ÚLTIMA ROTA", "MOTIVO ÚLTIMA ROTA", "TIPO INSUCESSO",
+        "ÚLTIMA ROTA", "ÚLTIMA ALTERAÇÃO", "MOTORISTA / ENTREGADOR",
+        "EVENTO TORRE", "ABA TORRE", "STATUS TORRE", "ORIGEM TORRE",
+        "NA PENDENCIA TORRE LINK", "EM TORRE ATIVA"
+    ]
+    cols = [c for c in preferred if c in data.columns]
+    return data[cols].copy() if cols else data
+
+
 
 
 def sla_sem_rota_rows(df):
@@ -1470,7 +1543,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
-        subtitle = "Cargas com insucesso no Eu Entrego que ainda não estão na pendência da Torre. Direcionar para pendência."
+        subtitle = "Cargas PENDENTE ENTREGA no SK, com insucesso no Eu Entrego, sem baixa/finalização no SK e fora da pendência da Torre."
         df = insucesso_sem_pendencia_rows(fila_filtrada)
 
     elif card_key == "sla_sem_rota":

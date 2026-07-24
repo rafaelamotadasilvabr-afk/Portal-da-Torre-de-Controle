@@ -1929,18 +1929,45 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "FECHADO" in motivo_rota_norm
         )
 
+        evento_torre_norm = normalize_text(value(row, "EVENTO_TORRE"))
+        na_pendencia_torre_link = str(row.get("NA_PENDENCIA_TORRE_LINK", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        # Pendente na Torre por qualquer evidência:
+        # - flag de pendência ativa;
+        # - entrou na pendência no dia;
+        # - evento atual da Torre;
+        # - cruzamento com a planilha viva de Pendências.
+        esta_na_pendencia = (
+            em_torre_ativa
+            or pendencia_torre_dia
+            or na_pendencia_torre_link
+            or evento_torre_norm in {"PENDENCIA", "PENDENCIA_CORP"}
+        )
+
+        sk_pendente_entrega = (
+            status_sistema == "PENDENTE ENTREGA"
+            or status_sistema == "PENDENTE DE ENTREGA"
+            or "PENDENTE ENTREGA" in status_sistema
+            or "PENDENTE DE ENTREGA" in status_sistema
+        )
+
+        sk_baixado_ou_finalizado = (
+            "ENTREGUE" in status_sistema
+            or "BAIXAD" in status_sistema
+            or "FINALIZAD" in status_sistema
+            or "DEVOLVID" in status_sistema
+            or "CANCELAD" in status_sistema
+            or "ENCERRAD" in status_sistema
+        )
+
         insucesso_exige_pendencia = (
             tem_insucesso_rota
             and not motivo_ausente_ou_fechado
-            and not em_torre_ativa
-            and not pendencia_torre_dia
-            and (
-                status_sistema == "PENDENTE ENTREGA"
-                or status_sistema == "PENDENTE DE ENTREGA"
-                or "PENDENTE ENTREGA" in situacao
-                or "PENDENTE DE ENTREGA" in situacao
-                or "ENTREGA" in situacao
-            )
+            and sk_pendente_entrega
+            and not sk_baixado_ou_finalizado
+            and not esta_na_pendencia
         )
 
         # Last Mile: pendente de desembarque até o SLA do dia.
@@ -1954,9 +1981,10 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 2, prioridade_des, "PENDENTE DE DESEMBARQUE", \
                 "Cobrar desembarque da carga até o SLA do dia"
 
-        # Insucesso com motivo que precisa virar pendência.
-        # Exemplo: Destinatário desconhecido no local, endereço não localizado etc.
-        # Ausente/fechado só fica em 3ª tentativa quando chegar em 3 tentativas.
+        # Insucesso sem pendência:
+        # Entra somente se continua PENDENTE ENTREGA no SK,
+        # teve insucesso no Eu Entrego, não está baixado no SK
+        # e ainda não consta na planilha de pendências da Torre.
         if insucesso_exige_pendencia:
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
             return 3, prioridade, "INSUCESSO SEM PENDÊNCIA", \
@@ -2096,6 +2124,8 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["ABA TORRE"] = df["ABA_ORIGEM"] if "ABA_ORIGEM" in df.columns else ""
     queue["STATUS TORRE"] = df["STATUS_TRATATIVA"] if "STATUS_TRATATIVA" in df.columns else ""
     queue["ORIGEM TORRE"] = df["ORIGEM_TORRE"] if "ORIGEM_TORRE" in df.columns else ""
+    queue["NA PENDENCIA TORRE LINK"] = df["NA_PENDENCIA_TORRE_LINK"] if "NA_PENDENCIA_TORRE_LINK" in df.columns else False
+    queue["EM TORRE ATIVA"] = df["EM_TORRE_ATIVA"] if "EM_TORRE_ATIVA" in df.columns else False
     queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
     queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
 
