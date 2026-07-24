@@ -869,11 +869,63 @@ def render_table(df, height=340):
     st.dataframe(df, use_container_width=True, hide_index=True, height=height)
 
 
+
+def looks_like_date_column(col_name):
+    col_norm = normalize_text(col_name)
+    date_tokens = [
+        "DATA",
+        "DT",
+        "SLA",
+        "PREVISAO",
+        "PREVISÃO",
+        "ROTA",
+        "ALTERACAO",
+        "ALTERAÇÃO",
+        "EXECUTADA",
+        "VOO",
+        "EMISSAO",
+        "EMISSÃO",
+    ]
+    return any(token in col_norm for token in date_tokens)
+
+
+def format_excel_date_columns(writer, df, sheet_name):
+    """
+    Padroniza colunas de data no Excel para DD/MM/AAAA.
+    Não altera o dataframe original nem as regras do painel.
+    """
+    if df is None or df.empty:
+        return
+
+    ws = writer.sheets.get(str(sheet_name)[:31])
+    if ws is None:
+        return
+
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        if not looks_like_date_column(col_name):
+            continue
+
+        # Tenta converter a coluna para datas apenas para identificar se faz sentido formatar.
+        converted = pd.to_datetime(df[col_name], errors="coerce", dayfirst=True)
+        if converted.notna().sum() == 0:
+            continue
+
+        for row_idx in range(2, len(df) + 2):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if cell.value in [None, ""]:
+                continue
+            cell.number_format = "DD/MM/YYYY"
+
+
 def excel_bytes(df, sheet_name="DADOS"):
     output = io.BytesIO()
     safe_df = df.copy() if df is not None else pd.DataFrame()
+    sheet = str(sheet_name)[:31]
+
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        safe_df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False)
+        safe_df.to_excel(writer, sheet_name=sheet, index=False)
+        format_excel_date_columns(writer, safe_df, sheet)
+
     output.seek(0)
     return output.getvalue()
 
@@ -1199,7 +1251,11 @@ def render_edi_card_detail(card_key, edi_detalhe):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             resumo_onde.to_excel(writer, sheet_name="RESUMO_ONDE_ESTA", index=False)
+            format_excel_date_columns(writer, resumo_onde, "RESUMO_ONDE_ESTA")
+
             df.to_excel(writer, sheet_name="DETALHE_AWB", index=False)
+            format_excel_date_columns(writer, df, "DETALHE_AWB")
+
         output.seek(0)
 
         st.download_button(
@@ -2385,17 +2441,32 @@ def simplified_director_report(resumo, kpis_df, motoristas_df, retornos_df, pend
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         resumo.to_excel(writer, sheet_name="RESUMO_BASE", index=False)
+        format_excel_date_columns(writer, resumo, "RESUMO_BASE")
+
         kpis_df.to_excel(writer, sheet_name="RESUMO_DIRETORIA", index=False)
+        format_excel_date_columns(writer, kpis_df, "RESUMO_DIRETORIA")
+
         motoristas_df.to_excel(writer, sheet_name="MOTORISTAS", index=False)
+        format_excel_date_columns(writer, motoristas_df, "MOTORISTAS")
+
         retornos_df.to_excel(writer, sheet_name="RETORNOS_ABERTOS", index=False)
+        format_excel_date_columns(writer, retornos_df, "RETORNOS_ABERTOS")
+
         pendcorp_df.to_excel(writer, sheet_name="TOP5_PEND_CORP", index=False)
+        format_excel_date_columns(writer, pendcorp_df, "TOP5_PEND_CORP")
+
         # Quando disponíveis no escopo, adiciona abas gerenciais novas.
         if "acareacao_df" in globals():
             acareacao_df.to_excel(writer, sheet_name="ACAREACOES", index=False)
+            format_excel_date_columns(writer, acareacao_df, "ACAREACOES")
+
         if "daily_df" in globals():
             daily_df.to_excel(writer, sheet_name="AWBS_POR_DIA", index=False)
+            format_excel_date_columns(writer, daily_df, "AWBS_POR_DIA")
+
         if "alert_distribution_df" in globals():
             alert_distribution_df.to_excel(writer, sheet_name="DISTR_ALERTAS", index=False)
+            format_excel_date_columns(writer, alert_distribution_df, "DISTR_ALERTAS")
 
     buffer.seek(0)
     return buffer.getvalue()

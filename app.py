@@ -24,6 +24,54 @@ st.set_page_config(
 # UTILITÁRIOS
 # =========================
 
+
+def looks_like_date_column(col_name):
+    col_norm = normalize_text(col_name)
+    date_tokens = [
+        "DATA",
+        "DT",
+        "SLA",
+        "PREVISAO",
+        "PREVISÃO",
+        "ROTA",
+        "ALTERACAO",
+        "ALTERAÇÃO",
+        "EXECUTADA",
+        "VOO",
+        "EMISSAO",
+        "EMISSÃO",
+    ]
+    return any(token in col_norm for token in date_tokens)
+
+
+def format_excel_date_columns(writer, df, sheet_name):
+    """
+    Padroniza colunas de data no Excel para DD/MM/AAAA.
+    Não altera o dataframe original nem as regras do painel.
+    """
+    if df is None or df.empty:
+        return
+
+    ws = writer.sheets.get(str(sheet_name)[:31])
+    if ws is None:
+        return
+
+    for col_idx, col_name in enumerate(df.columns, start=1):
+        if not looks_like_date_column(col_name):
+            continue
+
+        # Tenta converter a coluna para datas apenas para identificar se faz sentido formatar.
+        converted = pd.to_datetime(df[col_name], errors="coerce", dayfirst=True)
+        if converted.notna().sum() == 0:
+            continue
+
+        for row_idx in range(2, len(df) + 2):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if cell.value in [None, ""]:
+                continue
+            cell.number_format = "DD/MM/YYYY"
+
+
 def normalize_text(value):
     if pd.isna(value):
         return ""
