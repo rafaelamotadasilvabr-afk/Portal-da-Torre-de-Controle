@@ -1064,10 +1064,132 @@ def edi_rows_entrega_destino_sla(df):
 
 def edi_rows_desembarque(df):
     """
-    Cargas pendentes de desembarque, independente da base.
-    O detalhe mostra onde está por OPS_STATION / destino.
+    Pendente desembarque EDI.
+
+    Regra:
+    - Entra somente o que estiver classificado como PENDENTE DE DESEMBARQUE.
+    - Remove entregue/baixado.
+    - Remove discrepância.
+    - Remove pendente de embarque / Bag Create.
+    - Remove entrega destino / SLA.
     """
-    return edi_rows(df, "PENDENTE DE DESEMBARQUE")
+    data = edi_rows(df, "PENDENTE DE DESEMBARQUE")
+
+    if data is None or data.empty:
+        return pd.DataFrame()
+
+    data = data.copy()
+
+    # Junta colunas textuais relevantes para identificar falsos positivos.
+    text_cols = [
+        "INDICADOR",
+        "STATUS",
+        "STATUS_EN",
+        "STATUS EN",
+        "STATUS_SLA",
+        "STATUS SLA",
+        "SITUACAO",
+        "SITUAÇÃO",
+        "OCORRENCIA",
+        "OCORRÊNCIA",
+        "EVENTO",
+        "DESCRICAO",
+        "DESCRIÇÃO",
+    ]
+
+    texto = pd.Series("", index=data.index, dtype="object")
+    for col in text_cols:
+        if col in data.columns:
+            texto = texto + " " + data[col].fillna("").astype(str)
+
+    texto_norm = texto.map(normalize_text)
+
+    # Flags estruturadas quando existirem.
+    ja_entregue_col = first_col(data, ["JA_ENTREGUE", "JÁ ENTREGUE", "ENTREGUE", "BAIXADO"])
+    bag_create_col = first_col(data, ["BAG_CREATE", "BAG CREATE"])
+    indicador_col = first_col(data, ["INDICADOR"])
+
+    if ja_entregue_col:
+        ja_entregue = data[ja_entregue_col].fillna(False).astype(str).str.strip().str.lower().isin(
+            ["true", "1", "sim", "yes", "y", "verdadeiro", "entregue", "baixado"]
+        )
+    else:
+        ja_entregue = pd.Series(False, index=data.index)
+
+    if bag_create_col:
+        bag_create = data[bag_create_col].fillna(False).astype(str).str.strip().str.lower().isin(
+            ["true", "1", "sim", "yes", "y", "verdadeiro"]
+        )
+    else:
+        bag_create = pd.Series(False, index=data.index)
+
+    if indicador_col:
+        indicador_norm = data[indicador_col].fillna("").astype(str).map(normalize_text)
+    else:
+        indicador_norm = pd.Series("", index=data.index, dtype="object")
+
+    entregue_ou_baixado = ja_entregue | texto_norm.str.contains(
+        "ENTREGUE|BAIXAD|FINALIZAD|CONCLUID|DELIVERED|ENTREGA REALIZADA",
+        regex=True,
+        na=False,
+    )
+
+    discrepancia = indicador_norm.str.contains("DISCREP", regex=True, na=False) | texto_norm.str.contains(
+        "DISCREP",
+        regex=True,
+        na=False,
+    )
+
+    pendente_embarque = bag_create | indicador_norm.str.contains(
+        "PENDENTE DE EMBARQUE|PENDENTE EMBARQUE|EMBARQUE",
+        regex=True,
+        na=False,
+    ) | texto_norm.str.contains(
+        "PENDENTE DE EMBARQUE|PENDENTE EMBARQUE|BAG CREATE|BAGCREATE|AGUARDANDO EMBARQUE",
+        regex=True,
+        na=False,
+    )
+
+    entrega_destino = indicador_norm.str.contains(
+        "ENTREGA NO DESTINO|ENTREGA DESTINO|ENTREGA.*SLA",
+        regex=True,
+        na=False,
+    )
+
+    # Mantém apenas o desembarque real.
+    data = data[
+        (~entregue_ou_baixado)
+        & (~discrepancia)
+        & (~pendente_embarque)
+        & (~entrega_destino)
+    ].copy()
+
+    # Prioriza colunas úteis no detalhe.
+    preferred = [
+        "AWB",
+        "CLIENTE",
+        "BASE",
+        "OPS_STATION",
+        "OPS STATION",
+        "DESTINO",
+        "FLTDESTINATION",
+        "FLT DESTINATION",
+        "INDICADOR",
+        "SLA",
+        "STATUS_EN",
+        "STATUS EN",
+        "STATUS_SLA",
+        "STATUS SLA",
+        "BAG_CREATE",
+        "BAG CREATE",
+        "JA_ENTREGUE",
+        "JÁ ENTREGUE",
+    ]
+    cols = [c for c in preferred if c in data.columns]
+    remaining = [c for c in data.columns if c not in cols]
+    return data[cols + remaining].copy() if cols else data
+
+
 
 
 def edi_resumo_desembarque_onde_esta(df):
@@ -1210,7 +1332,7 @@ def render_edi_card_detail(card_key, edi_detalhe):
         },
         "edi_desembarque": {
             "title": "EDI — Pendente desembarque",
-            "subtitle": "Cargas pendentes de desembarque. O resumo mostra onde a carga está.",
+            "subtitle": "Somente cargas realmente pendentes de desembarque. Exclui entregue, baixado, discrepância e embarque.",
             "df": edi_rows_desembarque(edi_detalhe),
             "sheet": "DESEMBARQUE",
         },
@@ -2841,7 +2963,7 @@ elif menu == "edi":
 
     st.info(
         "Regra simplificada: embarque mostra apenas dias anteriores; SLA do dia atual não entra no embarque atrasado. "
-        "Desembarque mostra onde a carga está pelo OPS Station / destino."
+        "Desembarque mostra onde a carga está e exclui entregue, baixado, discrepância e pendente de embarque."
     )
 
     edi_entrega_df = edi_rows_entrega_destino_sla(edi_detalhe)
@@ -2880,7 +3002,7 @@ elif menu == "edi":
         (
             "Pendente desembarque",
             fmt_int(edi_count_df(edi_desembarque_df)),
-            "Abrir para ver onde está",
+            "Exclui entregue/embarque/discrepância",
             "⇣",
             "#0f766e",
             "#f0fdfa",
