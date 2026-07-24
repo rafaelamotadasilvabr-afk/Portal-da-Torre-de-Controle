@@ -163,9 +163,14 @@ st.markdown(
         border: 1px solid #e2e8f0;
         border-radius: 16px;
         padding: 15px 16px;
-        min-height: 136px;
+        height: 178px;
+        min-height: 178px;
+        max-height: 178px;
         box-shadow: 0 8px 22px rgba(15, 23, 42, 0.055);
         border-top: 4px solid var(--accent);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
     .kpi-icon {
@@ -183,11 +188,18 @@ st.markdown(
 
     .label {
         color: #334155;
-        font-size: 0.76rem;
+        font-size: 0.72rem;
         font-weight: 850;
-        margin-bottom: 7px;
+        margin-bottom: 8px;
         text-transform: uppercase;
-        min-height: 30px;
+        min-height: 34px;
+        max-height: 34px;
+        line-height: 1.25;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        word-break: normal;
     }
 
     .value {
@@ -197,12 +209,22 @@ st.markdown(
         line-height: 1;
         margin-bottom: 8px;
         letter-spacing: -0.04em;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
     }
 
     .sub {
         color: #708099;
-        font-size: 0.71rem;
+        font-size: 0.70rem;
         line-height: 1.35;
+        min-height: 38px;
+        max-height: 38px;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        margin-top: auto;
     }
 
     .section-title {
@@ -258,6 +280,11 @@ st.markdown(
     div[data-testid="stButton"] button {
         border-radius: 10px;
         font-weight: 750;
+        min-height: 42px;
+    }
+
+    .card-row-spacer {
+        height: 10px;
     }
 
     .detail-box {
@@ -1549,7 +1576,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "sla_sem_rota":
         title = "Detalhe — SLA do dia sem rota"
         subtitle = "Cargas com SLA no dia analisado, sem rota/saída no dia e sem insucesso que exija pendência."
-        df = sla_sem_rota_rows(fila_filtrada)
+        df = sla_sem_rota_df.copy() if "sla_sem_rota_df" in globals() else sla_sem_rota_rows(fila_filtrada)
 
     elif card_key == "lastmile_desembarque":
         title = "Detalhe — Pendente de desembarque CDSP2"
@@ -2001,7 +2028,10 @@ daily_df = daily_awb_counts(fila_filtrada)
 resumo_entrega_atraso = number(summary_value(resumo, "Backlog (atraso de entrega)", len(overdue_delivery_rows(fila_filtrada))))
 resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entrego x Pendente SK", len(entregue_eu_entrego_pendente_sk_rows(fila_filtrada))))
 resumo_insucesso_sem_pendencia = number(summary_value(resumo, "Insucesso sem pendência", len(insucesso_sem_pendencia_rows(fila_filtrada))))
-resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
+# SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
+# Não usa mais o RESUMO como fonte principal, para evitar número defasado.
+sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
+resumo_sla_sem_rota = len(sla_sem_rota_df)
 resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
@@ -2116,8 +2146,15 @@ if menu == "visao":
         ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
     ]
 
-    for cards in [cards_linha1, cards_linha2, cards_linha3]:
-        cols = st.columns(len(cards))
+    # Grade padronizada: no máximo 4 cards por linha.
+    # Evita cards estreitos, quebra excessiva de título e alturas diferentes.
+    all_cards = cards_linha1 + cards_linha2 + cards_linha3
+    cards_por_linha = 4
+
+    for start_idx in range(0, len(all_cards), cards_por_linha):
+        cards = all_cards[start_idx:start_idx + cards_por_linha]
+        cols = st.columns(cards_por_linha)
+
         for idx, item in enumerate(cards):
             label, value, sub, icon, accent, soft, key = item
             with cols[idx]:
@@ -2129,6 +2166,9 @@ if menu == "visao":
                     else:
                         st.session_state["detail_card"] = key
                     st.rerun()
+
+        # Mantém espaçamento visual entre linhas, sem afetar a altura dos cards.
+        st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
 
     detail = st.session_state.get("detail_card", "")
 
