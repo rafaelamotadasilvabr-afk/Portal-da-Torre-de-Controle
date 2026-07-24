@@ -659,30 +659,59 @@ def read_torre_from_dataframe(source_df):
 
     df["AWB"] = df[awb_col].apply(normalize_awb)
 
-    treatment_col = find_column(df, ["DATA DA TRATATIVA"])
-    status_col = find_column(df, ["STATUS", " STATUS"])
+    treatment_col = find_column(df, ["DATA DA TRATATIVA", "DATA TRATATIVA"])
+    status_col = find_column(df, ["STATUS", " STATUS", "SITUAÇÃO", "SITUACAO", "STATUS EMAIL"])
     origin_col = find_column(df, ["ORIGEM", " ORIGEM ", "BASE DE ORIGEM"])
     reason_col = find_column(df, ["OBS", "OBSERVAÇÃO", "MOTIVO DA PENDENCIA"])
     email_col = find_column(df, ["STATUS EMAIL"])
 
+    final_date_col = find_column(df, [
+        "DATA MOV. FINALIZAÇÃO",
+        "DATA MOV FINALIZAÇÃO",
+        "DATA MOVIMENTAÇÃO FINALIZAÇÃO",
+        "DATA MOVIMENTACAO FINALIZACAO",
+        "DATA FINALIZAÇÃO",
+        "DATA FINALIZACAO",
+        "DATA DA FINALIZAÇÃO",
+        "DATA DA FINALIZACAO",
+        "DATA BAIXA",
+        "DATA DA BAIXA",
+        "DATA ENCERRAMENTO",
+        "FINALIZADO EM",
+        "DT FINALIZAÇÃO",
+        "DT FINALIZACAO",
+    ])
+
     # Fallback para quando a leitura vier de uma única aba/CSV:
-    # se houver STATUS contendo FINALIZADO, classifica como saída.
+    # se houver STATUS contendo BAIXADO/FINALIZADO, classifica como saída.
     if status_col:
         _status_norm_torre = df[status_col].astype(str).map(normalize_text)
         evento_series = pd.Series("PENDENCIA", index=df.index)
-        evento_series.loc[
-            _status_norm_torre.str.contains("FINALIZAD|CONCLUID|ENCERRAD|BAIXAD", regex=True, na=False)
-        ] = "FINALIZADO"
+        _finalizado_mask = _status_norm_torre.str.contains(
+            "FINALIZAD|CONCLUID|ENCERRAD|BAIXAD",
+            regex=True,
+            na=False,
+        )
+        evento_series.loc[_finalizado_mask] = "FINALIZADO"
     else:
+        _finalizado_mask = pd.Series(False, index=df.index)
         evento_series = pd.Series("PENDENCIA", index=df.index)
+
+    _data_evento = (
+        parse_date(df[treatment_col])
+        if treatment_col else pd.Series(pd.NaT, index=df.index)
+    )
+
+    if final_date_col:
+        _data_final = parse_date(df[final_date_col])
+        _data_evento.loc[_finalizado_mask] = _data_final.loc[_finalizado_mask].fillna(
+            _data_evento.loc[_finalizado_mask]
+        )
 
     history = pd.DataFrame({
         "AWB": df["AWB"],
         "EVENTO_TORRE": evento_series,
-        "DATA_EVENTO_TORRE": (
-            parse_date(df[treatment_col])
-            if treatment_col else pd.Series(pd.NaT, index=df.index)
-        ),
+        "DATA_EVENTO_TORRE": _data_evento,
         "STATUS_TRATATIVA": df[status_col] if status_col else "",
         "ORIGEM_TORRE": df[origin_col] if origin_col else "",
         "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
@@ -1028,9 +1057,6 @@ def read_torre(file_bytes):
         if df.empty:
             continue
 
-        date_col = _best_date_col(df, event_type)
-        df["DATA_EVENTO"] = parse_date(df[date_col]) if date_col else pd.NaT
-
         status_col = _find_col_fuzzy(df, [
             "STATUS",
             " STATUS",
@@ -1055,10 +1081,37 @@ def read_torre(file_bytes):
             "OBSERVACAO",
         ])
 
+        # Regra importante:
+        # quando a linha está dentro da aba PENDENCIAS/PENDENCIA CORP,
+        # mas o STATUS da própria linha é Baixado/Finalizado,
+        # a linha deve virar FINALIZADO para contar como saída da pendência.
+        evento_series = pd.Series(event_type, index=df.index)
+        _finalizado_mask = pd.Series(False, index=df.index)
+
+        if status_col:
+            _status_norm_torre = df[status_col].astype(str).map(normalize_text)
+            _finalizado_mask = _status_norm_torre.str.contains(
+                "FINALIZAD|CONCLUID|ENCERRAD|BAIXAD",
+                regex=True,
+                na=False,
+            )
+            evento_series.loc[_finalizado_mask] = "FINALIZADO"
+
+        date_col = _best_date_col(df, event_type)
+        data_evento = parse_date(df[date_col]) if date_col else pd.Series(pd.NaT, index=df.index)
+
+        if _finalizado_mask.any():
+            final_date_col = _best_date_col(df, "FINALIZADO")
+            if final_date_col:
+                data_final = parse_date(df[final_date_col])
+                data_evento.loc[_finalizado_mask] = data_final.loc[_finalizado_mask].fillna(
+                    data_evento.loc[_finalizado_mask]
+                )
+
         part = pd.DataFrame({
             "AWB": df["AWB"],
-            "EVENTO_TORRE": event_type,
-            "DATA_EVENTO_TORRE": df["DATA_EVENTO"],
+            "EVENTO_TORRE": evento_series,
+            "DATA_EVENTO_TORRE": data_evento,
             "STATUS_TRATATIVA": df[status_col] if status_col else "",
             "ORIGEM_TORRE": df[origin_col] if origin_col else "",
             "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
