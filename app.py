@@ -1143,7 +1143,17 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 and normalize_text(ops_station) == normalize_text(flt_destination)
             )
 
-            if grupo == "PENDENTE DE EMBARQUE":
+            # Prioridade operacional:
+            # PENDENTE ENTREGA no destino precisa ser contado como entrega destino/SLA.
+            # Antes ele podia cair como desembarque quando OPSStation == FltDestination.
+            if (
+                "PENDENTE ENTREGA" in status_norm
+                or "PENDENTE DE ENTREGA" in status_norm
+                or status_norm == "PENDENTE ENTREGA"
+            ):
+                indicador = "ENTREGA NO DESTINO PELO SLA"
+
+            elif grupo == "PENDENTE DE EMBARQUE":
                 if ops_station in {"SAO12", "TRES1"}:
                     # Regra específica:
                     # Se StatusDescriptionEN = Bag Create, valida se a AWB já foi entregue.
@@ -1153,14 +1163,15 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                     indicador = "PENDENTE DE EMBARQUE"
                 else:
                     continue
+
             elif grupo == "PENDENTE DE DESEMBARQUE" or esta_no_destino:
                 indicador = "PENDENTE DE DESEMBARQUE"
+
             elif grupo == "MISSING":
                 indicador = "MISSING"
+
             elif grupo == "DISCREPÂNCIA":
                 indicador = "DISCREPÂNCIA"
-            elif "PENDENTE ENTREGA" in status_norm:
-                indicador = "ENTREGA NO DESTINO PELO SLA"
 
             if indicador is None:
                 continue
@@ -1216,6 +1227,116 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
                 "DATA_VOO": row.get("FltDt", ""),
                 "BILL_TO": row.get("BillTo", ""),
             })
+
+    # Pendente de entrega no destino vindo da própria base EDI.
+    # Regra: sem entrega registrada + SLA/Previsão vencido ou do dia.
+    # Isso cobre o caso em que a carga já não está mais no embarque/desembarque,
+    # mas continua aberta no destino para entrega.
+    if edi_base_df is not None and not edi_base_df.empty:
+        edi_awb_col = find_column(edi_base_df, ["Nº AWB", "AWB", "AWBNumber", "AWB Number"])
+        edi_entrega_col = find_column(edi_base_df, ["EntregaCarga", "Entrega Carga", "Data Entrega", "DataEntrega", "Entrega"])
+        edi_sla_col = find_column(edi_base_df, [
+            "SLA",
+            "Previsão",
+            "Previsao",
+            "Data Prevista",
+            "Data Prevista Entrega",
+            "DataPrevistaEntrega",
+            "PrevisaoEntrega",
+            "Previsão Entrega",
+            "DT SLA",
+            "Data SLA",
+        ])
+        edi_ocorr_col = find_column(edi_base_df, ["UltimaOcorrencia", "Última Ocorrência", "Ultima Ocorrência", "Ocorrência", "Ocorrencia"])
+        edi_cliente_col = find_column(edi_base_df, ["CLIENTE_EDI", "Cliente", "CLIENTE", "ClientName", "BillTo"])
+        edi_origem_col = find_column(edi_base_df, ["Origem", "ORIGEM", "Origin", "FltOrigin"])
+        edi_destino_col = find_column(edi_base_df, ["Destino", "DESTINO", "Destination", "FltDestination"])
+
+        if edi_awb_col and edi_sla_col:
+            _edi_destino = edi_base_df.copy()
+            _edi_destino["_AWB_NORM"] = _edi_destino[edi_awb_col].apply(normalize_awb)
+            _edi_destino["_SLA_DT"] = parse_date(_edi_destino[edi_sla_col])
+            _edi_destino["_SLA_DATE"] = _edi_destino["_SLA_DT"].dt.date
+
+            if edi_entrega_col:
+                _entrega_preenchida = (
+                    _edi_destino[edi_entrega_col].notna()
+                    & ~_edi_destino[edi_entrega_col].astype(str).str.strip().isin(["", "nan", "None", "NaT"])
+                )
+            else:
+                _entrega_preenchida = pd.Series(False, index=_edi_destino.index)
+
+            if edi_ocorr_col:
+                _ocorr_norm = _edi_destino[edi_ocorr_col].astype(str).map(normalize_text)
+                _entrega_preenchida = _entrega_preenchida | _ocorr_norm.str.contains(
+                    "ENTREGUE|DELIVERED|DELIVERY|BAIXADO",
+                    regex=True,
+                    na=False,
+                )
+
+            _sla_mask = (
+                _edi_destino["_SLA_DT"].notna()
+                & (_edi_destino["_SLA_DATE"] <= ref_date)
+            )
+            _pendente_entrega_destino = _edi_destino[
+                _edi_destino["_AWB_NORM"].fillna("").astype(str).str.strip().ne("")
+                & _sla_mask
+                & (~_entrega_preenchida)
+            ].copy()
+
+            # Evita duplicar AWB que já entrou pelo First Mile no mesmo indicador.
+            _ja_inseridas_entrega = {
+                str(r.get("AWB", "")).strip()
+                for r in detail_rows
+                if str(r.get("INDICADOR", "")) == "ENTREGA NO DESTINO PELO SLA"
+            }
+
+            for _, row in _pendente_entrega_destino.iterrows():
+                awb = normalize_awb(row.get(edi_awb_col, ""))
+                if not awb or awb in _ja_inseridas_entrega:
+                    continue
+
+                sla_dt = row.get("_SLA_DT")
+                sla_date = sla_dt.date() if pd.notna(sla_dt) else ""
+
+                if pd.notna(sla_dt):
+                    dias_sla = (ref_date - sla_dt.date()).days
+                    if dias_sla > 0:
+                        status_sla = "SLA VENCIDO"
+                    elif dias_sla == 0:
+                        status_sla = "SLA HOJE"
+                    else:
+                        status_sla = "SLA FUTURO"
+                else:
+                    dias_sla = ""
+                    status_sla = "SEM SLA"
+
+                origem = str(row.get(edi_origem_col, "")).strip() if edi_origem_col else ""
+                destino = str(row.get(edi_destino_col, "")).strip() if edi_destino_col else ""
+                cliente = str(row.get(edi_cliente_col, row.get("CLIENTE_EDI", ""))).strip() if edi_cliente_col else str(row.get("CLIENTE_EDI", "")).strip()
+                ocorrencia = str(row.get(edi_ocorr_col, "")).strip() if edi_ocorr_col else ""
+
+                detail_rows.append({
+                    "FONTE": "NOTAS INTEGRADAS EDI",
+                    "BASE": destino,
+                    "INDICADOR": "ENTREGA NO DESTINO PELO SLA",
+                    "CLIENTE": cliente,
+                    "AWB": awb,
+                    "STATUS": ocorrencia,
+                    "STATUS_EN": "",
+                    "BAG_CREATE": "",
+                    "JA_ENTREGUE": "NÃO",
+                    "SLA": sla_date,
+                    "STATUS_SLA": status_sla,
+                    "DIAS_SLA": dias_sla,
+                    "ORIGEM": origem,
+                    "DESTINO": destino,
+                    "OPS_STATION": destino,
+                    "TRECHO": f"{origem} → {destino}".strip(" →"),
+                    "VOO": "",
+                    "DATA_VOO": "",
+                    "BILL_TO": "",
+                })
 
     if edi_base_df is not None and not edi_base_df.empty and "STATUS_EDI_GERENCIAL" in edi_base_df.columns:
         pend = edi_base_df[
@@ -1674,7 +1795,8 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
 
         # SLA do dia sem rota:
         # Só é sem rota quando realmente não houve saída/rota no dia do SLA.
-        # Se teve rota e foi para pendência no dia, não é sem rota; é tratativa da Torre.
+        # Se teve rota no dia e deu insucesso, não entra, pois já teve saída criada.
+        # Se está na pendência, não entra; é tratativa da Torre.
         if (
             status_sistema == "PENDENTE ENTREGA"
             and pd.notna(sla_row)
@@ -1684,7 +1806,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not em_torre_ativa
         ):
             return 3, "ALTA", "SLA DO DIA SEM ROTA", \
-                "Criar rota no Eu Entrego ou justificar ausência de saída no dia do SLA"
+                "Criar rota no Eu Entrego ou justificar carga no piso sem saída no dia do SLA"
 
         # Regra gerencial: 3 ou mais tentativas precisa aparecer no relatório do gerente.
         # Entra antes de PENDENTE DE ENTREGA para não ficar escondido no grupo genérico.
@@ -2677,8 +2799,9 @@ try:
             )
 
             # SLA do dia sem rota:
-            # Pendente Entrega + SLA hoje + nenhuma saída/rota no dia do SLA
-            # + não entrou em pendência no dia + fora da Torre ativa.
+            # Pendente Entrega + SLA hoje + nenhuma saída/rota no dia do SLA.
+            # Se teve rota e deu insucesso, não entra. Se está na pendência, não entra.
+            # Conceito gerencial: cargas no piso.
             _piso_sem_rota_mask = (
                 _sla_dt.eq(pd.Timestamp(reference_date).normalize())
                 & ~_teve_saida_dia_sla
@@ -2992,6 +3115,11 @@ try:
                     ]["AWB"].nunique()
                 ) if not edi_detalhe_gerente.empty else 0},
                 {"METRICA": "EDI entrega destino SLA", "VALOR": int(
+                    edi_detalhe_gerente[
+                        edi_detalhe_gerente["INDICADOR"].astype(str).eq("ENTREGA NO DESTINO PELO SLA")
+                    ]["AWB"].nunique()
+                ) if not edi_detalhe_gerente.empty else 0},
+                {"METRICA": "EDI pendente entrega destino", "VALOR": int(
                     edi_detalhe_gerente[
                         edi_detalhe_gerente["INDICADOR"].astype(str).eq("ENTREGA NO DESTINO PELO SLA")
                     ]["AWB"].nunique()

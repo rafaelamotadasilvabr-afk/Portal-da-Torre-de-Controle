@@ -1886,7 +1886,7 @@ if menu == "visao":
 
     cards_linha1 = [
         ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
-        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
         ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
