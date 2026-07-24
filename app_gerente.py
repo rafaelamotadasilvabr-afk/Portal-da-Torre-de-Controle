@@ -1045,7 +1045,17 @@ def entregue_eu_entrego_pendente_sk_rows(df):
 
     texto_norm = texto.map(normalize_text)
 
-    entregue = mask_flag | texto_norm.str.contains(
+    status_eu_norm = (
+        data[status_col].fillna("").astype(str).map(normalize_text)
+        if status_col
+        else pd.Series("", index=data.index, dtype="object")
+    )
+    fechada_status = status_eu_norm.str.fullmatch(
+        r"FECHAD[AO]?|FECHADA|FECHADO",
+        na=False,
+    )
+
+    entregue = mask_flag | fechada_status | texto_norm.str.contains(
         "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
         regex=True,
         na=False,
@@ -1086,6 +1096,7 @@ def entregue_eu_entrego_pendente_sk_rows(df):
         "ÚLTIMA ALTERAÇÃO",
         "EXECUTADA EU ENTREGO",
         "STATUS ANALISE EU ENTREGO",
+        "STATUS ROTA EU ENTREGO NORMALIZADO",
         "EU ENTREGO BAIXADO ENTREGUE",
         "LOCALIZAÇÃO / RESPONSÁVEL",
         "TRATATIVA ESPECIAL",

@@ -405,19 +405,40 @@ def read_eu_entrego(file_bytes):
             _status_eu_txt = _status_eu_txt + " " + df[_col].fillna("").astype(str)
 
     _status_eu_norm = _status_eu_txt.map(normalize_text)
-    _eu_entregue_mask = _status_eu_norm.str.contains(
-        "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
-        regex=True,
+
+    # "Fechada" no campo Status do Eu Entrego significa entrega concluída.
+    # Atenção: "Estabelecimento fechado" no campo Motivo NÃO pode ser tratado como entregue.
+    if "Status" in df.columns:
+        _status_rota_eu_norm = df["Status"].fillna("").astype(str).map(normalize_text)
+    else:
+        _status_rota_eu_norm = pd.Series("", index=df.index, dtype="object")
+
+    _fechada_no_status = _status_rota_eu_norm.str.fullmatch(
+        r"FECHAD[AO]?|FECHADA|FECHADO",
         na=False,
     )
+
+    _eu_entregue_mask = (
+        _fechada_no_status
+        | _status_eu_norm.str.contains(
+            "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
+            regex=True,
+            na=False,
+        )
+    )
+
     _eu_negativo_mask = _status_eu_norm.str.contains(
         "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
         regex=True,
         na=False,
     )
 
+    # Se o Status da rota for FECHADA, prevalece como entregue mesmo que algum texto
+    # auxiliar esteja confuso. O motivo "Estabelecimento fechado" continua negativo,
+    # pois ele não fica no campo Status.
     df["EU_ENTREGO_STATUS_ANALISE"] = _status_eu_txt.str.strip()
-    df["EU_ENTREGO_BAIXADO_ENTREGUE"] = _eu_entregue_mask & (~_eu_negativo_mask)
+    df["EU_ENTREGO_STATUS_ROTA_NORMALIZADO"] = _status_rota_eu_norm
+    df["EU_ENTREGO_BAIXADO_ENTREGUE"] = _fechada_no_status | (_eu_entregue_mask & (~_eu_negativo_mask))
 
     # Uma AWB pode ter múltiplas rotas/eventos.
     # Usamos a última alteração como prioridade e a data da rota como fallback.
@@ -453,6 +474,7 @@ def read_eu_entrego(file_bytes):
         "ULTIMO_ENTREGADOR", "MOTIVO_ULTIMA_ROTA",
         "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO",
         "EXECUTADA_DT", "EU_ENTREGO_STATUS_ANALISE",
+        "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
         "EU_ENTREGO_BAIXADO_ENTREGUE"
     ]
     latest = latest[[c for c in keep if c in latest.columns]]
@@ -2066,6 +2088,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["ÚLTIMA ALTERAÇÃO"] = df["ULTIMA_ALTERACAO"] if "ULTIMA_ALTERACAO" in df.columns else ""
     queue["EXECUTADA EU ENTREGO"] = df["EXECUTADA_DT"] if "EXECUTADA_DT" in df.columns else ""
     queue["STATUS ANALISE EU ENTREGO"] = df["EU_ENTREGO_STATUS_ANALISE"] if "EU_ENTREGO_STATUS_ANALISE" in df.columns else ""
+    queue["STATUS ROTA EU ENTREGO NORMALIZADO"] = df["EU_ENTREGO_STATUS_ROTA_NORMALIZADO"] if "EU_ENTREGO_STATUS_ROTA_NORMALIZADO" in df.columns else ""
     queue["EU ENTREGO BAIXADO ENTREGUE"] = df["EU_ENTREGO_BAIXADO_ENTREGUE"] if "EU_ENTREGO_BAIXADO_ENTREGUE" in df.columns else False
     queue["QT TENTATIVAS"] = df["QT_TENTATIVAS_INSUCESSO"] if "QT_TENTATIVAS_INSUCESSO" in df.columns else 0
     queue["RETORNO CONFIRMADO"] = df["RETORNO_CONFIRMADO"] if "RETORNO_CONFIRMADO" in df.columns else False
@@ -2859,7 +2882,12 @@ try:
                 )
                 _texto_eu_norm = _status_eu_norm + " " + _motivo_eu_norm + " " + _analise_eu_norm
 
-                _entregue_eu = _eu_flag | _texto_eu_norm.str.contains(
+                _fechada_status_eu = _status_eu_norm.str.fullmatch(
+                    r"FECHAD[AO]?|FECHADA|FECHADO",
+                    na=False,
+                )
+
+                _entregue_eu = _eu_flag | _fechada_status_eu | _texto_eu_norm.str.contains(
                     "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
                     regex=True,
                     na=False,
