@@ -1997,6 +1997,46 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "ENCERRAD" in status_sistema
         )
 
+        eu_entrego_flag_entregue = str(row.get("EU_ENTREGO_BAIXADO_ENTREGUE", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        status_rota_fechada = status_rota_norm in {"FECHADA", "FECHADO"} or bool(
+            re.fullmatch(r"FECHAD[AO]?", status_rota_norm)
+        )
+
+        eu_entrego_entregue_ou_fechada = (
+            eu_entrego_flag_entregue
+            or status_rota_fechada
+            or (
+                "ENTREGUE" in texto_rota_norm
+                or "ENTREGA REALIZADA" in texto_rota_norm
+                or "BAIXAD" in texto_rota_norm
+                or "FINALIZAD" in texto_rota_norm
+                or "CONCLUID" in texto_rota_norm
+                or "SUCESSO" in texto_rota_norm
+                or "DELIVERED" in texto_rota_norm
+            )
+        )
+
+        motivo_negativo_eu = (
+            "INSUCESS" in texto_rota_norm
+            or "NAO ENTREG" in texto_rota_norm
+            or "NÃO ENTREG" in texto_rota_norm
+            or "AUSENTE" in texto_rota_norm
+            or "RECUS" in texto_rota_norm
+            or "DEVOLVID" in texto_rota_norm
+            or "RETORN" in texto_rota_norm
+            or "CANCELAD" in texto_rota_norm
+            or "EXTRAVI" in texto_rota_norm
+        )
+
+        entregue_eu_pendente_sk = (
+            sk_pendente_entrega
+            and eu_entrego_entregue_ou_fechada
+            and not motivo_negativo_eu
+        )
+
         insucesso_exige_pendencia = (
             tem_insucesso_rota
             and not motivo_ausente_ou_fechado
@@ -2016,13 +2056,20 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 2, prioridade_des, "PENDENTE DE DESEMBARQUE", \
                 "Cobrar desembarque da carga até o SLA do dia"
 
+        # Integração Eu Entrego x SK:
+        # Se está fechado/entregue no Eu Entrego, mas continua PENDENTE ENTREGA no SK,
+        # este caso não pode ficar no backlog comum.
+        if entregue_eu_pendente_sk:
+            return 3, "CRÍTICA", "ENTREGUE EU ENTREGO X PENDENTE SK", \
+                "Analisar possível erro de integração Eu Entrego x SK"
+
         # Insucesso sem pendência:
         # Entra somente se continua PENDENTE ENTREGA no SK,
         # teve insucesso no Eu Entrego, não está baixado no SK
         # e ainda não consta na planilha de pendências da Torre.
         if insucesso_exige_pendencia:
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 3, prioridade, "INSUCESSO SEM PENDÊNCIA", \
+            return 4, prioridade, "INSUCESSO SEM PENDÊNCIA", \
                 "Direcionar para pendência para tratativa do motivo de insucesso"
 
         # Regra gerencial: ausente/fechado com 3 ou mais tentativas fica em 3ª tentativa.
@@ -2039,7 +2086,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             )
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 4, prioridade, "3ª TENTATIVA DE ENTREGA", \
+            return 5, prioridade, "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após 3 tentativas por ausente/fechado"
 
         # SLA do dia sem rota:
@@ -2053,7 +2100,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not esta_na_pendencia
             and not tem_insucesso_rota
         ):
-            return 5, "ALTA", "SLA DO DIA SEM ROTA", \
+            return 6, "ALTA", "SLA DO DIA SEM ROTA", \
                 "Criar rota no Eu Entrego ou justificar carga no piso sem saída no dia do SLA"
 
         # Regra residual de 3ª tentativa para status já classificados assim no SK.
@@ -2062,31 +2109,31 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "3ª TENTATIVA" in situacao
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 6, prioridade, "3ª TENTATIVA DE ENTREGA", \
+            return 7, prioridade, "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if atraso > 0 and "ENTREGA" in situacao:
-            return 7, "CRÍTICA", "ENTREGA EM ATRASO", \
+            return 8, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
-            return 8, "ALTA", "PENDENTE DE ENTREGA", \
+            return 9, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
 
         if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 9, "ALTA", "3ª TENTATIVA DE ENTREGA", \
+            return 10, "ALTA", "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
-            return 10, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
+            return 11, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
                 "Acompanhar devolutiva e prazo da acareação"
 
         if "INDENIZA" in controle or "DEBITO" in controle:
-            return 11, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
+            return 12, "MÉDIA", "PASSÍVEL DE INDENIZAÇÃO", \
                 "Acompanhar o andamento do processo"
 
         if edi_loaded and ("BOOKING" in situacao or "EDI" in situacao):
-            return 12, "MÉDIA", "BOOKING / EDI", \
+            return 13, "MÉDIA", "BOOKING / EDI", \
                 "Validar execução do booking"
 
         return 99, "MONITORAR", value(row, "SITUACAO_GERENCIAL") or "SEM AÇÃO", \
@@ -2932,6 +2979,13 @@ try:
             awbs_acao = int(len(fila_gerencial))
             criticas = int((fila_gerencial["PRIORIDADE"] == "CRÍTICA").sum()) if not fila_gerencial.empty else 0
             entrega_atraso = int((fila_gerencial["PROBLEMA"] == "ENTREGA EM ATRASO").sum()) if not fila_gerencial.empty else 0
+            # Evita sobreposição: casos Eu Entrego fechado/entregue x SK pendente não compõem o backlog comum.
+            if not fila_gerencial.empty and "PROBLEMA" in fila_gerencial.columns:
+                entrega_atraso = int(
+                    fila_gerencial[
+                        fila_gerencial["PROBLEMA"].astype(str).eq("ENTREGA EM ATRASO")
+                    ]["AWB"].nunique()
+                )
             insucesso_sem_pendencia = int((fila_gerencial["PROBLEMA"] == "INSUCESSO SEM PENDÊNCIA").sum()) if not fila_gerencial.empty else 0
 
             if not fila_gerencial.empty:

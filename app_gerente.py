@@ -1032,416 +1032,38 @@ def overdue_delivery_rows(df):
     problema_col = first_col(df, ["PROBLEMA"])
     if problema_col:
         problema = df[problema_col].astype(str).map(normalize_text)
-        exact = df[problema.eq("ENTREGA EM ATRASO")].copy()
-        if not exact.empty:
-            return exact
-
-    return filter_terms(df, ["ENTREGA EM ATRASO"])
-
-
-def truthy_series(series, index=None):
-    if series is None:
-        return pd.Series(False, index=index)
-    return series.fillna(False).astype(str).str.strip().str.lower().isin(
-        ["true", "1", "sim", "yes", "y", "verdadeiro"]
-    )
-
-
-def entregue_eu_entrego_pendente_sk_rows(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-
-    flag_col = first_col(data, [
-        "EU ENTREGO BAIXADO ENTREGUE",
-        "EU_ENTREGO_BAIXADO_ENTREGUE",
-        "BAIXADO EU ENTREGO",
-    ])
-
-    status_col = first_col(data, ["STATUS ÚLTIMA ROTA", "STATUS ULTIMA ROTA", "STATUS_ULTIMA_ROTA"])
-    motivo_col = first_col(data, ["MOTIVO ÚLTIMA ROTA", "MOTIVO ULTIMA ROTA", "MOTIVO_ULTIMA_ROTA"])
-    analise_col = first_col(data, ["STATUS ANALISE EU ENTREGO", "EU_ENTREGO_STATUS_ANALISE"])
-
-    mask_flag = truthy_series(data[flag_col], index=data.index) if flag_col else pd.Series(False, index=data.index)
-
-    texto = pd.Series("", index=data.index, dtype="object")
-    for col in [status_col, motivo_col, analise_col]:
-        if col:
-            texto = texto + " " + data[col].fillna("").astype(str)
-
-    texto_norm = texto.map(normalize_text)
-
-    status_eu_norm = (
-        data[status_col].fillna("").astype(str).map(normalize_text)
-        if status_col
-        else pd.Series("", index=data.index, dtype="object")
-    )
-    fechada_status = status_eu_norm.str.fullmatch(
-        r"FECHAD[AO]?|FECHADA|FECHADO",
-        na=False,
-    )
-
-    entregue = mask_flag | fechada_status | texto_norm.str.contains(
-        "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
-        regex=True,
-        na=False,
-    )
-    negativo = texto_norm.str.contains(
-        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
-        regex=True,
-        na=False,
-    )
-
-    status_sk_col = first_col(data, ["STATUS SK", "STATUS_SISTEMA", "STATUS SISTEMA"])
-    sk_flag_col = first_col(data, ["SK PENDENTE ENTREGA", "SK_PENDENTE_ENTREGA"])
-
-    sk_flag = truthy_series(data[sk_flag_col], index=data.index) if sk_flag_col else pd.Series(False, index=data.index)
-    if status_sk_col:
-        status_sk_norm = data[status_sk_col].fillna("").astype(str).map(normalize_text)
-        sk_pendente = sk_flag | status_sk_norm.str.contains(
-            "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
-            regex=True,
-            na=False,
-        )
+        data = df[problema.eq("ENTREGA EM ATRASO")].copy()
     else:
-        sk_pendente = sk_flag
-
-    out = data[sk_pendente & entregue & (~negativo)].copy()
-
-    preferred = [
-        "AWB",
-        "CLIENTE",
-        "STATUS SK",
-        "SITUAÇÃO",
-        "PROBLEMA",
-        "SLA",
-        "DIAS EM ATRASO",
-        "STATUS ÚLTIMA ROTA",
-        "MOTIVO ÚLTIMA ROTA",
-        "ÚLTIMA ROTA",
-        "ÚLTIMA ALTERAÇÃO",
-        "EXECUTADA EU ENTREGO",
-        "STATUS ANALISE EU ENTREGO",
-        "STATUS ROTA EU ENTREGO NORMALIZADO",
-        "EU ENTREGO BAIXADO ENTREGUE",
-        "LOCALIZAÇÃO / RESPONSÁVEL",
-        "TRATATIVA ESPECIAL",
-    ]
-    cols = [c for c in preferred if c in out.columns]
-    return out[cols].copy() if cols else out
-
-
-# Compatibilidade com versões anteriores.
-def backlog_baixado_eu_entrego_rows(df):
-    return entregue_eu_entrego_pendente_sk_rows(df)
-
-
-def resumo_insucesso_por_motivo(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    motivo_col = first_col(df, [
-        "MOTIVO ÚLTIMA ROTA",
-        "MOTIVO ULTIMA ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "TIPO INSUCESSO",
-    ])
-    cliente_col = first_col(df, ["CLIENTE"])
-    awb_col = first_col(df, ["AWB"])
-
-    if not motivo_col:
-        return pd.DataFrame()
-
-    base = df.copy()
-    base["_MOTIVO_INSUCESSO"] = base[motivo_col].fillna("Não informado").astype(str).str.strip()
-    base["_MOTIVO_INSUCESSO"] = base["_MOTIVO_INSUCESSO"].replace("", "Não informado")
-
-    if awb_col:
-        resumo = (
-            base.groupby("_MOTIVO_INSUCESSO", dropna=False)
-            .agg(QTDE_AWBS=(awb_col, "nunique"))
-            .reset_index()
-        )
-    else:
-        resumo = (
-            base.groupby("_MOTIVO_INSUCESSO", dropna=False)
-            .size()
-            .reset_index(name="QTDE_AWBS")
-        )
-
-    if cliente_col:
-        clientes = (
-            base.groupby("_MOTIVO_INSUCESSO", dropna=False)[cliente_col]
-            .apply(lambda s: s.dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
-            .reset_index(name="CLIENTES")
-        )
-        resumo = resumo.merge(clientes, on="_MOTIVO_INSUCESSO", how="left")
-
-    return (
-        resumo.rename(columns={"_MOTIVO_INSUCESSO": "MOTIVO INSUCESSO"})
-        .sort_values("QTDE_AWBS", ascending=False)
-        .reset_index(drop=True)
-    )
-
-
-def resumo_insucesso_por_entregador(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    entregador_col = first_col(df, [
-        "MOTORISTA / ENTREGADOR",
-        "ENTREGADOR",
-        "MOTORISTA",
-        "ULTIMO_ENTREGADOR",
-        "ÚLTIMO ENTREGADOR",
-        "ULTIMO ENTREGADOR",
-    ])
-    motivo_col = first_col(df, [
-        "MOTIVO ÚLTIMA ROTA",
-        "MOTIVO ULTIMA ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "TIPO INSUCESSO",
-    ])
-    awb_col = first_col(df, ["AWB"])
-
-    if not entregador_col:
-        return pd.DataFrame()
-
-    base = df.copy()
-    base["_ENTREGADOR"] = base[entregador_col].fillna("Não informado").astype(str).str.strip()
-    base["_ENTREGADOR"] = base["_ENTREGADOR"].replace("", "Não informado")
-
-    if awb_col:
-        resumo = (
-            base.groupby("_ENTREGADOR", dropna=False)
-            .agg(QTDE_AWBS=(awb_col, "nunique"))
-            .reset_index()
-        )
-    else:
-        resumo = (
-            base.groupby("_ENTREGADOR", dropna=False)
-            .size()
-            .reset_index(name="QTDE_AWBS")
-        )
-
-    if motivo_col:
-        motivos = (
-            base.groupby("_ENTREGADOR", dropna=False)[motivo_col]
-            .apply(lambda s: s.dropna().astype(str).str.strip().replace("", pd.NA).dropna().nunique())
-            .reset_index(name="MOTIVOS_DISTINTOS")
-        )
-        resumo = resumo.merge(motivos, on="_ENTREGADOR", how="left")
-
-    return (
-        resumo.rename(columns={"_ENTREGADOR": "ENTREGADOR"})
-        .sort_values("QTDE_AWBS", ascending=False)
-        .reset_index(drop=True)
-    )
-
-
-def excel_insucesso_sem_pendencia(detail_df):
-    output = io.BytesIO()
-    detail_df = detail_df.copy() if detail_df is not None else pd.DataFrame()
-
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        resumo_insucesso_por_motivo(detail_df).to_excel(
-            writer,
-            sheet_name="RESUMO_MOTIVO",
-            index=False,
-        )
-        resumo_insucesso_por_entregador(detail_df).to_excel(
-            writer,
-            sheet_name="RESUMO_ENTREGADOR",
-            index=False,
-        )
-        detail_df.to_excel(
-            writer,
-            sheet_name="DETALHE_AWB",
-            index=False,
-        )
-
-    output.seek(0)
-    return output.getvalue()
-
-
-def insucesso_sem_pendencia_rows(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-
-    problema_col = first_col(data, ["PROBLEMA"])
-    if problema_col:
-        problema = data[problema_col].astype(str).map(normalize_text)
-        data = data[problema.eq("INSUCESSO SEM PENDÊNCIA")].copy()
-    else:
-        data = filter_terms(data, ["INSUCESSO SEM PENDÊNCIA", "DESTINATÁRIO DESCONHECIDO", "ENDEREÇO NÃO LOCALIZADO"])
+        data = filter_terms(df, ["ENTREGA EM ATRASO", "ATRASO DE ENTREGA"])
 
     if data is None or data.empty:
         return pd.DataFrame()
 
-    status_sk_col = first_col(data, ["STATUS SK", "STATUS_SISTEMA", "STATUS SISTEMA"])
-    status_rota_col = first_col(data, ["STATUS ÚLTIMA ROTA", "STATUS ULTIMA ROTA", "STATUS_ULTIMA_ROTA"])
-    motivo_col = first_col(data, ["MOTIVO ÚLTIMA ROTA", "MOTIVO ULTIMA ROTA", "MOTIVO_ULTIMA_ROTA"])
-
-    evento_torre_col = first_col(data, ["EVENTO TORRE", "EVENTO_TORRE"])
-    na_pendencia_col = first_col(data, ["NA PENDENCIA TORRE LINK", "NA_PENDENCIA_TORRE_LINK"])
-    em_torre_col = first_col(data, ["EM TORRE ATIVA", "EM_TORRE_ATIVA"])
-
-    if status_sk_col:
-        status_sk = data[status_sk_col].fillna("").astype(str).map(normalize_text)
-    else:
-        status_sk = pd.Series("", index=data.index)
-
-    sk_pendente = status_sk.str.contains(
-        "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
-        regex=True,
-        na=False,
-    )
-
-    sk_baixado = status_sk.str.contains(
-        "ENTREGUE|BAIXAD|FINALIZAD|DEVOLVID|CANCELAD|ENCERRAD",
-        regex=True,
-        na=False,
-    )
-
-    texto_rota = pd.Series("", index=data.index, dtype="object")
-    for col in [status_rota_col, motivo_col]:
-        if col:
-            texto_rota = texto_rota + " " + data[col].fillna("").astype(str)
-
-    texto_rota_norm = texto_rota.map(normalize_text)
-
-    tem_insucesso = texto_rota_norm.str.contains("INSUCESS", regex=True, na=False)
-
-    # Ausente/fechado ficam fora deste card quando forem fluxo de 3 tentativas.
-    motivo_norm = (
-        data[motivo_col].fillna("").astype(str).map(normalize_text)
-        if motivo_col
-        else pd.Series("", index=data.index)
-    )
-    ausente_fechado = motivo_norm.str.contains(
-        "AUSENTE|ESTABELECIMENTO FECHADO|FECHADO",
-        regex=True,
-        na=False,
-    )
-
-    if evento_torre_col:
-        evento_torre = data[evento_torre_col].fillna("").astype(str).map(normalize_text)
-        evento_pend = evento_torre.isin(["PENDENCIA", "PENDENCIA_CORP"])
-    else:
-        evento_pend = pd.Series(False, index=data.index)
-
-    flag_pend = truthy_series(data[na_pendencia_col], index=data.index) if na_pendencia_col else pd.Series(False, index=data.index)
-    flag_torre = truthy_series(data[em_torre_col], index=data.index) if em_torre_col else pd.Series(False, index=data.index)
-
-    data = data[
-        sk_pendente
-        & (~sk_baixado)
-        & tem_insucesso
-        & (~ausente_fechado)
-        & (~evento_pend)
-        & (~flag_pend)
-        & (~flag_torre)
-    ].copy()
-
-    preferred = [
-        "AWB", "CLIENTE", "STATUS SK", "SITUAÇÃO", "PROBLEMA",
-        "PRÓXIMA AÇÃO", "SLA", "DIAS EM ATRASO",
-        "STATUS ÚLTIMA ROTA", "MOTIVO ÚLTIMA ROTA", "TIPO INSUCESSO",
-        "ÚLTIMA ROTA", "ÚLTIMA ALTERAÇÃO", "MOTORISTA / ENTREGADOR",
-        "EVENTO TORRE", "ABA TORRE", "STATUS TORRE", "ORIGEM TORRE",
-        "NA PENDENCIA TORRE LINK", "EM TORRE ATIVA"
-    ]
-    cols = [c for c in preferred if c in data.columns]
-    return data[cols].copy() if cols else data
-
-
-
-
-def pendencia_ativa_awbs():
-    """
-    Retorna AWBs que estão na pendência ativa da Torre,
-    usando a aba PENDENCIA_MOVIMENTOS quando disponível.
-    """
-    df = pendencia_movimentos if "pendencia_movimentos" in globals() else pd.DataFrame()
-
-    if df is None or df.empty:
-        return set()
-
-    if "AWB" not in df.columns:
-        return set()
-
-    data = df.copy()
-    awbs = pd.Series(dtype="object")
-
-    if "TIPO_MOVIMENTO" in data.columns:
-        tipo = data["TIPO_MOVIMENTO"].astype(str).map(normalize_text)
-        awbs = data.loc[
-            tipo.eq("TOTAL NA PENDÊNCIA") | tipo.eq("TOTAL NA PENDENCIA"),
-            "AWB"
-        ]
-    elif "EVENTO_TORRE" in data.columns:
-        evento = data["EVENTO_TORRE"].astype(str).map(normalize_text)
-        awbs = data.loc[evento.isin(["PENDENCIA", "PENDENCIA_CORP"]), "AWB"]
-    else:
-        awbs = data["AWB"]
-
-    return set(
-        awbs.dropna()
-        .astype(str)
-        .str.strip()
-        .map(lambda x: re.sub(r"\D+", "", x))
-        .loc[lambda s: s.ne("")]
-    )
-
-
-def remove_pendencia_from_rows(df):
-    """
-    Remove do dataframe qualquer AWB que esteja na pendência da Torre.
-    Usado para impedir falso positivo no card SLA do dia sem rota.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-
-    # 1) Exclui por evento da Torre na própria FILA.
-    evento_col = first_col(data, ["EVENTO TORRE", "EVENTO_TORRE"])
-    if evento_col:
-        evento = data[evento_col].astype(str).map(normalize_text)
-        data = data[~evento.isin(["PENDENCIA", "PENDENCIA_CORP"])].copy()
-
-    # 2) Exclui por flags de pendência.
-    for flag_name in [
-        "EM TORRE ATIVA",
-        "EM_TORRE_ATIVA",
-        "NA PENDENCIA TORRE LINK",
-        "NA_PENDENCIA_TORRE_LINK",
-    ]:
-        flag_col = first_col(data, [flag_name])
-        if flag_col:
-            flags = data[flag_col].fillna(False).astype(str).str.strip().str.lower().isin(
-                ["true", "1", "sim", "yes", "y", "verdadeiro"]
-            )
-            data = data[~flags].copy()
-
-    # 3) Exclui cruzando AWB com PENDENCIA_MOVIMENTOS / TOTAL NA PENDÊNCIA.
-    awb_col = first_col(data, ["AWB"])
-    pend_awbs = pendencia_ativa_awbs()
-
-    if awb_col and pend_awbs:
-        awbs_norm = (
-            data[awb_col]
+    # Regra de não sobreposição:
+    # Se Eu Entrego está Fechada/Entregue e SK está PENDENTE ENTREGA,
+    # a carga pertence ao card "Entregue Eu Entrego x SK", não ao backlog.
+    eu_sk = entregue_eu_entrego_pendente_sk_rows(data)
+    if eu_sk is not None and not eu_sk.empty and "AWB" in eu_sk.columns and "AWB" in data.columns:
+        awbs_eu_sk = set(
+            eu_sk["AWB"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .map(lambda x: re.sub(r"\D+", "", x))
+            .loc[lambda s: s.ne("")]
+        )
+        data_awb_norm = (
+            data["AWB"]
             .fillna("")
             .astype(str)
             .str.strip()
             .map(lambda x: re.sub(r"\D+", "", x))
         )
-        data = data[~awbs_norm.isin(pend_awbs)].copy()
+        data = data[~data_awb_norm.isin(awbs_eu_sk)].copy()
 
     return data
+
+
 
 
 def sla_sem_rota_rows(df):
@@ -1775,8 +1397,8 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "atraso":
         title = "Detalhe — Backlog (atraso de entrega)"
-        subtitle = "Cargas com atraso/SLA vencido identificadas na fila gerencial."
-        df = overdue_delivery_rows(fila_filtrada)
+        subtitle = "Cargas com atraso/SLA vencido, excluindo casos de integração Eu Entrego x SK."
+        df = backlog_atraso_df.copy() if "backlog_atraso_df" in globals() else overdue_delivery_rows(fila_filtrada)
 
     elif card_key == "backlog_eu_entregue":
         title = "Detalhe — Entregue no Eu Entrego x Pendente no SK"
@@ -1786,7 +1408,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
         subtitle = "Cargas PENDENTE ENTREGA no SK, com insucesso no Eu Entrego, sem baixa/finalização no SK e fora da pendência da Torre."
-        df = insucesso_sem_pendencia_rows(fila_filtrada)
+        df = insucesso_sem_pendencia_df.copy() if "insucesso_sem_pendencia_df" in globals() else insucesso_sem_pendencia_rows(fila_filtrada)
 
     elif card_key == "sla_sem_rota":
         title = "Detalhe — SLA do dia sem rota"
@@ -2261,9 +1883,13 @@ avaria_df = avaria_rows(fila_filtrada)
 resumo_avarias_qtd = number(summary_value(resumo, "Avarias / Salvados", len(avaria_df)))
 daily_df = daily_awb_counts(fila_filtrada)
 
-resumo_entrega_atraso = number(summary_value(resumo, "Backlog (atraso de entrega)", len(overdue_delivery_rows(fila_filtrada))))
+# Backlog precisa excluir casos que pertencem ao card Eu Entrego x SK.
+backlog_atraso_df = overdue_delivery_rows(fila_filtrada)
+resumo_entrega_atraso = len(backlog_atraso_df)
 resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entrego x Pendente SK", len(entregue_eu_entrego_pendente_sk_rows(fila_filtrada))))
-resumo_insucesso_sem_pendencia = number(summary_value(resumo, "Insucesso sem pendência", len(insucesso_sem_pendencia_rows(fila_filtrada))))
+# Insucesso sem pendência precisa bater com o detalhe exibido.
+insucesso_sem_pendencia_df = insucesso_sem_pendencia_rows(fila_filtrada)
+resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
 sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
