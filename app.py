@@ -386,6 +386,39 @@ def read_eu_entrego(file_bytes):
     df["ULTIMA_ALTERACAO_DT"] = parse_date(df.get("Última alteração"))
     df["EXECUTADA_DT"] = parse_date(df.get("Executada"))
 
+    # Análise Eu Entrego x SK:
+    # identifica AWBs que aparecem como entregues/baixadas/finalizadas no Eu Entrego.
+    # Isso permite detectar backlog no SK que já teve baixa de entrega no Eu Entrego.
+    _status_eu_txt = pd.Series("", index=df.index, dtype="object")
+    for _col in [
+        "Status",
+        "Motivo",
+        "Ocorrência",
+        "Ocorrencia",
+        "Última ocorrência",
+        "Ultima Ocorrencia",
+        "Situação",
+        "Situacao",
+        "Resultado",
+    ]:
+        if _col in df.columns:
+            _status_eu_txt = _status_eu_txt + " " + df[_col].fillna("").astype(str)
+
+    _status_eu_norm = _status_eu_txt.map(normalize_text)
+    _eu_entregue_mask = _status_eu_norm.str.contains(
+        "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
+        regex=True,
+        na=False,
+    )
+    _eu_negativo_mask = _status_eu_norm.str.contains(
+        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
+        regex=True,
+        na=False,
+    )
+
+    df["EU_ENTREGO_STATUS_ANALISE"] = _status_eu_txt.str.strip()
+    df["EU_ENTREGO_BAIXADO_ENTREGUE"] = _eu_entregue_mask & (~_eu_negativo_mask)
+
     # Uma AWB pode ter múltiplas rotas/eventos.
     # Usamos a última alteração como prioridade e a data da rota como fallback.
     df["_DT_ORDEM"] = df["ULTIMA_ALTERACAO_DT"].fillna(df["DATA_ROTA"])
@@ -418,7 +451,9 @@ def read_eu_entrego(file_bytes):
     keep = [
         "AWB", "ULTIMA_ROTA", "STATUS_ULTIMA_ROTA",
         "ULTIMO_ENTREGADOR", "MOTIVO_ULTIMA_ROTA",
-        "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO"
+        "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO",
+        "EXECUTADA_DT", "EU_ENTREGO_STATUS_ANALISE",
+        "EU_ENTREGO_BAIXADO_ENTREGUE"
     ]
     latest = latest[[c for c in keep if c in latest.columns]]
 
@@ -1873,6 +1908,16 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["CLIENTE"] = df["_FILA_CLIENTE"]
     queue["ETAPA ATUAL"] = df["_FILA_ETAPA"]
     queue["SITUAÇÃO"] = df["SITUACAO_GERENCIAL"] if "SITUACAO_GERENCIAL" in df.columns else ""
+    queue["STATUS SK"] = df["STATUS_SISTEMA"] if "STATUS_SISTEMA" in df.columns else ""
+    queue["SK PENDENTE ENTREGA"] = (
+        df["STATUS_SISTEMA"].astype(str).map(normalize_text).str.contains(
+            "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+            regex=True,
+            na=False,
+        )
+        if "STATUS_SISTEMA" in df.columns
+        else False
+    )
     queue["LOCALIZAÇÃO / RESPONSÁVEL"] = df["_FILA_LOCAL_RESP"]
     queue["SLA"] = df["SLA_DATA"] if "SLA_DATA" in df.columns else ""
     queue["DIAS EM ATRASO"] = df["_FILA_DIAS_ATRASO"]
@@ -1888,6 +1933,9 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["MOTIVO ÚLTIMA ROTA"] = df["MOTIVO_ULTIMA_ROTA"] if "MOTIVO_ULTIMA_ROTA" in df.columns else ""
     queue["ÚLTIMA ROTA"] = df["ULTIMA_ROTA"] if "ULTIMA_ROTA" in df.columns else ""
     queue["ÚLTIMA ALTERAÇÃO"] = df["ULTIMA_ALTERACAO"] if "ULTIMA_ALTERACAO" in df.columns else ""
+    queue["EXECUTADA EU ENTREGO"] = df["EXECUTADA_DT"] if "EXECUTADA_DT" in df.columns else ""
+    queue["STATUS ANALISE EU ENTREGO"] = df["EU_ENTREGO_STATUS_ANALISE"] if "EU_ENTREGO_STATUS_ANALISE" in df.columns else ""
+    queue["EU ENTREGO BAIXADO ENTREGUE"] = df["EU_ENTREGO_BAIXADO_ENTREGUE"] if "EU_ENTREGO_BAIXADO_ENTREGUE" in df.columns else False
     queue["QT TENTATIVAS"] = df["QT_TENTATIVAS_INSUCESSO"] if "QT_TENTATIVAS_INSUCESSO" in df.columns else 0
     queue["RETORNO CONFIRMADO"] = df["RETORNO_CONFIRMADO"] if "RETORNO_CONFIRMADO" in df.columns else False
     queue["EVENTO TORRE"] = df["EVENTO_TORRE"] if "EVENTO_TORRE" in df.columns else ""
@@ -2649,6 +2697,70 @@ try:
             awbs_acao = int(len(fila_gerencial))
             criticas = int((fila_gerencial["PRIORIDADE"] == "CRÍTICA").sum()) if not fila_gerencial.empty else 0
             entrega_atraso = int((fila_gerencial["PROBLEMA"] == "ENTREGA EM ATRASO").sum()) if not fila_gerencial.empty else 0
+
+            if not fila_gerencial.empty:
+                _eu_flag = (
+                    fila_gerencial["EU ENTREGO BAIXADO ENTREGUE"].fillna(False).astype(str).str.lower().isin(["true", "1", "sim", "yes", "verdadeiro"])
+                    if "EU ENTREGO BAIXADO ENTREGUE" in fila_gerencial.columns
+                    else pd.Series(False, index=fila_gerencial.index)
+                )
+
+                _status_eu_norm = (
+                    fila_gerencial["STATUS ÚLTIMA ROTA"].fillna("").astype(str).map(normalize_text)
+                    if "STATUS ÚLTIMA ROTA" in fila_gerencial.columns
+                    else pd.Series("", index=fila_gerencial.index)
+                )
+                _motivo_eu_norm = (
+                    fila_gerencial["MOTIVO ÚLTIMA ROTA"].fillna("").astype(str).map(normalize_text)
+                    if "MOTIVO ÚLTIMA ROTA" in fila_gerencial.columns
+                    else pd.Series("", index=fila_gerencial.index)
+                )
+                _analise_eu_norm = (
+                    fila_gerencial["STATUS ANALISE EU ENTREGO"].fillna("").astype(str).map(normalize_text)
+                    if "STATUS ANALISE EU ENTREGO" in fila_gerencial.columns
+                    else pd.Series("", index=fila_gerencial.index)
+                )
+                _texto_eu_norm = _status_eu_norm + " " + _motivo_eu_norm + " " + _analise_eu_norm
+
+                _entregue_eu = _eu_flag | _texto_eu_norm.str.contains(
+                    "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
+                    regex=True,
+                    na=False,
+                )
+
+                _negativo_eu = _texto_eu_norm.str.contains(
+                    "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
+                    regex=True,
+                    na=False,
+                )
+
+                _status_sk_norm = (
+                    fila_gerencial["STATUS SK"].fillna("").astype(str).map(normalize_text)
+                    if "STATUS SK" in fila_gerencial.columns
+                    else pd.Series("", index=fila_gerencial.index)
+                )
+                _sk_flag = (
+                    fila_gerencial["SK PENDENTE ENTREGA"].fillna(False).astype(str).str.lower().isin(["true", "1", "sim", "yes", "verdadeiro"])
+                    if "SK PENDENTE ENTREGA" in fila_gerencial.columns
+                    else pd.Series(False, index=fila_gerencial.index)
+                )
+
+                _sk_pendente_entrega = _sk_flag | _status_sk_norm.str.contains(
+                    "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+                    regex=True,
+                    na=False,
+                )
+
+                entregue_eu_pendente_sk = int(
+                    fila_gerencial[
+                        _sk_pendente_entrega
+                        & _entregue_eu
+                        & (~_negativo_eu)
+                    ]["AWB"].nunique()
+                )
+            else:
+                entregue_eu_pendente_sk = 0
+
             backlog_torre = int(
                 tower_latest.loc[~tower_latest["EVENTO_TORRE"].eq("FINALIZADO"), "AWB"].nunique()
             ) if not tower_latest.empty else 0
@@ -3073,6 +3185,7 @@ try:
                 {"METRICA": "AWBs com ação", "VALOR": awbs_acao},
                 {"METRICA": "Ações imediatas", "VALOR": criticas},
                 {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
+                {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},

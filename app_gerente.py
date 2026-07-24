@@ -1012,6 +1012,93 @@ def overdue_delivery_rows(df):
     return filter_terms(df, ["ENTREGA EM ATRASO"])
 
 
+def truthy_series(series, index=None):
+    if series is None:
+        return pd.Series(False, index=index)
+    return series.fillna(False).astype(str).str.strip().str.lower().isin(
+        ["true", "1", "sim", "yes", "y", "verdadeiro"]
+    )
+
+
+def entregue_eu_entrego_pendente_sk_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    flag_col = first_col(data, [
+        "EU ENTREGO BAIXADO ENTREGUE",
+        "EU_ENTREGO_BAIXADO_ENTREGUE",
+        "BAIXADO EU ENTREGO",
+    ])
+
+    status_col = first_col(data, ["STATUS ÚLTIMA ROTA", "STATUS ULTIMA ROTA", "STATUS_ULTIMA_ROTA"])
+    motivo_col = first_col(data, ["MOTIVO ÚLTIMA ROTA", "MOTIVO ULTIMA ROTA", "MOTIVO_ULTIMA_ROTA"])
+    analise_col = first_col(data, ["STATUS ANALISE EU ENTREGO", "EU_ENTREGO_STATUS_ANALISE"])
+
+    mask_flag = truthy_series(data[flag_col], index=data.index) if flag_col else pd.Series(False, index=data.index)
+
+    texto = pd.Series("", index=data.index, dtype="object")
+    for col in [status_col, motivo_col, analise_col]:
+        if col:
+            texto = texto + " " + data[col].fillna("").astype(str)
+
+    texto_norm = texto.map(normalize_text)
+
+    entregue = mask_flag | texto_norm.str.contains(
+        "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|SUCESSO|DELIVERED",
+        regex=True,
+        na=False,
+    )
+    negativo = texto_norm.str.contains(
+        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DEVOLVID|RETORN|CANCELAD|EXTRAVI",
+        regex=True,
+        na=False,
+    )
+
+    status_sk_col = first_col(data, ["STATUS SK", "STATUS_SISTEMA", "STATUS SISTEMA"])
+    sk_flag_col = first_col(data, ["SK PENDENTE ENTREGA", "SK_PENDENTE_ENTREGA"])
+
+    sk_flag = truthy_series(data[sk_flag_col], index=data.index) if sk_flag_col else pd.Series(False, index=data.index)
+    if status_sk_col:
+        status_sk_norm = data[status_sk_col].fillna("").astype(str).map(normalize_text)
+        sk_pendente = sk_flag | status_sk_norm.str.contains(
+            "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+            regex=True,
+            na=False,
+        )
+    else:
+        sk_pendente = sk_flag
+
+    out = data[sk_pendente & entregue & (~negativo)].copy()
+
+    preferred = [
+        "AWB",
+        "CLIENTE",
+        "STATUS SK",
+        "SITUAÇÃO",
+        "PROBLEMA",
+        "SLA",
+        "DIAS EM ATRASO",
+        "STATUS ÚLTIMA ROTA",
+        "MOTIVO ÚLTIMA ROTA",
+        "ÚLTIMA ROTA",
+        "ÚLTIMA ALTERAÇÃO",
+        "EXECUTADA EU ENTREGO",
+        "STATUS ANALISE EU ENTREGO",
+        "EU ENTREGO BAIXADO ENTREGUE",
+        "LOCALIZAÇÃO / RESPONSÁVEL",
+        "TRATATIVA ESPECIAL",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    return out[cols].copy() if cols else out
+
+
+# Compatibilidade com versões anteriores.
+def backlog_baixado_eu_entrego_rows(df):
+    return entregue_eu_entrego_pendente_sk_rows(df)
+
+
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1342,6 +1429,11 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         title = "Detalhe — Backlog (atraso de entrega)"
         subtitle = "Cargas com atraso/SLA vencido identificadas na fila gerencial."
         df = overdue_delivery_rows(fila_filtrada)
+
+    elif card_key == "backlog_eu_entregue":
+        title = "Detalhe — Entregue no Eu Entrego x Pendente no SK"
+        subtitle = "Cargas que constam como entregues/baixadas no Eu Entrego, mas continuam como PENDENTE ENTREGA no SK."
+        df = entregue_eu_entrego_pendente_sk_rows(fila_filtrada)
 
     elif card_key == "sla_sem_rota":
         title = "Detalhe — SLA do dia sem rota"
@@ -1796,6 +1888,7 @@ resumo_avarias_qtd = number(summary_value(resumo, "Avarias / Salvados", len(avar
 daily_df = daily_awb_counts(fila_filtrada)
 
 resumo_entrega_atraso = number(summary_value(resumo, "Backlog (atraso de entrega)", len(overdue_delivery_rows(fila_filtrada))))
+resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entrego x Pendente SK", len(entregue_eu_entrego_pendente_sk_rows(fila_filtrada))))
 resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
 resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
@@ -1817,6 +1910,7 @@ resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendênc
 alert_distribution_df = pd.DataFrame(
     [
         {"INDICADOR": "Backlog (atraso de entrega)", "QTDE": resumo_entrega_atraso},
+        {"INDICADOR": "Entregue Eu Entrego x Pendente SK", "QTDE": resumo_entregue_eu_pendente_sk},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
         {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
@@ -1841,6 +1935,7 @@ kpis_df = pd.DataFrame(
     [
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
         {"INDICADOR": "Backlog (atraso de entrega)", "VALOR": resumo_entrega_atraso},
+        {"INDICADOR": "Entregue Eu Entrego x Pendente SK", "VALOR": resumo_entregue_eu_pendente_sk},
         {"INDICADOR": "SLA do dia sem rota", "VALOR": resumo_sla_sem_rota},
         {"INDICADOR": "CDSP2 pendente desembarque", "VALOR": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": resumo_terceira_tentativa},
@@ -1886,6 +1981,7 @@ if menu == "visao":
 
     cards_linha1 = [
         ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
         ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
