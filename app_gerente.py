@@ -448,7 +448,7 @@ def brl(value):
 
 def service_level_value(resumo):
     total = number(summary_value(resumo, "AWBs monitoradas", 0))
-    atraso = number(summary_value(resumo, "Entrega em atraso", 0))
+    atraso = number(summary_value(resumo, "Backlog (atraso de entrega)", 0))
 
     if total <= 0:
         return 0.0
@@ -1259,7 +1259,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         df = fila_filtrada.copy()
 
     elif card_key == "atraso":
-        title = "Detalhe — Entrega em atraso"
+        title = "Detalhe — Backlog (atraso de entrega)"
         subtitle = "Cargas com atraso/SLA vencido identificadas na fila gerencial."
         df = overdue_delivery_rows(fila_filtrada)
 
@@ -1715,7 +1715,7 @@ avaria_df = avaria_rows(fila_filtrada)
 resumo_avarias_qtd = number(summary_value(resumo, "Avarias / Salvados", len(avaria_df)))
 daily_df = daily_awb_counts(fila_filtrada)
 
-resumo_entrega_atraso = number(summary_value(resumo, "Entrega em atraso", len(overdue_delivery_rows(fila_filtrada))))
+resumo_entrega_atraso = number(summary_value(resumo, "Backlog (atraso de entrega)", len(overdue_delivery_rows(fila_filtrada))))
 resumo_sla_sem_rota = number(summary_value(resumo, "SLA do dia sem rota", len(sla_sem_rota_rows(fila_filtrada))))
 resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
 resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
@@ -1736,7 +1736,7 @@ resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendênc
 
 alert_distribution_df = pd.DataFrame(
     [
-        {"INDICADOR": "Entrega em atraso", "QTDE": resumo_entrega_atraso},
+        {"INDICADOR": "Backlog (atraso de entrega)", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
         {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa", "QTDE": resumo_terceira_tentativa},
@@ -1760,7 +1760,7 @@ if not fila_filtrada.empty:
 kpis_df = pd.DataFrame(
     [
         {"INDICADOR": "AWBs monitoradas", "VALOR": number(summary_value(resumo, "AWBs monitoradas", 0))},
-        {"INDICADOR": "Entrega em atraso", "VALOR": resumo_entrega_atraso},
+        {"INDICADOR": "Backlog (atraso de entrega)", "VALOR": resumo_entrega_atraso},
         {"INDICADOR": "SLA do dia sem rota", "VALOR": resumo_sla_sem_rota},
         {"INDICADOR": "CDSP2 pendente desembarque", "VALOR": resumo_lm_desembarque},
         {"INDICADOR": "3ª tentativa de entrega", "VALOR": resumo_terceira_tentativa},
@@ -1798,7 +1798,7 @@ if menu == "visao":
     acareacao_valor = brl(summary_value(resumo, "Valor em acareação", 0))
 
     cards_linha1 = [
-        ("Entrega em atraso", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
+        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Mesmo número do relatório gerencial", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Mesmo critério do Radar Last Mile", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
         ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
@@ -1887,7 +1887,7 @@ elif menu == "edi":
     ]
 
     edi_cards_l2 = [
-        ("Entrega destino / SLA", fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")), "SLA vencido ou SLA do dia", "SLA", "#d97706", "#fff7e8", "edi_entrega_sla"),
+        ("Pendente entrega destino", fmt_int(edi_count(edi_detalhe, "ENTREGA NO DESTINO PELO SLA")), "SLA vencido ou SLA do dia", "SLA", "#d97706", "#fff7e8", "edi_entrega_sla"),
         ("Missing", fmt_int(edi_count(edi_detalhe, "MISSING")), "Cargas missing", "!", "#d92d20", "#fff0ef", "edi_missing"),
         ("Discrepância", fmt_int(edi_count(edi_detalhe, "DISCREPÂNCIA")), "Divergências First Mile", "≠", "#7c3aed", "#f5f3ff", "edi_discrepancia"),
         ("Resumo EDI", fmt_int(len(edi_resumo)), "Resumo por base/indicador", "Σ", "#334155", "#f8fafc", "edi_resumo"),
