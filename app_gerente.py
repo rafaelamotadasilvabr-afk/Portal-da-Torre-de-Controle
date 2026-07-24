@@ -1232,6 +1232,90 @@ def insucesso_sem_pendencia_rows(df):
 
 
 
+def pendencia_ativa_awbs():
+    """
+    Retorna AWBs que estão na pendência ativa da Torre,
+    usando a aba PENDENCIA_MOVIMENTOS quando disponível.
+    """
+    df = pendencia_movimentos if "pendencia_movimentos" in globals() else pd.DataFrame()
+
+    if df is None or df.empty:
+        return set()
+
+    if "AWB" not in df.columns:
+        return set()
+
+    data = df.copy()
+    awbs = pd.Series(dtype="object")
+
+    if "TIPO_MOVIMENTO" in data.columns:
+        tipo = data["TIPO_MOVIMENTO"].astype(str).map(normalize_text)
+        awbs = data.loc[
+            tipo.eq("TOTAL NA PENDÊNCIA") | tipo.eq("TOTAL NA PENDENCIA"),
+            "AWB"
+        ]
+    elif "EVENTO_TORRE" in data.columns:
+        evento = data["EVENTO_TORRE"].astype(str).map(normalize_text)
+        awbs = data.loc[evento.isin(["PENDENCIA", "PENDENCIA_CORP"]), "AWB"]
+    else:
+        awbs = data["AWB"]
+
+    return set(
+        awbs.dropna()
+        .astype(str)
+        .str.strip()
+        .map(lambda x: re.sub(r"\D+", "", x))
+        .loc[lambda s: s.ne("")]
+    )
+
+
+def remove_pendencia_from_rows(df):
+    """
+    Remove do dataframe qualquer AWB que esteja na pendência da Torre.
+    Usado para impedir falso positivo no card SLA do dia sem rota.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    # 1) Exclui por evento da Torre na própria FILA.
+    evento_col = first_col(data, ["EVENTO TORRE", "EVENTO_TORRE"])
+    if evento_col:
+        evento = data[evento_col].astype(str).map(normalize_text)
+        data = data[~evento.isin(["PENDENCIA", "PENDENCIA_CORP"])].copy()
+
+    # 2) Exclui por flags de pendência.
+    for flag_name in [
+        "EM TORRE ATIVA",
+        "EM_TORRE_ATIVA",
+        "NA PENDENCIA TORRE LINK",
+        "NA_PENDENCIA_TORRE_LINK",
+    ]:
+        flag_col = first_col(data, [flag_name])
+        if flag_col:
+            flags = data[flag_col].fillna(False).astype(str).str.strip().str.lower().isin(
+                ["true", "1", "sim", "yes", "y", "verdadeiro"]
+            )
+            data = data[~flags].copy()
+
+    # 3) Exclui cruzando AWB com PENDENCIA_MOVIMENTOS / TOTAL NA PENDÊNCIA.
+    awb_col = first_col(data, ["AWB"])
+    pend_awbs = pendencia_ativa_awbs()
+
+    if awb_col and pend_awbs:
+        awbs_norm = (
+            data[awb_col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(lambda x: re.sub(r"\D+", "", x))
+        )
+        data = data[~awbs_norm.isin(pend_awbs)].copy()
+
+    return data
+
+
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1241,9 +1325,12 @@ def sla_sem_rota_rows(df):
         problema = df[problema_col].astype(str).map(normalize_text)
         exact = df[problema.eq("SLA DO DIA SEM ROTA")].copy()
         if not exact.empty:
-            return exact
+            return remove_pendencia_from_rows(exact)
 
-    return filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
+    filtered = filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
+    return remove_pendencia_from_rows(filtered)
+
+
 
 
 def last_mile_desembarque_rows(df):

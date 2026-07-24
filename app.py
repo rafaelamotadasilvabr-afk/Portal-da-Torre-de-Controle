@@ -2015,8 +2015,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and pd.notna(sla_row)
             and sla_row == analysis_ts
             and not teve_saida_dia_sla
-            and not pendencia_torre_dia
-            and not em_torre_ativa
+            and not esta_na_pendencia
             and not tem_insucesso_rota
         ):
             return 5, "ALTA", "SLA DO DIA SEM ROTA", \
