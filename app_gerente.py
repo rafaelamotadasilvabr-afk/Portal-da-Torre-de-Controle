@@ -1205,6 +1205,29 @@ def overdue_delivery_rows(df):
 
 
 
+def insucesso_sem_pendencia_rows(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+    problema_col = first_col(data, ["PROBLEMA"])
+
+    if problema_col:
+        problema = data[problema_col].astype(str).map(normalize_text)
+        data = data[problema.eq("INSUCESSO SEM PENDÊNCIA")].copy()
+    else:
+        data = filter_terms(data, [
+            "INSUCESSO SEM PENDÊNCIA",
+            "INSUCESSO SEM PENDENCIA",
+            "DESTINATÁRIO DESCONHECIDO",
+            "DESTINATARIO DESCONHECIDO",
+            "ENDEREÇO NÃO LOCALIZADO",
+            "ENDERECO NAO LOCALIZADO",
+        ])
+
+    return data.copy() if data is not None else pd.DataFrame()
+
+
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
