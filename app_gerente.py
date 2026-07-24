@@ -770,22 +770,32 @@ def apply_date_filter(df, date_range):
     Filtro dinâmico da visão gerencial.
 
     Regra:
-    - Se o usuário selecionar 1 único dia, prioriza SLA = dia selecionado.
-    - Se selecionar período, prioriza SLA dentro do período.
-    - Se não existir coluna SLA válida, usa fallback por outras datas operacionais.
-
-    Motivo:
-    A maior parte da visão executiva é análise de vencimento/SLA.
+    - Filtro em branco: não aplica filtro de SLA/data; mostra tudo que está aberto.
+    - 1 único dia: prioriza SLA = dia selecionado.
+    - Período: prioriza SLA dentro do período.
+    - Se não existir SLA válida, usa fallback por outras datas operacionais.
     """
     if df is None or df.empty:
         return df, "sem dados"
 
-    if not isinstance(date_range, (list, tuple)) or len(date_range) != 2:
-        return df, "sem período definido"
+    # Campo em branco no Streamlit pode vir como None, lista vazia, tupla vazia,
+    # ou intervalo incompleto. Nesses casos, não filtra.
+    if date_range is None:
+        return df.copy(), "sem filtro de data — exibindo tudo que está aberto"
+
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 0:
+        return df.copy(), "sem filtro de data — exibindo tudo que está aberto"
+
+    if not isinstance(date_range, (list, tuple)):
+        return df.copy(), "sem filtro de data — exibindo tudo que está aberto"
+
+    if len(date_range) != 2:
+        return df.copy(), "sem filtro de data — exibindo tudo que está aberto"
 
     start, end = date_range
+
     if start is None or end is None:
-        return df, "sem período definido"
+        return df.copy(), "sem filtro de data — exibindo tudo que está aberto"
 
     start_ts = pd.Timestamp(start).normalize()
     end_ts = pd.Timestamp(end).normalize()
@@ -831,7 +841,8 @@ def apply_date_filter(df, date_range):
                 mask = dates_norm.between(start_ts, end_ts)
                 return df[mask].copy(), f"Filtro aplicado por {col}"
 
-    return df, "sem coluna de data disponível na fila"
+    # Se não achou nenhuma data útil, não corta a base.
+    return df.copy(), "sem coluna de data disponível — exibindo tudo que está aberto"
 
 
 
@@ -2168,6 +2179,110 @@ def driver_offenders(df):
     return grouped.sort_values(["TOTAL OCORRÊNCIAS", "AWBS"], ascending=False).head(15)
 
 
+def render_motoristas_pareto(motoristas_df):
+    """
+    Renderiza Pareto 80/20 dos motoristas ofensores.
+    Não altera dados/regras: usa o ranking já calculado em driver_offenders().
+    """
+    if motoristas_df is None or motoristas_df.empty:
+        st.info("Sem dados suficientes para montar o Pareto de motoristas ofensores.")
+        return
+
+    data = motoristas_df.copy()
+
+    motorista_col = first_col(data, ["MOTORISTA / ENTREGADOR", "ENTREGADOR", "MOTORISTA"])
+    valor_col = first_col(data, ["TOTAL OCORRÊNCIAS", "TOTAL OCORRENCIAS", "AWBS", "INSUCESSOS", "RETORNOS"])
+
+    if not motorista_col or not valor_col:
+        st.info("Sem colunas suficientes para montar o Pareto de motoristas ofensores.")
+        return
+
+    data["_MOTORISTA_PARETO"] = data[motorista_col].fillna("Não informado").astype(str).str.strip()
+    data["_MOTORISTA_PARETO"] = data["_MOTORISTA_PARETO"].replace("", "Não informado")
+    data["_QTDE_PARETO"] = pd.to_numeric(data[valor_col], errors="coerce").fillna(0)
+
+    data = data[data["_QTDE_PARETO"] > 0].copy()
+    if data.empty:
+        st.info("Sem volume suficiente para montar o Pareto de motoristas ofensores.")
+        return
+
+    data = (
+        data.sort_values("_QTDE_PARETO", ascending=False)
+        .head(15)
+        .reset_index(drop=True)
+    )
+    total = float(data["_QTDE_PARETO"].sum())
+    data["ACUMULADO"] = data["_QTDE_PARETO"].cumsum()
+    data["PERCENTUAL_ACUMULADO"] = (data["ACUMULADO"] / total * 100).round(1)
+    data["LINHA_80"] = 80
+
+    base = alt.Chart(data).encode(
+        x=alt.X(
+            "_MOTORISTA_PARETO:N",
+            sort="-y",
+            title="Motorista / entregador",
+            axis=alt.Axis(labelAngle=-35, labelLimit=120),
+        )
+    )
+
+    bars = base.mark_bar(
+        cornerRadiusTopLeft=4,
+        cornerRadiusTopRight=4,
+        color="#0b63ce",
+    ).encode(
+        y=alt.Y("_QTDE_PARETO:Q", title="Ocorrências"),
+        tooltip=[
+            alt.Tooltip("_MOTORISTA_PARETO:N", title="Motorista"),
+            alt.Tooltip("_QTDE_PARETO:Q", title="Ocorrências", format=",.0f"),
+            alt.Tooltip("PERCENTUAL_ACUMULADO:Q", title="% acumulado", format=".1f"),
+        ],
+    )
+
+    line = base.mark_line(
+        color="#d97706",
+        point=True,
+        strokeWidth=3,
+    ).encode(
+        y=alt.Y(
+            "PERCENTUAL_ACUMULADO:Q",
+            title="% acumulado",
+            scale=alt.Scale(domain=[0, 100]),
+        ),
+        tooltip=[
+            alt.Tooltip("_MOTORISTA_PARETO:N", title="Motorista"),
+            alt.Tooltip("PERCENTUAL_ACUMULADO:Q", title="% acumulado", format=".1f"),
+        ],
+    )
+
+    rule = base.mark_rule(
+        color="#ef4444",
+        strokeDash=[6, 4],
+    ).encode(
+        y=alt.Y("LINHA_80:Q", title="% acumulado"),
+    )
+
+    chart = alt.layer(bars, line, rule).resolve_scale(
+        y="independent"
+    ).properties(
+        height=360
+    )
+
+    st.markdown("#### Pareto 80/20 — motoristas ofensores")
+    st.caption("Barras = volume de ocorrências. Linha laranja = percentual acumulado. Linha tracejada = referência de 80%.")
+    st.altair_chart(chart, use_container_width=True)
+
+    pareto_table = data[["_MOTORISTA_PARETO", "_QTDE_PARETO", "PERCENTUAL_ACUMULADO"]].rename(
+        columns={
+            "_MOTORISTA_PARETO": "MOTORISTA / ENTREGADOR",
+            "_QTDE_PARETO": "OCORRÊNCIAS",
+            "PERCENTUAL_ACUMULADO": "% ACUMULADO",
+        }
+    )
+    render_table(pareto_table, height=260)
+
+
+
+
 def open_returns(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -2425,12 +2540,13 @@ with top_filter_col:
     st.markdown('<div class="filter-caption">Filtro de data</div>', unsafe_allow_html=True)
     date_range = st.date_input(
         "Filtro de data",
-        value=(default_start, today),
+        value=None,
         format="DD/MM/YYYY",
         label_visibility="collapsed",
+        help="Deixe em branco para ver tudo que está aberto. Selecione 1 dia para filtrar por SLA do dia ou um período para SLA no intervalo.",
     )
     st.markdown(
-        '<div class="filter-note-compact">1 dia = SLA do dia | período = SLA no período</div>',
+        '<div class="filter-note-compact">Em branco = tudo aberto | 1 dia = SLA do dia</div>',
         unsafe_allow_html=True,
     )
 
@@ -2439,7 +2555,7 @@ fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
 with top_info_col:
     _filtro_msg_display = str(filtro_msg or "").strip()
     if not _filtro_msg_display or _filtro_msg_display.lower() == "sem período definido":
-        _filtro_msg_display = "Filtro por SLA: selecione 1 dia para SLA do dia ou um intervalo para SLA no período"
+        _filtro_msg_display = "Sem filtro de data — exibindo tudo que está aberto"
 
     st.markdown(
         f"""
@@ -2616,9 +2732,12 @@ if menu == "visao":
 
 
 elif menu == "motoristas":
-    st.markdown("### Controle de motoristas ofensores")
-    st.caption("Ranking de entregadores/motoristas com maior concentração de insucessos e retornos.")
-    render_table(motoristas_df, height=520)
+    st.markdown("### Motoristas ofensores — Pareto")
+    st.caption("Análise 80/20 dos entregadores/motoristas com maior concentração de insucessos e retornos.")
+    render_motoristas_pareto(motoristas_df)
+
+    st.markdown("#### Ranking detalhado")
+    render_table(motoristas_df, height=420)
 
     st.download_button(
         "Baixar motoristas ofensores.csv",
