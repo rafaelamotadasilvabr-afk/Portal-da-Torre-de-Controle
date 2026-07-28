@@ -2957,6 +2957,12 @@ resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entre
 # Insucesso sem pendência precisa bater com o detalhe exibido.
 insucesso_sem_pendencia_df = insucesso_sem_pendencia_rows(fila_filtrada)
 resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
+
+# Qualidade precisa existir antes dos cards.
+# A quantidade do card usa o mesmo dataframe do detalhe.
+qualidade_df = aguardando_qualidade_rows(fila_filtrada)
+resumo_qualidade_qtd = len(qualidade_df)
+
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
 sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
@@ -2982,6 +2988,7 @@ alert_distribution_df = pd.DataFrame(
     [
         {"INDICADOR": "Backlog (atraso de entrega)", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "Entregue Eu Entrego x Pendente SK", "QTDE": resumo_entregue_eu_pendente_sk},
+        {"INDICADOR": "Aguardando retorno da Qualidade", "QTDE": resumo_qualidade_qtd},
         {"INDICADOR": "Insucesso sem pendência", "QTDE": resumo_insucesso_sem_pendencia},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
         {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
