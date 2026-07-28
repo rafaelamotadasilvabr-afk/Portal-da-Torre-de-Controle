@@ -28,6 +28,7 @@ SHEET_NAMES = [
     "PENDENCIA_MOVIMENTOS",
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
+    "QUALIDADE_DETALHE",
     "BI_AZUL_RESUMO",
     "BI_AZUL_DETALHE",
     "BI_AZUL_CONFERENCIA",
@@ -1766,6 +1767,70 @@ def avaria_awbs_set():
 
 
 
+def qualidade_awbs_set():
+    """
+    AWBs que estão na planilha de Qualidade.
+    Essas AWBs não devem aparecer no backlog/pendente entrega.
+    """
+    frames = []
+
+    if "qualidade_detalhe" in globals() and qualidade_detalhe is not None and not qualidade_detalhe.empty:
+        frames.append(qualidade_detalhe)
+
+    awbs = set()
+    for frame in frames:
+        awbs.update(_extract_awb_set_from_df(frame))
+
+    return awbs
+
+
+def aguardando_qualidade_rows(df):
+    """
+    Linhas classificadas como AGUARDANDO RETORNO DA QUALIDADE.
+    Também cruza por AWB com QUALIDADE_DETALHE para proteger bases antigas.
+    """
+    frames = []
+
+    if df is not None and not df.empty:
+        data = df.copy()
+        problema_col = first_col(data, ["PROBLEMA"])
+        if problema_col:
+            problema = data[problema_col].astype(str).map(normalize_text)
+            part = data[problema.eq("AGUARDANDO RETORNO DA QUALIDADE")].copy()
+            if not part.empty:
+                frames.append(part)
+
+        q_awbs = qualidade_awbs_set()
+        if q_awbs and "AWB" in data.columns:
+            awb_norm = (
+                data["AWB"]
+                .fillna("")
+                .astype(str)
+                .map(lambda x: re.sub(r"\D+", "", str(x)))
+            )
+            part = data[awb_norm.isin(q_awbs)].copy()
+            if not part.empty:
+                frames.append(part)
+
+    # Caso não esteja na FILA, mostra o detalhe direto da Qualidade.
+    if "qualidade_detalhe" in globals() and qualidade_detalhe is not None and not qualidade_detalhe.empty:
+        q = qualidade_detalhe.copy()
+        if "PROBLEMA" not in q.columns:
+            q["PROBLEMA"] = "AGUARDANDO RETORNO DA QUALIDADE"
+        frames.append(q)
+
+    if not frames:
+        return pd.DataFrame()
+
+    out = pd.concat(frames, ignore_index=True, sort=False)
+    if "AWB" in out.columns:
+        out["_AWB_NORM"] = out["AWB"].fillna("").astype(str).map(lambda x: re.sub(r"\D+", "", str(x)))
+        out = out.drop_duplicates("_AWB_NORM", keep="first").drop(columns=["_AWB_NORM"], errors="ignore")
+
+    return out
+
+
+
 def overdue_delivery_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1815,6 +1880,19 @@ def overdue_delivery_rows(df):
             .map(lambda x: re.sub(r"\D+", "", x))
         )
         data = data[~data_awb_norm.isin(avaria_awbs)].copy()
+
+    # Regra de não sobreposição com Qualidade:
+    # Se está aguardando retorno da Qualidade, não compõe backlog.
+    qualidade_awbs = qualidade_awbs_set() if "qualidade_awbs_set" in globals() else set()
+    if qualidade_awbs and "AWB" in data.columns:
+        data_awb_norm = (
+            data["AWB"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(lambda x: re.sub(r"\D+", "", x))
+        )
+        data = data[~data_awb_norm.isin(qualidade_awbs)].copy()
 
     return data
 
@@ -2255,13 +2333,18 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "atraso":
         title = "Detalhe — Backlog (atraso de entrega)"
-        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK e cargas em Avarias / Salvados."
+        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK, Avarias / Salvados e Qualidade."
         df = backlog_atraso_df.copy() if "backlog_atraso_df" in globals() else overdue_delivery_rows(fila_filtrada)
 
     elif card_key == "backlog_eu_entregue":
         title = "Detalhe — Entregue no Eu Entrego x Pendente no SK"
         subtitle = "Cargas que constam como entregues/baixadas no Eu Entrego, mas continuam como PENDENTE ENTREGA no SK."
         df = entregue_eu_entrego_pendente_sk_rows(fila_filtrada)
+
+    elif card_key == "qualidade":
+        title = "Detalhe — Aguardando retorno da Qualidade"
+        subtitle = "AWBs presentes na planilha de Qualidade. Não entram em Pendente de entrega nem no Backlog de atraso."
+        df = qualidade_df.copy() if "qualidade_df" in globals() else aguardando_qualidade_rows(fila_filtrada)
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -2799,6 +2882,7 @@ edi_detalhe = pack.get("EDI_DETALHE", pd.DataFrame())
 pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
+qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
 bi_azul_detalhe = pack.get("BI_AZUL_DETALHE", pd.DataFrame())
 bi_azul_conferencia = pack.get("BI_AZUL_CONFERENCIA", pd.DataFrame())
@@ -2971,6 +3055,7 @@ if menu == "visao":
     cards_linha1 = [
         ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
+        ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "Sai de pendente/backlog", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Insucesso sem pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#b45309", "#fff7ed", "insucesso_sem_pendencia"),
         ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
         ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),

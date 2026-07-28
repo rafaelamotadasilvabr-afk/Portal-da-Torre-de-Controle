@@ -1,5 +1,6 @@
 
 import io
+import base64
 import re
 import unicodedata
 from datetime import date
@@ -1916,6 +1917,8 @@ DEFAULT_GOOGLE_SHEETS = {
     "Passível a Débito e Indenização": "https://docs.google.com/spreadsheets/d/19dRtnW3dsDcyOpRhEU0ifoPhGr8cXkxu6El1W5A-Xws/edit?gid=0#gid=0",
 }
 
+DEFAULT_QUALIDADE_URL = "https://1drv.ms/x/c/797EE0FC20D0A8DE/IQBA5yjEJHr5RIK8FXfmnTp9AbnmmGgNY6DKOTz37fTFsUA?e=xMlg5c"
+
 def extract_google_sheet_id(url):
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", str(url))
     return match.group(1) if match else None
@@ -1949,6 +1952,181 @@ def read_public_google_workbook_bytes(url):
     response = requests.get(xlsx_url, timeout=60)
     response.raise_for_status()
     return response.content
+
+
+def _onedrive_direct_download_url(url):
+    """
+    Converte link compartilhado do OneDrive em endpoint de download anônimo.
+    Funciona quando o link estiver liberado para leitura.
+    """
+    token = base64.urlsafe_b64encode(str(url).encode("utf-8")).decode("utf-8").rstrip("=")
+    return f"https://api.onedrive.com/v1.0/shares/u!{token}/root/content"
+
+
+def _extract_awb_col_or_best(df):
+    if df is None or df.empty:
+        return None
+
+    awb_col = find_column(df, [
+        "AWB",
+        "Nº AWB",
+        "NUMERO AWB",
+        "NÚMERO AWB",
+        "AWB NUMBER",
+        "AWBNumber",
+        "CTE",
+        "CT-E",
+    ])
+    if awb_col:
+        return awb_col
+
+    best_col = None
+    best_count = 0
+
+    for col in df.columns:
+        values = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .map(lambda x: re.sub(r"\D+", "", str(x)))
+        )
+        count = int(values.str.len().between(7, 12).sum())
+        if count > best_count:
+            best_col = col
+            best_count = count
+
+    return best_col if best_count > 0 else None
+
+
+def _normalize_quality_dataframe(df, origem="QUALIDADE"):
+    """
+    Normaliza planilha de Qualidade para o dashboard gerencial.
+    Regra operacional: tudo que estiver na planilha entra como aguardando retorno.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(columns=[
+            "AWB", "ORIGEM_QUALIDADE", "DATA_QUALIDADE",
+            "RETORNO_QUALIDADE", "STATUS_QUALIDADE"
+        ])
+
+    data = clean_columns(df.copy())
+
+    awb_col = _extract_awb_col_or_best(data)
+    if not awb_col:
+        return pd.DataFrame(columns=[
+            "AWB", "ORIGEM_QUALIDADE", "DATA_QUALIDADE",
+            "RETORNO_QUALIDADE", "STATUS_QUALIDADE"
+        ])
+
+    data["AWB"] = data[awb_col].apply(normalize_awb)
+    data = data[data["AWB"].fillna("").astype(str).str.strip().ne("")].copy()
+
+    if data.empty:
+        return pd.DataFrame(columns=[
+            "AWB", "ORIGEM_QUALIDADE", "DATA_QUALIDADE",
+            "RETORNO_QUALIDADE", "STATUS_QUALIDADE"
+        ])
+
+    data["ORIGEM_QUALIDADE"] = origem
+
+    data_col = find_column(data, [
+        "DATA DA QUALIDADE",
+        "DATA QUALIDADE",
+        "DATA",
+        "DT QUALIDADE",
+        "DT",
+    ])
+    retorno_col = find_column(data, [
+        "RETORNO DA QUALIDADE",
+        "RETORNO QUALIDADE",
+        "TEVE RETORNO",
+        "RETORNO",
+        "STATUS RETORNO",
+    ])
+    status_col = find_column(data, [
+        "STATUS",
+        "STATUS QUALIDADE",
+        "SITUAÇÃO",
+        "SITUACAO",
+        "OBS",
+        "OBSERVAÇÃO",
+    ])
+
+    data["DATA_QUALIDADE"] = parse_date(data[data_col]) if data_col else pd.NaT
+    data["RETORNO_QUALIDADE"] = data[retorno_col] if retorno_col else ""
+    data["STATUS_QUALIDADE"] = data[status_col] if status_col else "AGUARDANDO RETORNO DA QUALIDADE"
+
+    preferred = [
+        "AWB",
+        "ORIGEM_QUALIDADE",
+        "DATA_QUALIDADE",
+        "RETORNO_QUALIDADE",
+        "STATUS_QUALIDADE",
+    ]
+
+    # Mantém colunas originais úteis para auditoria.
+    extra_cols = [c for c in data.columns if c not in preferred]
+    return data[preferred + extra_cols].copy()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def read_qualidade_from_link(url):
+    """
+    Lê planilha de Qualidade via link OneDrive/Excel.
+    Se o link não permitir download, retorna dataframe vazio.
+    """
+    if not url or not str(url).strip():
+        return pd.DataFrame()
+
+    url = str(url).strip()
+    download_candidates = []
+
+    if "1drv.ms" in url or "onedrive.live.com" in url:
+        download_candidates.append(_onedrive_direct_download_url(url))
+        sep = "&" if "?" in url else "?"
+        download_candidates.append(f"{url}{sep}download=1")
+
+    download_candidates.append(url)
+
+    last_error = None
+
+    for candidate in download_candidates:
+        try:
+            response = requests.get(candidate, timeout=60, allow_redirects=True)
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "").lower()
+            content = response.content
+
+            # Evita tentar ler HTML de página de login/visualização.
+            if b"<html" in content[:500].lower() and "spreadsheet" not in content_type:
+                continue
+
+            df = pd.read_excel(BytesIO(content))
+            return _normalize_quality_dataframe(df, origem="ONEDRIVE_QUALIDADE")
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    return pd.DataFrame()
+
+
+def qualidade_awbs_from_df(df):
+    if df is None or df.empty:
+        return set()
+
+    awb_col = _extract_awb_col_or_best(df)
+    if not awb_col:
+        return set()
+
+    return set(
+        df[awb_col]
+        .fillna("")
+        .astype(str)
+        .map(normalize_awb)
+        .loc[lambda s: s.astype(str).str.strip().ne("")]
+    )
+
 
 def load_live_control_bases():
     st.sidebar.markdown("### Bases vivas — Google Sheets")
@@ -2250,6 +2428,16 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not motivo_negativo_eu
         )
 
+        em_qualidade_torre = str(row.get("EM_QUALIDADE_TORRE", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        # Qualidade prevalece sobre pendente de entrega/backlog.
+        # Tudo que estiver na planilha de Qualidade vai para o card próprio.
+        if em_qualidade_torre and not sk_baixado_ou_finalizado:
+            return 2, "ALTA", "AGUARDANDO RETORNO DA QUALIDADE", \
+                "Aguardar retorno da Qualidade antes de seguir tratativa de entrega"
+
         insucesso_exige_pendencia = (
             tem_insucesso_rota
             and not motivo_ausente_ou_fechado
@@ -2420,6 +2608,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["ORIGEM TORRE"] = df["ORIGEM_TORRE"] if "ORIGEM_TORRE" in df.columns else ""
     queue["NA PENDENCIA TORRE LINK"] = df["NA_PENDENCIA_TORRE_LINK"] if "NA_PENDENCIA_TORRE_LINK" in df.columns else False
     queue["EM TORRE ATIVA"] = df["EM_TORRE_ATIVA"] if "EM_TORRE_ATIVA" in df.columns else False
+    queue["EM QUALIDADE TORRE"] = df["EM_QUALIDADE_TORRE"] if "EM_QUALIDADE_TORRE" in df.columns else False
     queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
     queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
 
@@ -2947,6 +3136,14 @@ with st.sidebar:
     st.markdown("**5. Passível a Débito e Indenização — Google Sheets**")
     url_indenizacao = st.text_input("Link da planilha de Indenização", value=DEFAULT_GOOGLE_SHEETS["Passível a Débito e Indenização"], key="url_indenizacao")
 
+    st.markdown("**6. Qualidade — OneDrive / Excel**")
+    url_qualidade = st.text_input(
+        "Link da planilha de Qualidade",
+        value=DEFAULT_QUALIDADE_URL,
+        key="url_qualidade",
+        help="Tudo que estiver nesta planilha entra como AGUARDANDO RETORNO DA QUALIDADE."
+    )
+
     live_control_bases = {}
     for _nome, _url in {
         "Pendências da Torre": url_pendencias_torre,
@@ -2972,6 +3169,15 @@ with st.sidebar:
     except Exception:
         pendencias_torre_workbook = None
 
+    try:
+        qualidade_detalhe_gerente = read_qualidade_from_link(url_qualidade)
+        if not qualidade_detalhe_gerente.empty:
+            st.success(f"Qualidade: {qualidade_detalhe_gerente['AWB'].nunique()} AWB(s) conectada(s)")
+        elif url_qualidade.strip():
+            st.warning("Qualidade: link informado, mas nenhuma AWB foi lida. Verifique permissão/download da planilha.")
+    except Exception:
+        qualidade_detalhe_gerente = pd.DataFrame()
+        st.warning("Qualidade: falha na leitura do link informado.")
 
     st.divider()
     st.subheader("First Mile")
@@ -3198,6 +3404,22 @@ try:
             tower_history=tower_history,
         )
 
+        # Qualidade:
+        # Tudo que estiver na planilha de Qualidade deve sair de pendente/backlog
+        # e entrar em AGUARDANDO RETORNO DA QUALIDADE.
+        try:
+            _qualidade_awbs = qualidade_awbs_from_df(qualidade_detalhe_gerente)
+            if not master.empty and "AWB" in master.columns:
+                master["EM_QUALIDADE_TORRE"] = (
+                    master["AWB"]
+                    .fillna("")
+                    .astype(str)
+                    .map(normalize_awb)
+                    .isin(_qualidade_awbs)
+                )
+        except Exception:
+            if not master.empty:
+                master["EM_QUALIDADE_TORRE"] = False
 
         portal_view_mode = st.radio(
             "Tela",
@@ -3234,6 +3456,7 @@ try:
                     ]["AWB"].nunique()
                 )
             insucesso_sem_pendencia = int((fila_gerencial["PROBLEMA"] == "INSUCESSO SEM PENDÊNCIA").sum()) if not fila_gerencial.empty else 0
+            aguardando_retorno_qualidade = int((fila_gerencial["PROBLEMA"] == "AGUARDANDO RETORNO DA QUALIDADE").sum()) if not fila_gerencial.empty else 0
 
             if not fila_gerencial.empty:
                 _eu_flag = (
@@ -3736,6 +3959,21 @@ try:
                 if not fila_gerencial.empty and "EM_AVARIA_TORRE" not in fila_gerencial.columns:
                     fila_gerencial["EM_AVARIA_TORRE"] = False
 
+            # Auditoria: marca na FILA quais AWBs estão aguardando retorno da Qualidade.
+            try:
+                _qualidade_awbs_gerente = qualidade_awbs_from_df(qualidade_detalhe_gerente)
+                if not fila_gerencial.empty and "AWB" in fila_gerencial.columns:
+                    fila_gerencial["EM_QUALIDADE_TORRE"] = (
+                        fila_gerencial["AWB"]
+                        .fillna("")
+                        .astype(str)
+                        .map(normalize_awb)
+                        .isin(_qualidade_awbs_gerente)
+                    )
+            except Exception:
+                if not fila_gerencial.empty and "EM_QUALIDADE_TORRE" not in fila_gerencial.columns:
+                    fila_gerencial["EM_QUALIDADE_TORRE"] = False
+
             resumo_dashboard = pd.DataFrame([
                 {"METRICA": "Data de análise", "VALOR": str(reference_date)},
                 {"METRICA": "Atualizado em", "VALOR": str(pd.Timestamp.now())},
@@ -3744,6 +3982,7 @@ try:
                 {"METRICA": "Ações imediatas", "VALOR": criticas},
                 {"METRICA": "Entrega em atraso", "VALOR": entrega_atraso},
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
+                {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
@@ -3828,6 +4067,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -3857,6 +4097,7 @@ try:
                 int(saidas_torre_hoje),
                 int(len(acar_andamento)),
                 int(len(avarias_detalhe_gerente)),
+                int(len(qualidade_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
                 int(len(bi_azul_detalhe_gerente)),
@@ -3875,6 +4116,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -3896,6 +4138,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
