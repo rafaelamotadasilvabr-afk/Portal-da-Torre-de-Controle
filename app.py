@@ -2481,6 +2481,40 @@ def _panel_brl(value):
 
 
 
+def _extract_avaria_awbs_for_manager(df):
+    if df is None or df.empty:
+        return set()
+
+    def _norm_awb_local(v):
+        return re.sub(r"\D+", "", str(v or "").strip())
+
+    cols_to_try = []
+    found = find_column(df, ["AWB", "Nº AWB", "NUMERO AWB", "NÚMERO AWB", "AWB NUMBER", "AWBNumber"])
+    if found:
+        cols_to_try.append(found)
+
+    for col in df.columns:
+        if "AWB" in normalize_text(str(col)) and col not in cols_to_try:
+            cols_to_try.append(col)
+
+    if not cols_to_try:
+        scored = []
+        for col in df.columns:
+            vals = df[col].fillna("").astype(str).map(_norm_awb_local)
+            count = int(vals.str.len().between(7, 12).sum())
+            if count > 0:
+                scored.append((count, col))
+        cols_to_try = [col for _, col in sorted(scored, reverse=True)[:2]]
+
+    awbs = set()
+    for col in cols_to_try:
+        vals = df[col].fillna("").astype(str).map(_norm_awb_local)
+        awbs.update(vals.loc[vals.str.len().between(7, 12)].tolist())
+
+    return {x for x in awbs if x}
+
+
+
 def build_manager_pack_bytes(
     summary_df,
     fila_df,
@@ -3685,6 +3719,22 @@ try:
                 )
             except Exception:
                 avarias_detalhe_gerente = pd.DataFrame()
+
+            # Auditoria: marca na FILA quais AWBs também estão em Avarias / Salvados.
+            # O app do gerente usa essa aba para impedir sobreposição com Backlog.
+            try:
+                _avaria_awbs_gerente = _extract_avaria_awbs_for_manager(avarias_detalhe_gerente)
+                if not fila_gerencial.empty and "AWB" in fila_gerencial.columns:
+                    fila_gerencial["EM_AVARIA_TORRE"] = (
+                        fila_gerencial["AWB"]
+                        .fillna("")
+                        .astype(str)
+                        .str.replace(r"\D+", "", regex=True)
+                        .isin(_avaria_awbs_gerente)
+                    )
+            except Exception:
+                if not fila_gerencial.empty and "EM_AVARIA_TORRE" not in fila_gerencial.columns:
+                    fila_gerencial["EM_AVARIA_TORRE"] = False
 
             resumo_dashboard = pd.DataFrame([
                 {"METRICA": "Data de análise", "VALOR": str(reference_date)},

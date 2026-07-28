@@ -1682,6 +1682,90 @@ def backlog_baixado_eu_entrego_rows(df):
     return entregue_eu_entrego_pendente_sk_rows(df)
 
 
+def _awb_norm_for_match(value):
+    return re.sub(r"\D+", "", str(value or "").strip())
+
+
+def _extract_awb_set_from_df(df):
+    """
+    Extrai AWBs de um dataframe mesmo quando a coluna de AWB
+    veio com nome diferente ou preservada como ORIG_*.
+    """
+    if df is None or df.empty:
+        return set()
+
+    data = df.copy()
+
+    preferred_cols = [
+        "AWB",
+        "Nº AWB",
+        "NUMERO AWB",
+        "NÚMERO AWB",
+        "AWB NUMBER",
+        "AWBNumber",
+    ]
+
+    cols_to_try = []
+    awb_col = first_col(data, preferred_cols)
+    if awb_col:
+        cols_to_try.append(awb_col)
+
+    # Também verifica colunas originais preservadas.
+    for col in data.columns:
+        col_norm = normalize_text(str(col))
+        if "AWB" in col_norm and col not in cols_to_try:
+            cols_to_try.append(col)
+
+    # Fallback: escolhe colunas que tenham bastante valor normalizável como AWB.
+    if not cols_to_try:
+        scored = []
+        for col in data.columns:
+            norm_values = data[col].fillna("").astype(str).map(_awb_norm_for_match)
+            count = int(norm_values.str.len().between(7, 12).sum())
+            if count > 0:
+                scored.append((count, col))
+
+        scored = sorted(scored, reverse=True)
+        cols_to_try = [col for _, col in scored[:2]]
+
+    awbs = set()
+    for col in cols_to_try:
+        values = (
+            data[col]
+            .fillna("")
+            .astype(str)
+            .map(_awb_norm_for_match)
+        )
+        awbs.update(
+            values.loc[values.str.len().between(7, 12)].tolist()
+        )
+
+    return {awb for awb in awbs if awb}
+
+
+def avaria_awbs_set():
+    """
+    AWBs que estão na planilha de Avarias / Salvados.
+    Prioridade:
+    1. Aba sincronizada AVARIAS_DETALHE.
+    2. Dataframe avaria_df já calculado na tela.
+    """
+    frames = []
+
+    if "avarias_detalhe" in globals() and avarias_detalhe is not None and not avarias_detalhe.empty:
+        frames.append(avarias_detalhe)
+
+    if "avaria_df" in globals() and avaria_df is not None and not avaria_df.empty:
+        frames.append(avaria_df)
+
+    awbs = set()
+    for frame in frames:
+        awbs.update(_extract_awb_set_from_df(frame))
+
+    return awbs
+
+
+
 def overdue_delivery_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -1717,6 +1801,20 @@ def overdue_delivery_rows(df):
             .map(lambda x: re.sub(r"\D+", "", x))
         )
         data = data[~data_awb_norm.isin(awbs_eu_sk)].copy()
+
+    # Regra de não sobreposição com Avarias / Salvados:
+    # Se está na planilha de avaria, não compõe o backlog de atraso.
+    # Exemplo: AWB 84702015.
+    avaria_awbs = avaria_awbs_set() if "avaria_awbs_set" in globals() else set()
+    if avaria_awbs and "AWB" in data.columns:
+        data_awb_norm = (
+            data["AWB"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(lambda x: re.sub(r"\D+", "", x))
+        )
+        data = data[~data_awb_norm.isin(avaria_awbs)].copy()
 
     return data
 
@@ -2157,7 +2255,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "atraso":
         title = "Detalhe — Backlog (atraso de entrega)"
-        subtitle = "Cargas com atraso/SLA vencido, excluindo casos de integração Eu Entrego x SK."
+        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK e cargas em Avarias / Salvados."
         df = backlog_atraso_df.copy() if "backlog_atraso_df" in globals() else overdue_delivery_rows(fila_filtrada)
 
     elif card_key == "backlog_eu_entregue":
