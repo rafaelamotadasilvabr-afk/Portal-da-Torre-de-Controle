@@ -2111,9 +2111,71 @@ def read_qualidade_from_link(url):
     return pd.DataFrame()
 
 
-def qualidade_awbs_from_df(df):
+def filter_qualidade_pendente_sem_retorno(df):
+    """
+    Qualidade ativa:
+    - status pendente/aguardando/em análise;
+    - RETORNO_QUALIDADE vazio.
+    """
     if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    retorno_col = find_column(data, [
+        "RETORNO_QUALIDADE",
+        "RETORNO QUALIDADE",
+        "RETORNO DA QUALIDADE",
+        "RETORNO",
+        "STATUS RETORNO",
+    ])
+
+    status_col = find_column(data, [
+        "STATUS_QUALIDADE",
+        "STATUS QUALIDADE",
+        "STATUS",
+        "SITUAÇÃO",
+        "SITUACAO",
+    ])
+
+    if retorno_col:
+        retorno_txt = data[retorno_col].fillna("").astype(str).str.strip()
+        sem_retorno = retorno_txt.eq("") | retorno_txt.str.lower().isin([
+            "nan", "none", "null", "-", "--", "sem retorno"
+        ])
+    else:
+        sem_retorno = pd.Series(True, index=data.index)
+
+    if status_col:
+        status_norm = data[status_col].fillna("").astype(str).map(normalize_text)
+        status_pendente = status_norm.str.contains(
+            "PENDENTE|AGUARDANDO|EM ANALISE|EM ANÁLISE",
+            regex=True,
+            na=False,
+        )
+    else:
+        status_pendente = pd.Series(True, index=data.index)
+
+    return data[sem_retorno & status_pendente].copy()
+
+
+def qualidade_awbs_from_df(df):
+    data = filter_qualidade_pendente_sem_retorno(df)
+    if data is None or data.empty:
         return set()
+
+    awb_col = _extract_awb_col_or_best(data)
+    if not awb_col:
+        return set()
+
+    return set(
+        data[awb_col]
+        .fillna("")
+        .astype(str)
+        .map(normalize_awb)
+        .loc[lambda s: s.astype(str).str.strip().ne("")]
+    )
+
 
     awb_col = _extract_awb_col_or_best(df)
     if not awb_col:
@@ -3171,8 +3233,12 @@ with st.sidebar:
 
     try:
         qualidade_detalhe_gerente = read_qualidade_from_link(url_qualidade)
+        qualidade_ativa_preview = filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente)
         if not qualidade_detalhe_gerente.empty:
-            st.success(f"Qualidade: {qualidade_detalhe_gerente['AWB'].nunique()} AWB(s) conectada(s)")
+            st.success(
+                f"Qualidade: {qualidade_ativa_preview['AWB'].nunique() if 'AWB' in qualidade_ativa_preview.columns else len(qualidade_ativa_preview)} "
+                f"AWB(s) pendente(s) sem retorno."
+            )
         elif url_qualidade.strip():
             st.warning("Qualidade: link informado, mas nenhuma AWB foi lida. Verifique permissão/download da planilha.")
     except Exception:
@@ -4067,7 +4133,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4116,7 +4182,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4138,7 +4204,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
