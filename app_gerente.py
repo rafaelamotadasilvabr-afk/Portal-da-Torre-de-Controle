@@ -259,9 +259,9 @@ st.markdown(
         border: 1px solid var(--gds-border);
         border-radius: 15px;
         padding: 13px 14px 12px 14px;
-        height: 166px;
-        min-height: 166px;
-        max-height: 166px;
+        height: 180px;
+        min-height: 180px;
+        max-height: 180px;
         box-shadow: var(--gds-shadow-soft);
         border-top: 4px solid var(--accent);
         display: flex;
@@ -278,6 +278,14 @@ st.markdown(
         pointer-events: none;
     }
 
+    .kpi-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 9px;
+    }
+
     .kpi-icon {
         width: 34px;
         height: 34px;
@@ -288,8 +296,30 @@ st.markdown(
         align-items: center;
         justify-content: center;
         font-weight: 950;
-        margin-bottom: 9px;
         box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+        flex: 0 0 auto;
+    }
+
+    .kpi-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: var(--soft);
+        color: var(--gds-navy);
+        font-size: .61rem;
+        font-weight: 900;
+        letter-spacing: .035em;
+        white-space: nowrap;
+    }
+
+    .kpi-status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--accent);
+        display: inline-block;
     }
 
     .label {
@@ -368,6 +398,13 @@ st.markdown(
 
     .card-row-spacer {
         height: 8px;
+    }
+
+    .secondary-kpi-title {
+        color: var(--gds-navy);
+        font-size: .90rem;
+        font-weight: 900;
+        margin: 4px 0 1px 0;
     }
 
     /* Reduz a folga entre card e botão nos containers de coluna */
@@ -848,12 +885,20 @@ def apply_date_filter(df, date_range):
 
 
 
-def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None):
+def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None, status_label=None):
     value_color = value_color or "#10213d"
+    status_html = (
+        f'<div class="kpi-status"><span class="kpi-status-dot"></span>{status_label}</div>'
+        if status_label
+        else ""
+    )
     st.markdown(
         f"""
         <div class="kpi" style="--accent:{accent}; --soft:{soft}; --value:{value_color};">
-            <div class="kpi-icon">{icon}</div>
+            <div class="kpi-topline">
+                <div class="kpi-icon">{icon}</div>
+                {status_html}
+            </div>
             <div class="label">{label}</div>
             <div class="value">{value}</div>
             <div class="sub">{subtitle}</div>
@@ -3097,53 +3142,123 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    cards_linha1 = [
-        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
-        ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
-        ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "Pendente sem retorno", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
-        ("Insucesso sem pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#b45309", "#fff7ed", "insucesso_sem_pendencia"),
-        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
-        ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
+    # Os seis indicadores abaixo formam a primeira leitura da tela.
+    # A cor comunica estado: vermelho = crítico, âmbar = atenção,
+    # verde = regular, azul = volume e laranja = impacto financeiro.
+    cdsp2_tem_pendencia = resumo_lm_desembarque > 0
+    cdsp2_accent = "#d97706" if cdsp2_tem_pendencia else "#0f766e"
+    cdsp2_soft = "#fff7e8" if cdsp2_tem_pendencia else "#f0fdfa"
+    cdsp2_status = "ATENÇÃO" if cdsp2_tem_pendencia else "REGULAR"
+
+    primary_cards = [
+        (
+            "Backlog (atraso de entrega)",
+            fmt_int(resumo_entrega_atraso),
+            "Cargas sem finalização em atraso de entrega e fora da pendência",
+            "◷",
+            "#d92d20",
+            "#fff0ef",
+            "atraso",
+            "CRÍTICO",
+        ),
+        (
+            "SLA do dia sem rota",
+            fmt_int(resumo_sla_sem_rota),
+            "Cargas no piso com vencimento hoje",
+            "▦",
+            "#d97706",
+            "#fff7e8",
+            "sla_sem_rota",
+            "VENCE HOJE",
+        ),
+        (
+            "Pendente desembarque CDSP2",
+            fmt_int(resumo_lm_desembarque),
+            "Cargas aguardando desembarque até o SLA do dia",
+            "⇣",
+            cdsp2_accent,
+            cdsp2_soft,
+            "lastmile_desembarque",
+            cdsp2_status,
+        ),
+        (
+            "Total na pendência",
+            fmt_int(resumo_total_pendencia),
+            "Backlog atual da Torre",
+            "Σ",
+            "#2563eb",
+            "#eff6ff",
+            "pend_total",
+            "VOLUME",
+        ),
+        (
+            "Retornos em aberto",
+            fmt_int(len(retornos_df)),
+            "Retornos com um dia ou mais",
+            "↩",
+            "#d97706",
+            "#fff7e8",
+            "retornos",
+            "ATENÇÃO",
+        ),
+        (
+            "Acareações em aberto",
+            fmt_int(acareacao_qtd),
+            f"Valor em aberto: {acareacao_valor}",
+            "⚖",
+            "#c2410c",
+            "#fff7ed",
+            "acareacao",
+            "FINANCEIRO",
+        ),
     ]
 
-    cards_linha2 = [
-        ("Total na pendência", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#334155", "#f8fafc", "pend_total"),
-        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entradas na Torre hoje", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
-        ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje"),
-        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
+    secondary_cards = [
+        ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue", "INTEGRAÇÃO"),
+        ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "Pendente sem retorno", "Q", "#0b63ce", "#e7f0ff", "qualidade", "QUALIDADE"),
+        ("Insucesso sem pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#b45309", "#fff7ed", "insucesso_sem_pendencia", "ATENÇÃO"),
+        ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira", "ATENÇÃO"),
+        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entradas na Torre hoje", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje", "MOVIMENTO"),
+        ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje", "MOVIMENTO"),
+        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas", "ANÁLISE"),
+        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria", "CRÍTICO"),
+        ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia", "ANÁLISE"),
     ]
 
-    cards_linha3 = [
-        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
-        ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
-        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Aba Avarias + Salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
-        ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
-    ]
+    def render_home_cards(cards, cards_por_linha=3):
+        for start_idx in range(0, len(cards), cards_por_linha):
+            cards_linha = cards[start_idx:start_idx + cards_por_linha]
+            cols = st.columns(cards_por_linha)
 
-    # Grade padronizada: no máximo 4 cards por linha.
-    # Evita cards estreitos, quebra excessiva de título e alturas diferentes.
-    all_cards = cards_linha1 + cards_linha2 + cards_linha3
-    cards_por_linha = 4
+            for idx, item in enumerate(cards_linha):
+                label, value, sub, icon, accent, soft, key, status_label = item
+                with cols[idx]:
+                    kpi_card(
+                        label,
+                        value,
+                        sub,
+                        icon,
+                        accent,
+                        soft,
+                        status_label=status_label,
+                    )
+                    button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+                    if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                        if st.session_state.get("detail_card") == key:
+                            st.session_state["detail_card"] = ""
+                        else:
+                            st.session_state["detail_card"] = key
+                        st.rerun()
 
-    for start_idx in range(0, len(all_cards), cards_por_linha):
-        cards = all_cards[start_idx:start_idx + cards_por_linha]
-        cols = st.columns(cards_por_linha)
+            st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
 
-        for idx, item in enumerate(cards):
-            label, value, sub, icon, accent, soft, key = item
-            with cols[idx]:
-                kpi_card(label, value, sub, icon, accent, soft)
-                button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                    if st.session_state.get("detail_card") == key:
-                        st.session_state["detail_card"] = ""
-                    else:
-                        st.session_state["detail_card"] = key
-                    st.rerun()
+    render_home_cards(primary_cards, cards_por_linha=3)
 
-        # Mantém espaçamento visual entre linhas, sem afetar a altura dos cards.
-        st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+    secondary_keys = {card[6] for card in secondary_cards}
+    secondary_expanded = st.session_state.get("detail_card") in secondary_keys
+    with st.expander("Outros indicadores operacionais", expanded=secondary_expanded):
+        st.caption("Indicadores complementares permanecem disponíveis sem competir com a leitura executiva.")
+        render_home_cards(secondary_cards, cards_por_linha=3)
 
     detail = st.session_state.get("detail_card", "")
 
