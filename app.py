@@ -1242,14 +1242,27 @@ def read_torre(file_bytes):
     history = pd.concat(events, ignore_index=True)
     history = history[history["AWB"].notna()].copy()
 
-    # Se houver evento sem data, mantém no histórico, mas ele não conta como saída do dia.
-    history["_DATA_SORT"] = pd.to_datetime(history["DATA_EVENTO_TORRE"], errors="coerce")
-    latest = (
-        history.sort_values(["AWB", "_DATA_SORT", "EVENTO_TORRE"], na_position="first")
-               .drop_duplicates("AWB", keep="last")
-               .drop(columns=["_DATA_SORT"], errors="ignore")
-               .copy()
-    )
+    # IMPORTANTE:
+    # FINALIZADAS é histórico de saída. Ela NÃO deve abater o Total atual da pendência.
+    # Total atual da pendência = AWBs que estão AGORA nas abas PENDENCIAS/PENDENCIA CORP.
+    # Se uma linha dentro dessas abas estiver Baixado/Finalizado/Encerrado/Concluído,
+    # ela já foi convertida para EVENTO_TORRE = FINALIZADO acima e não entra no latest ativo.
+    active_history = history[
+        history["EVENTO_TORRE"].astype(str).map(normalize_text).isin(["PENDENCIA", "PENDENCIA_CORP"])
+    ].copy()
+
+    if active_history.empty:
+        latest = pd.DataFrame(columns=history.columns)
+    else:
+        active_history["_DATA_SORT"] = pd.to_datetime(active_history["DATA_EVENTO_TORRE"], errors="coerce")
+        latest = (
+            active_history.sort_values(["AWB", "_DATA_SORT", "EVENTO_TORRE"], na_position="first")
+                          .drop_duplicates("AWB", keep="last")
+                          .drop(columns=["_DATA_SORT"], errors="ignore")
+                          .copy()
+        )
+
+    # History permanece completo, incluindo FINALIZADAS, para calcular Saídas da Torre hoje.
     history = history.drop(columns=["_DATA_SORT"], errors="ignore")
 
     return latest, history
@@ -1257,13 +1270,14 @@ def read_torre(file_bytes):
 
 def active_pendencias_from_torre_workbook(file_bytes):
     """
-    Retorna dataframe simples com AWBs que estão ativas na pendência da Torre,
-    lendo o workbook completo:
-    - PENDENCIAS
-    - PENDENCIA CORP
-    - FINALIZADAS
+    Retorna AWBs que estão ativas na pendência da Torre.
 
-    Importante:
+    Regra correta:
+    - usa as abas atuais PENDENCIAS + PENDENCIA CORP;
+    - remove apenas linhas dessas mesmas abas com status Baixado/Finalizado/Encerrado/Concluído;
+    - NÃO usa a aba FINALIZADAS para abater o total atual;
+    - FINALIZADAS serve para calcular Saídas da Torre hoje.
+
     Qualidade NÃO entra aqui. Qualidade é fonte separada.
     """
     latest, history = read_torre(file_bytes)
@@ -1272,10 +1286,6 @@ def active_pendencias_from_torre_workbook(file_bytes):
         return pd.DataFrame(columns=["AWB", "EVENTO_TORRE", "ABA_ORIGEM"])
 
     data = latest.copy()
-
-    if "EVENTO_TORRE" in data.columns:
-        evento = data["EVENTO_TORRE"].astype(str).map(normalize_text)
-        data = data[~evento.eq("FINALIZADO")].copy()
 
     if "AWB" not in data.columns:
         return pd.DataFrame(columns=["AWB", "EVENTO_TORRE", "ABA_ORIGEM"])
@@ -3240,7 +3250,7 @@ with st.sidebar:
             pendencias_torre_link = _pendencias_ativas_workbook
             st.success(
                 f"Pendências da Torre: workbook completo lido. "
-                f"{_pendencias_ativas_workbook['AWB'].nunique()} AWB(s) ativas após cruzar FINALIZADAS."
+                f"{_pendencias_ativas_workbook['AWB'].nunique()} AWB(s) ativas nas abas PENDENCIAS/PENDENCIA CORP."
             )
         else:
             st.warning("Pendências da Torre: workbook lido, mas nenhuma pendência ativa foi identificada.")
