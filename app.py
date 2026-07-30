@@ -643,6 +643,39 @@ def read_eu_entrego_files(uploaded_files, awb_filter=None):
 
 
 
+def infer_awb_column_by_values(df):
+    """
+    Detecta coluna de AWB pelo conteúdo.
+    Usado quando o cabeçalho está vazio/irregular, como na aba PENDENCIAS.
+    """
+    if df is None or df.empty:
+        return None
+
+    best_col = None
+    best_count = 0
+
+    for col in df.columns:
+        try:
+            values = (
+                df[col]
+                .fillna("")
+                .astype(str)
+                .map(lambda x: re.sub(r"\D+", "", str(x)))
+            )
+            # AWBs da operação costumam ter 7+ dígitos.
+            # Usamos limite superior folgado para preservar AWBs longas.
+            count = int(values.str.len().between(7, 20).sum())
+        except Exception:
+            count = 0
+
+        if count > best_count:
+            best_col = col
+            best_count = count
+
+    return best_col if best_count > 0 else None
+
+
+
 @st.cache_data(show_spinner=False)
 def read_torre_from_dataframe(source_df):
     """
@@ -655,6 +688,14 @@ def read_torre_from_dataframe(source_df):
     df = clean_columns(source_df.copy())
 
     awb_col = find_column(df, ["AWB", "awb"])
+
+    # Fallback importante:
+    # algumas abas de PENDENCIAS têm a coluna A com AWBs,
+    # mas o cabeçalho A1 vem vazio/irregular. Nesse caso,
+    # detecta a coluna pelo conteúdo.
+    if not awb_col:
+        awb_col = infer_awb_column_by_values(df)
+
     if not awb_col:
         return pd.DataFrame(), pd.DataFrame()
 
@@ -1145,6 +1186,12 @@ def read_torre(file_bytes):
                 "AWB NUMBER",
                 "AWBNumber",
             ])
+
+            # Fallback por conteúdo:
+            # resolve a aba PENDENCIAS quando a coluna A tem AWB
+            # mas o cabeçalho A1 está vazio/irregular.
+            if not awb_col:
+                awb_col = infer_awb_column_by_values(df)
         else:
             awb_col = None
 
@@ -2071,6 +2118,34 @@ def _extract_awb_col_or_best(df):
     return best_col if best_count > 0 else None
 
 
+def filter_quality_pending_only(df):
+    """
+    Regra da Qualidade:
+    somente linhas com RETORNO_QUALIDADE = PENDENTE entram no card
+    e saem de backlog/pendente entrega.
+
+    Se a coluna não existir, não contabiliza nada.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+
+    retorno_col = find_column(data, [
+        "RETORNO_QUALIDADE",
+        "RETORNO QUALIDADE",
+        "RETORNO DA QUALIDADE",
+        "RETORNO",
+        "STATUS RETORNO",
+    ])
+
+    if not retorno_col:
+        return pd.DataFrame(columns=data.columns)
+
+    retorno_norm = data[retorno_col].fillna("").astype(str).map(normalize_text)
+    return data[retorno_norm.eq("PENDENTE")].copy()
+
+
 def _normalize_quality_dataframe(df, origem="QUALIDADE"):
     """
     Normaliza planilha de Qualidade para o dashboard gerencial.
@@ -2110,6 +2185,7 @@ def _normalize_quality_dataframe(df, origem="QUALIDADE"):
         "DT",
     ])
     retorno_col = find_column(data, [
+        "RETORNO_QUALIDADE",
         "RETORNO DA QUALIDADE",
         "RETORNO QUALIDADE",
         "TEVE RETORNO",
@@ -2128,6 +2204,16 @@ def _normalize_quality_dataframe(df, origem="QUALIDADE"):
     data["DATA_QUALIDADE"] = parse_date(data[data_col]) if data_col else pd.NaT
     data["RETORNO_QUALIDADE"] = data[retorno_col] if retorno_col else ""
     data["STATUS_QUALIDADE"] = data[status_col] if status_col else "AGUARDANDO RETORNO DA QUALIDADE"
+
+    # Regra solicitada:
+    # só contabiliza o que estiver como PENDENTE na coluna RETORNO_QUALIDADE.
+    data = filter_quality_pending_only(data)
+
+    if data.empty:
+        return pd.DataFrame(columns=[
+            "AWB", "ORIGEM_QUALIDADE", "DATA_QUALIDADE",
+            "RETORNO_QUALIDADE", "STATUS_QUALIDADE"
+        ])
 
     preferred = [
         "AWB",
@@ -2188,12 +2274,17 @@ def qualidade_awbs_from_df(df):
     if df is None or df.empty:
         return set()
 
-    awb_col = _extract_awb_col_or_best(df)
+    # Só AWBs com RETORNO_QUALIDADE = PENDENTE impactam cards/exclusões.
+    data = filter_quality_pending_only(df)
+    if data is None or data.empty:
+        return set()
+
+    awb_col = _extract_awb_col_or_best(data)
     if not awb_col:
         return set()
 
     return set(
-        df[awb_col]
+        data[awb_col]
         .fillna("")
         .astype(str)
         .map(normalize_awb)
@@ -3210,12 +3301,12 @@ with st.sidebar:
     url_indenizacao = st.text_input("Link da planilha de Indenização", value=DEFAULT_GOOGLE_SHEETS["Passível a Débito e Indenização"], key="url_indenizacao")
 
     st.markdown("**6. Qualidade — OneDrive / Excel**")
-    st.caption("Fonte separada da planilha de Pendências. Não entra no cálculo de Entradas/Saídas/Total da pendência.")
+    st.caption("Fonte separada. Só conta linhas com RETORNO_QUALIDADE = PENDENTE.")
     url_qualidade = st.text_input(
         "Link da planilha de Qualidade",
         value=DEFAULT_QUALIDADE_URL,
         key="url_qualidade",
-        help="Tudo que estiver nesta planilha entra como AGUARDANDO RETORNO DA QUALIDADE, sem compor a pendência da Torre."
+        help="Somente linhas com RETORNO_QUALIDADE = PENDENTE entram como AGUARDANDO RETORNO DA QUALIDADE."
     )
 
     live_control_bases = {}
@@ -3250,7 +3341,7 @@ with st.sidebar:
             pendencias_torre_link = _pendencias_ativas_workbook
             st.success(
                 f"Pendências da Torre: workbook completo lido. "
-                f"{_pendencias_ativas_workbook['AWB'].nunique()} AWB(s) ativas nas abas PENDENCIAS/PENDENCIA CORP."
+                f"{_pendencias_ativas_workbook['AWB'].nunique()} AWB(s) ativas nas abas PENDENCIAS/PENDENCIA CORP, inclusive com cabeçalho irregular."
             )
         else:
             st.warning("Pendências da Torre: workbook lido, mas nenhuma pendência ativa foi identificada.")
@@ -3261,7 +3352,7 @@ with st.sidebar:
     try:
         qualidade_detalhe_gerente = read_qualidade_from_link(url_qualidade)
         if not qualidade_detalhe_gerente.empty:
-            st.success(f"Qualidade: {qualidade_detalhe_gerente['AWB'].nunique()} AWB(s) conectada(s) em fonte separada.")
+            st.success(f"Qualidade: {qualidade_detalhe_gerente['AWB'].nunique()} AWB(s) pendente(s) conectada(s) em fonte separada.")
         elif url_qualidade.strip():
             st.warning("Qualidade: link informado, mas nenhuma AWB foi lida. Verifique permissão/download da planilha.")
     except Exception:
