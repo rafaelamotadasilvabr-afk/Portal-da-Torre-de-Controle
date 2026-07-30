@@ -1255,6 +1255,69 @@ def read_torre(file_bytes):
     return latest, history
 
 
+def active_pendencias_from_torre_workbook(file_bytes):
+    """
+    Retorna dataframe simples com AWBs que estão ativas na pendência da Torre,
+    lendo o workbook completo:
+    - PENDENCIAS
+    - PENDENCIA CORP
+    - FINALIZADAS
+
+    Importante:
+    Qualidade NÃO entra aqui. Qualidade é fonte separada.
+    """
+    latest, history = read_torre(file_bytes)
+
+    if latest is None or latest.empty:
+        return pd.DataFrame(columns=["AWB", "EVENTO_TORRE", "ABA_ORIGEM"])
+
+    data = latest.copy()
+
+    if "EVENTO_TORRE" in data.columns:
+        evento = data["EVENTO_TORRE"].astype(str).map(normalize_text)
+        data = data[~evento.eq("FINALIZADO")].copy()
+
+    if "AWB" not in data.columns:
+        return pd.DataFrame(columns=["AWB", "EVENTO_TORRE", "ABA_ORIGEM"])
+
+    cols = [c for c in ["AWB", "EVENTO_TORRE", "DATA_EVENTO_TORRE", "STATUS_TRATATIVA", "ORIGEM_TORRE", "ABA_ORIGEM"] if c in data.columns]
+    return data[cols].copy()
+
+
+def torre_diagnostics_from_history(history):
+    """
+    Diagnóstico da leitura da Torre por aba/evento.
+    Usado para deixar claro se FINALIZADAS foi lida.
+    """
+    if history is None or history.empty:
+        return pd.DataFrame(columns=["ABA_ORIGEM", "EVENTO_TORRE", "AWBS", "COM_DATA"])
+
+    data = history.copy()
+
+    if "AWB" not in data.columns:
+        return pd.DataFrame(columns=["ABA_ORIGEM", "EVENTO_TORRE", "AWBS", "COM_DATA"])
+
+    if "ABA_ORIGEM" not in data.columns:
+        data["ABA_ORIGEM"] = "SEM ABA"
+
+    if "EVENTO_TORRE" not in data.columns:
+        data["EVENTO_TORRE"] = "SEM EVENTO"
+
+    data["_TEM_DATA"] = pd.to_datetime(data.get("DATA_EVENTO_TORRE"), errors="coerce").notna()
+
+    return (
+        data.groupby(["ABA_ORIGEM", "EVENTO_TORRE"], dropna=False)
+        .agg(
+            AWBS=("AWB", "nunique"),
+            COM_DATA=("_TEM_DATA", "sum"),
+        )
+        .reset_index()
+        .sort_values(["ABA_ORIGEM", "EVENTO_TORRE"])
+    )
+
+
+
+
 @st.cache_data(show_spinner=False)
 def read_first_mile_awbstatus(file_bytes, base_name):
     df = pd.read_excel(io.BytesIO(file_bytes))
@@ -2111,71 +2174,9 @@ def read_qualidade_from_link(url):
     return pd.DataFrame()
 
 
-def filter_qualidade_pendente_sem_retorno(df):
-    """
-    Qualidade ativa:
-    - status pendente/aguardando/em análise;
-    - RETORNO_QUALIDADE vazio.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-
-    retorno_col = find_column(data, [
-        "RETORNO_QUALIDADE",
-        "RETORNO QUALIDADE",
-        "RETORNO DA QUALIDADE",
-        "RETORNO",
-        "STATUS RETORNO",
-    ])
-
-    status_col = find_column(data, [
-        "STATUS_QUALIDADE",
-        "STATUS QUALIDADE",
-        "STATUS",
-        "SITUAÇÃO",
-        "SITUACAO",
-    ])
-
-    if retorno_col:
-        retorno_txt = data[retorno_col].fillna("").astype(str).str.strip()
-        sem_retorno = retorno_txt.eq("") | retorno_txt.str.lower().isin([
-            "nan", "none", "null", "-", "--", "sem retorno"
-        ])
-    else:
-        sem_retorno = pd.Series(True, index=data.index)
-
-    if status_col:
-        status_norm = data[status_col].fillna("").astype(str).map(normalize_text)
-        status_pendente = status_norm.str.contains(
-            "PENDENTE|AGUARDANDO|EM ANALISE|EM ANÁLISE",
-            regex=True,
-            na=False,
-        )
-    else:
-        status_pendente = pd.Series(True, index=data.index)
-
-    return data[sem_retorno & status_pendente].copy()
-
-
 def qualidade_awbs_from_df(df):
-    data = filter_qualidade_pendente_sem_retorno(df)
-    if data is None or data.empty:
+    if df is None or df.empty:
         return set()
-
-    awb_col = _extract_awb_col_or_best(data)
-    if not awb_col:
-        return set()
-
-    return set(
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .map(normalize_awb)
-        .loc[lambda s: s.astype(str).str.strip().ne("")]
-    )
-
 
     awb_col = _extract_awb_col_or_best(df)
     if not awb_col:
@@ -3199,11 +3200,12 @@ with st.sidebar:
     url_indenizacao = st.text_input("Link da planilha de Indenização", value=DEFAULT_GOOGLE_SHEETS["Passível a Débito e Indenização"], key="url_indenizacao")
 
     st.markdown("**6. Qualidade — OneDrive / Excel**")
+    st.caption("Fonte separada da planilha de Pendências. Não entra no cálculo de Entradas/Saídas/Total da pendência.")
     url_qualidade = st.text_input(
         "Link da planilha de Qualidade",
         value=DEFAULT_QUALIDADE_URL,
         key="url_qualidade",
-        help="Tudo que estiver nesta planilha entra como AGUARDANDO RETORNO DA QUALIDADE."
+        help="Tudo que estiver nesta planilha entra como AGUARDANDO RETORNO DA QUALIDADE, sem compor a pendência da Torre."
     )
 
     live_control_bases = {}
@@ -3219,26 +3221,37 @@ with st.sidebar:
             live_control_bases[_nome] = pd.DataFrame()
             st.warning(f"{_nome}: falha na atualização")
 
+    # CSV público é mantido apenas como fallback.
     pendencias_torre_link = live_control_bases["Pendências da Torre"]
     acareacao_ressalva_link = live_control_bases["Acareação e Ressalva"]
     debito_indenizacao_link = live_control_bases["Passível a Débito e Indenização"]
 
     # Arquivo completo da planilha de Pendências, preservando todas as abas.
+    # Este é o caminho correto para contabilizar:
+    # PENDENCIAS, PENDENCIA CORP e FINALIZADAS.
     try:
         pendencias_torre_workbook = read_public_google_workbook_bytes(
             url_pendencias_torre
         )
+        _pendencias_ativas_workbook = active_pendencias_from_torre_workbook(
+            pendencias_torre_workbook
+        )
+        if not _pendencias_ativas_workbook.empty:
+            pendencias_torre_link = _pendencias_ativas_workbook
+            st.success(
+                f"Pendências da Torre: workbook completo lido. "
+                f"{_pendencias_ativas_workbook['AWB'].nunique()} AWB(s) ativas após cruzar FINALIZADAS."
+            )
+        else:
+            st.warning("Pendências da Torre: workbook lido, mas nenhuma pendência ativa foi identificada.")
     except Exception:
         pendencias_torre_workbook = None
+        st.warning("Pendências da Torre: falha ao baixar workbook completo. Usando CSV da primeira aba como fallback.")
 
     try:
         qualidade_detalhe_gerente = read_qualidade_from_link(url_qualidade)
-        qualidade_ativa_preview = filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente)
         if not qualidade_detalhe_gerente.empty:
-            st.success(
-                f"Qualidade: {qualidade_ativa_preview['AWB'].nunique() if 'AWB' in qualidade_ativa_preview.columns else len(qualidade_ativa_preview)} "
-                f"AWB(s) pendente(s) sem retorno."
-            )
+            st.success(f"Qualidade: {qualidade_detalhe_gerente['AWB'].nunique()} AWB(s) conectada(s) em fonte separada.")
         elif url_qualidade.strip():
             st.warning("Qualidade: link informado, mas nenhuma AWB foi lida. Verifique permissão/download da planilha.")
     except Exception:
@@ -3459,6 +3472,11 @@ try:
             if pendencias_torre_workbook
             else read_torre_from_dataframe(pendencias_torre_link)
         )
+
+        # Diagnóstico separado:
+        # Torre usa somente planilha CONTROLE DE PENDÊNCIAS.
+        # Qualidade é outra fonte e não entra em tower_history/PENDENCIA_MOVIMENTOS.
+        diagnostico_torre_df = torre_diagnostics_from_history(tower_history)
 
         master = build_master(
             lm,
@@ -4133,7 +4151,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4182,7 +4200,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4204,7 +4222,7 @@ try:
                         "PENDENCIA_MOVIMENTOS": pendencia_movimentos_gerente,
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
-                        "QUALIDADE_DETALHE": filter_qualidade_pendente_sem_retorno(qualidade_detalhe_gerente),
+                        "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
