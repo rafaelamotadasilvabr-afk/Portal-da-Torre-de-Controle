@@ -1018,8 +1018,46 @@ def read_torre(file_bytes):
                     return col
         return None
 
+    def _finalizacao_date_col(df):
+        """
+        Coluna correta para Saídas da Torre hoje:
+        DATA MOV. FINALIZAÇÃO.
+
+        Usa busca robusta para aceitar variações de acento, ponto e espaço.
+        """
+        if df is None or df.empty:
+            return None
+
+        exact_candidates = [
+            "DATA MOV. FINALIZAÇÃO",
+            "DATA MOV FINALIZAÇÃO",
+            "DATA MOVIMENTAÇÃO FINALIZAÇÃO",
+            "DATA MOVIMENTACAO FINALIZACAO",
+            "DATA MOV. FINALIZACAO",
+            "DATA MOV FINALIZACAO",
+        ]
+
+        col = _find_col_fuzzy(df, exact_candidates)
+        if col:
+            return col
+
+        for c in df.columns:
+            norm = normalize_text(c)
+            # Aceita variações como DATA_MOV_FINALIZACAO, DATA MOV FINALIZAÇÃO etc.
+            if "DATA" in norm and "MOV" in norm and ("FINALIZACAO" in norm or "FINALIZAÇÃO" in norm):
+                return c
+
+        return None
+
+
     def _best_date_col(df, event_type):
         if event_type == "FINALIZADO":
+            # Prioridade máxima para o campo correto da planilha:
+            # DATA MOV. FINALIZAÇÃO.
+            finalizacao_col = _finalizacao_date_col(df)
+            if finalizacao_col:
+                return finalizacao_col
+
             candidates = [
                 "DATA MOV. FINALIZAÇÃO",
                 "DATA MOV FINALIZAÇÃO",
@@ -1041,6 +1079,15 @@ def read_torre(file_bytes):
                 "DT FINALIZACAO",
                 "DATA DA TRATATIVA",
                 "DATA TRATATIVA",
+
+                # A planilha CONTROLE DE PENDENCIAS usa a coluna SLA
+                # como data disponível na aba FINALIZADAS.
+                # Quando não existe DATA FINALIZAÇÃO/DATA BAIXA,
+                # SLA vira a DATA_EVENTO_TORRE para Saídas da Torre hoje.
+                "SLA",
+                "DATA SLA",
+                "DT SLA",
+
                 "DATA",
                 "DT",
             ]
@@ -1260,10 +1307,47 @@ def read_torre(file_bytes):
             )
             evento_series.loc[_finalizado_mask] = "FINALIZADO"
 
+        # Para FINALIZADAS, a data correta é DATA MOV. FINALIZAÇÃO.
+        if event_type == "FINALIZADO":
+            finalizacao_col = _finalizacao_date_col(df)
+            if finalizacao_col:
+                date_col = finalizacao_col
+
         data_evento = parse_date(df[date_col]) if date_col else pd.Series(pd.NaT, index=df.index)
 
-        if _finalizado_mask.any():
+        # Fallback para FINALIZADAS:
+        # somente se DATA MOV. FINALIZAÇÃO não existir ou não tiver data válida.
+        if event_type == "FINALIZADO" and data_evento.notna().sum() == 0:
+            # Segundo nível: outras colunas de finalização/baixa.
             final_date_col = _best_date_col(df, "FINALIZADO")
+            if final_date_col:
+                date_col = final_date_col
+                data_evento = parse_date(df[final_date_col])
+
+        # Terceiro nível: SLA apenas se não houver DATA MOV. FINALIZAÇÃO nem outra data de finalização.
+        if event_type == "FINALIZADO" and data_evento.notna().sum() == 0:
+            sla_col = _find_col_fuzzy(df, ["SLA", "DATA SLA", "DT SLA"])
+            if sla_col:
+                date_col = sla_col
+                data_evento = parse_date(df[sla_col])
+
+        # Último fallback para FINALIZADAS:
+        # pega a coluna com maior quantidade de datas válidas.
+        if event_type == "FINALIZADO" and data_evento.notna().sum() == 0:
+            best_col = None
+            best_count = 0
+            for _col in df.columns:
+                _parsed = parse_date(df[_col])
+                _count = int(_parsed.notna().sum())
+                if _count > best_count:
+                    best_col = _col
+                    best_count = _count
+            if best_col is not None and best_count > 0:
+                data_evento = parse_date(df[best_col])
+                date_col = best_col
+
+        if _finalizado_mask.any():
+            final_date_col = _finalizacao_date_col(df) or _best_date_col(df, "FINALIZADO")
             if final_date_col:
                 data_final = parse_date(df[final_date_col])
                 data_evento.loc[_finalizado_mask] = data_final.loc[_finalizado_mask].fillna(
