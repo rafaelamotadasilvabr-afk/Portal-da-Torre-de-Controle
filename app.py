@@ -2687,6 +2687,16 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not motivo_negativo_eu
         )
 
+        em_avaria_torre = str(row.get("EM_AVARIA_TORRE", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        # Avaria / Salvado prevalece sobre backlog, SLA do dia, desembarque,
+        # insucesso e demais filas operacionais de entrega.
+        if em_avaria_torre and not sk_baixado_ou_finalizado:
+            return 2, "ALTA", "AVARIAS / SALVADOS", \
+                "Tratar exclusivamente pela fila de Avarias / Salvados"
+
         em_qualidade_torre = str(row.get("EM_QUALIDADE_TORRE", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
@@ -3683,6 +3693,31 @@ try:
             reference_date,
             tower_history=tower_history,
         )
+
+        # Avarias / Salvados:
+        # Tudo que estiver na planilha de Avarias/Salvados sai das filas operacionais
+        # de entrega/SLA/desembarque e fica apenas no card próprio de Avarias.
+        try:
+            avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
+                pendencias_torre_workbook
+            )
+        except Exception:
+            avarias_detalhe_gerente = pd.DataFrame()
+
+        try:
+            _avaria_awbs_gerente_pre = _extract_avaria_awbs_for_manager(avarias_detalhe_gerente)
+            if not master.empty and "AWB" in master.columns:
+                master["EM_AVARIA_TORRE"] = (
+                    master["AWB"]
+                    .fillna("")
+                    .astype(str)
+                    .str.replace(r"\D+", "", regex=True)
+                    .isin(_avaria_awbs_gerente_pre)
+                )
+        except Exception:
+            if not master.empty:
+                master["EM_AVARIA_TORRE"] = False
+
 
         # Qualidade:
         # Tudo que estiver na planilha de Qualidade deve sair de pendente/backlog

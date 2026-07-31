@@ -3049,6 +3049,35 @@ def avaria_awbs_set():
 
 
 
+
+def remove_avarias_from_rows(df):
+    """
+    Remove das filas operacionais qualquer AWB que esteja em Avarias / Salvados.
+    Uso restrito a detalhes/cards operacionais; não altera a aba própria de Avarias.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    awbs_avaria = avaria_awbs_set() if "avaria_awbs_set" in globals() else set()
+    if not awbs_avaria:
+        return df
+
+    awb_col = first_col(df, ["AWB", "awb", "Awb"])
+    if not awb_col:
+        return df
+
+    data = df.copy()
+    awb_norm = (
+        data[awb_col]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .map(lambda x: re.sub(r"\D+", "", x))
+    )
+    return data[~awb_norm.isin(awbs_avaria)].copy()
+
+
+
 def filter_qualidade_pendente_rows(df):
     """
     No gerente, protege bases antigas:
@@ -3203,7 +3232,7 @@ def overdue_delivery_rows(df):
         )
         data = data[~data_awb_norm.isin(qualidade_awbs)].copy()
 
-    return data
+    return remove_avarias_from_rows(data)
 
 
 
@@ -3320,10 +3349,10 @@ def sla_sem_rota_rows(df):
         problema = df[problema_col].astype(str).map(normalize_text)
         exact = df[problema.eq("SLA DO DIA SEM ROTA")].copy()
         if not exact.empty:
-            return remove_pendencia_from_rows(exact)
+            return remove_avarias_from_rows(remove_pendencia_from_rows(exact))
 
     filtered = filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
-    return remove_pendencia_from_rows(filtered)
+    return remove_avarias_from_rows(remove_pendencia_from_rows(filtered))
 
 
 
@@ -3337,9 +3366,9 @@ def last_mile_desembarque_rows(df):
         problema = df[problema_col].astype(str).map(normalize_text)
         exact = df[problema.eq("PENDENTE DE DESEMBARQUE")].copy()
         if not exact.empty:
-            return exact
+            return remove_avarias_from_rows(exact)
 
-    return filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"])
+    return remove_avarias_from_rows(filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"]))
 
 
 def pendencia_movimento_rows(tipo):
@@ -3379,9 +3408,9 @@ def terceira_tentativa_rows(df):
         tent = numeric_series(df[tent_col])
         tentativa_df = df[tent >= 3].copy()
         if not tentativa_df.empty:
-            return tentativa_df
+            return remove_avarias_from_rows(tentativa_df)
 
-    return filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
+    return remove_avarias_from_rows(filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"]))
 
 
 def awb_col_name(df):
@@ -3673,12 +3702,12 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "lastmile_desembarque":
         title = "Detalhe — Pendente de desembarque CDSP2"
         subtitle = "Cargas CDSP2 em pendência de desembarque com SLA vencido ou SLA do dia."
-        df = last_mile_desembarque_rows(fila_filtrada)
+        df = last_mile_desembarque_df.copy() if "last_mile_desembarque_df" in globals() else last_mile_desembarque_rows(fila_filtrada)
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
         subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
-        df = terceira_tentativa_rows(fila_filtrada)
+        df = terceira_tentativa_df.copy() if "terceira_tentativa_df" in globals() else terceira_tentativa_rows(fila_filtrada)
 
     elif card_key == "pend_total":
         title = "Detalhe — Total na pendência"
@@ -3722,6 +3751,18 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     else:
         return
+
+    operational_keys_excluir_avaria = {
+        "atraso",
+        "sla_sem_rota",
+        "lastmile_desembarque",
+        "terceira",
+        "insucesso_sem_pendencia",
+        "backlog_eu_entregue",
+        "qualidade",
+    }
+    if card_key in operational_keys_excluir_avaria:
+        df = remove_avarias_from_rows(df)
 
     detail_df = detail_columns(df)
 
@@ -4346,8 +4387,10 @@ resumo_qualidade_qtd = len(qualidade_df)
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
 sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
 resumo_sla_sem_rota = len(sla_sem_rota_df)
-resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
-resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
+last_mile_desembarque_df = last_mile_desembarque_rows(fila_filtrada)
+resumo_lm_desembarque = len(last_mile_desembarque_df)
+terceira_tentativa_df = terceira_tentativa_rows(fila_filtrada)
+resumo_terceira_tentativa = len(terceira_tentativa_df)
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
 resumo_entraram_pendencia_hoje = number(
