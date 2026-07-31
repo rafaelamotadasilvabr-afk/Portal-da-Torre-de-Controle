@@ -86,26 +86,26 @@ st.markdown(
     }
 
     .brand-box {
-        padding: 8px 8px 12px 8px;
+        padding: 14px 10px 16px 10px;
         border-bottom: 1px solid var(--op-border);
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
 
     .brand-main {
         color: var(--op-blue-900);
-        font-size: 2.25rem;
-        font-weight: 950;
+        font-size: 3.10rem;
+        font-weight: 980;
         font-style: italic;
-        letter-spacing: -.06em;
-        line-height: .88;
+        letter-spacing: -.07em;
+        line-height: .84;
     }
 
     .brand-sub {
         color: var(--op-blue-700);
-        font-size: .62rem;
-        font-weight: 850;
-        letter-spacing: .34em;
-        margin-top: 6px;
+        font-size: .78rem;
+        font-weight: 900;
+        letter-spacing: .38em;
+        margin-top: 8px;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button {
@@ -3112,6 +3112,23 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
+def formatar_datahora_cabecalho(valor):
+    txt = str(valor or "").strip()
+    if not txt:
+        return "Não informado"
+    try:
+        dt = pd.to_datetime(txt, errors="coerce")
+        if pd.notna(dt):
+            return dt.strftime("%d/%m/%y %H:%M")
+    except Exception:
+        pass
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})", txt)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)[2:]} {m.group(4)}:{m.group(5)}"
+    return txt
+
+atualizado_cabecalho = formatar_datahora_cabecalho(atualizado)
+
 # =========================================================
 # CABEÇALHO CORPORATIVO — CENTRAL OPERACIONAL
 # =========================================================
@@ -3120,8 +3137,8 @@ default_start = today - timedelta(days=7)
 
 st.markdown('<div class="ops-header-shell">', unsafe_allow_html=True)
 
-header_left, header_update, header_button, header_period, header_base, header_cliente = st.columns(
-    [2.6, 1.15, 1.15, 1.45, 1.0, 1.0],
+header_left, header_update, header_button, header_period = st.columns(
+    [3.35, 1.45, 1.25, 1.60],
     gap="small",
 )
 
@@ -3144,7 +3161,7 @@ with header_update:
         f"""
         <div class="ops-update-box">
             <div class="ops-update-label">Última atualização</div>
-            <div class="ops-update-value">{atualizado if str(atualizado).strip() else "Não informado"}</div>
+            <div class="ops-update-value">{atualizado_cabecalho}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3166,23 +3183,6 @@ with header_period:
         help="Deixe em branco para ver tudo que está aberto. Selecione 1 dia para filtrar por SLA do dia ou um período para SLA no intervalo.",
     )
 
-with header_base:
-    st.markdown(
-        """
-        <div class="ops-header-control-label">Base</div>
-        <div class="ops-filter-static"><span>Todas</span><span>⌄</span></div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with header_cliente:
-    st.markdown(
-        """
-        <div class="ops-header-control-label">Cliente</div>
-        <div class="ops-filter-static"><span>Todos</span><span>⌄</span></div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
