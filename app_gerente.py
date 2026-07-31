@@ -238,10 +238,10 @@ st.markdown(
         background: #ffffff;
         border: 1px solid var(--op-border);
         border-top: 4px solid var(--accent);
-        border-radius: 15px;
-        padding: 13px 14px 11px 14px;
-        min-height: 172px;
-        max-height: 172px;
+        border-radius: 16px;
+        padding: 16px 16px 14px 16px;
+        min-height: 208px;
+        max-height: 208px;
         box-shadow: var(--op-shadow-soft);
         display: flex;
         flex-direction: column;
@@ -249,46 +249,46 @@ st.markdown(
     }
 
     .ops-icon {
-        width: 34px;
-        height: 34px;
-        border-radius: 10px;
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
         background: var(--soft);
         color: var(--accent);
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 950;
-        margin-bottom: 8px;
-        font-size: .88rem;
+        margin-bottom: 10px;
+        font-size: .96rem;
     }
 
     .ops-label {
         color: var(--op-blue-900);
-        font-size: .70rem;
+        font-size: .78rem;
         font-weight: 950;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         text-transform: uppercase;
         letter-spacing: .012em;
-        min-height: 31px;
-        line-height: 1.22;
+        min-height: 38px;
+        line-height: 1.24;
         overflow: hidden;
     }
 
     .ops-value {
         color: var(--accent);
-        font-size: 2.16rem;
+        font-size: 2.55rem;
         font-weight: 980;
         line-height: 1;
         letter-spacing: -.055em;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
     }
 
     .ops-sub {
         color: var(--op-slate-500);
-        font-size: .69rem;
-        line-height: 1.28;
+        font-size: .76rem;
+        line-height: 1.34;
         margin-top: auto;
-        min-height: 34px;
+        min-height: 42px;
         overflow: hidden;
     }
 
@@ -296,27 +296,27 @@ st.markdown(
         margin-top: auto;
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
+        gap: 8px;
     }
 
     .ops-mini {
         border: 1px solid var(--op-border);
         background: #f8fafc;
-        border-radius: 10px;
-        padding: 6px 6px;
+        border-radius: 11px;
+        padding: 8px 8px;
         text-align: center;
     }
 
     .ops-mini-title {
         color: var(--op-slate-500);
-        font-size: .62rem;
+        font-size: .66rem;
         font-weight: 800;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
     }
 
     .ops-mini-value {
         color: var(--mini-color);
-        font-size: 1.04rem;
+        font-size: 1.16rem;
         font-weight: 950;
         line-height: 1;
     }
@@ -469,6 +469,150 @@ st.markdown(
 
     div[data-testid="stVerticalBlock"] { gap: .50rem; }
     .element-container { margin-bottom: .18rem; }
+
+    /* Cabeçalho corporativo — Central Operacional */
+    .ops-header-shell {
+        width: 100%;
+        background: #ffffff;
+        border: 1px solid var(--op-border);
+        border-bottom: 1px solid #d8e3f0;
+        border-radius: 16px;
+        box-shadow: 0 8px 22px rgba(8, 37, 78, .055);
+        padding: 14px 16px;
+        margin-bottom: 10px;
+    }
+
+    .ops-header-title {
+        margin: 0;
+        color: var(--op-blue-900);
+        font-size: 1.52rem;
+        font-weight: 950;
+        letter-spacing: -0.04em;
+        line-height: 1.08;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .ops-header-subtitle {
+        margin-top: 6px;
+        color: var(--op-slate-500);
+        font-size: .82rem;
+        font-weight: 650;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+    }
+
+    .ops-info-icon {
+        width: 17px;
+        height: 17px;
+        border-radius: 999px;
+        border: 1px solid #b8c8dc;
+        color: var(--op-slate-500);
+        font-size: .68rem;
+        font-weight: 850;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #f8fafc;
+    }
+
+    .ops-update-box {
+        min-height: 50px;
+        padding: 7px 9px;
+        border-radius: 12px;
+        border: 1px solid #e0e8f2;
+        background: #f8fafc;
+        line-height: 1.18;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .ops-update-label {
+        color: var(--op-slate-500);
+        font-size: .64rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .035em;
+        margin-bottom: 3px;
+        white-space: nowrap;
+    }
+
+    .ops-update-value {
+        color: var(--op-blue-900);
+        font-size: .78rem;
+        font-weight: 850;
+        white-space: nowrap;
+    }
+
+    .ops-header-control-label {
+        color: var(--op-blue-900);
+        font-size: .68rem;
+        font-weight: 850;
+        margin-bottom: 4px;
+    }
+
+    .ops-filter-static {
+        min-height: 38px;
+        border-radius: 11px;
+        border: 1px solid #d5dfeb;
+        background: #ffffff;
+        color: var(--op-slate-700);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 11px;
+        font-size: .78rem;
+        font-weight: 750;
+        box-shadow: 0 2px 8px rgba(8, 37, 78, .025);
+    }
+
+    .ops-filter-static span:last-child {
+        color: var(--op-slate-500);
+        font-size: .72rem;
+    }
+
+    .ops-header-button-spacer {
+        height: 18px;
+    }
+
+    .ops-header-shell div[data-testid="stButton"] button {
+        min-height: 38px;
+        border-radius: 11px;
+        border: 1px solid var(--op-blue-700);
+        background: var(--op-blue-700);
+        color: #ffffff;
+        font-weight: 850;
+        padding: .38rem .84rem;
+        white-space: nowrap;
+        box-shadow: 0 5px 14px rgba(11, 99, 206, .22);
+    }
+
+    .ops-header-shell div[data-testid="stButton"] button:hover {
+        background: #0959bb;
+        color: #ffffff;
+        border-color: #0959bb;
+    }
+
+    .ops-header-shell div[data-testid="stDateInput"] input {
+        min-height: 38px;
+        border-radius: 11px;
+        border: 1px solid #d5dfeb;
+        background: #ffffff;
+        font-size: .78rem;
+        font-weight: 750;
+    }
+
+    .ops-header-filter-note {
+        color: var(--op-slate-500);
+        font-size: .66rem;
+        text-align: right;
+        margin-top: 2px;
+    }
+
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -2944,11 +3088,6 @@ with st.sidebar:
 # =========================================================
 # CARREGAMENTO
 # =========================================================
-refresh_col, _ = st.columns([1, 8])
-with refresh_col:
-    if st.button("↻ Atualizar", use_container_width=True):
-        st.rerun()
-
 try:
     pack = load_source(SOURCE_URL)
 except Exception as exc:
@@ -2973,54 +3112,81 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-st.markdown(
-    f"""
-    <div class="hero">
-        <h1>Torre de Controle Logística</h1>
-        <p>Central operacional para ação, SLA, pendências, acareações e risco financeiro.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 # =========================================================
-# FILTRO DE DATA — COMPACTO NO CANTO DIREITO
+# CABEÇALHO CORPORATIVO — CENTRAL OPERACIONAL
 # =========================================================
 today = date.today()
 default_start = today - timedelta(days=7)
 
-top_info_col, top_filter_col = st.columns([4.5, 1.35])
+st.markdown('<div class="ops-header-shell">', unsafe_allow_html=True)
 
-with top_filter_col:
-    st.markdown('<div class="filter-caption">Filtro de data</div>', unsafe_allow_html=True)
+header_left, header_update, header_button, header_period, header_base, header_cliente = st.columns(
+    [2.6, 1.15, 1.15, 1.45, 1.0, 1.0],
+    gap="small",
+)
+
+with header_left:
+    st.markdown(
+        """
+        <div>
+            <div class="ops-header-title">TORRE DE CONTROLE GDS</div>
+            <div class="ops-header-subtitle">
+                Central Operacional da Torre
+                <span class="ops-info-icon">i</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with header_update:
+    st.markdown(
+        f"""
+        <div class="ops-update-box">
+            <div class="ops-update-label">Última atualização</div>
+            <div class="ops-update-value">{atualizado if str(atualizado).strip() else "Não informado"}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with header_button:
+    st.markdown('<div class="ops-header-button-spacer"></div>', unsafe_allow_html=True)
+    if st.button("↻ Atualizar Dados", key="header_refresh_data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+with header_period:
+    st.markdown('<div class="ops-header-control-label">Período</div>', unsafe_allow_html=True)
     date_range = st.date_input(
-        "Filtro de data",
+        "Período",
         value=None,
         format="DD/MM/YYYY",
         label_visibility="collapsed",
         help="Deixe em branco para ver tudo que está aberto. Selecione 1 dia para filtrar por SLA do dia ou um período para SLA no intervalo.",
     )
+
+with header_base:
     st.markdown(
-        '<div class="filter-note-compact">Em branco = tudo aberto | 1 dia = SLA do dia</div>',
-        unsafe_allow_html=True,
-    )
-
-fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
-
-with top_info_col:
-    _filtro_msg_display = str(filtro_msg or "").strip()
-    if not _filtro_msg_display or _filtro_msg_display.lower() == "sem período definido":
-        _filtro_msg_display = "Sem filtro de data — exibindo tudo que está aberto"
-
-    st.markdown(
-        f"""
-        <div class="status-strip">
-            <span class="status-dot"></span>
-            <span><span class="status-strong">Filtro:</span> {_filtro_msg_display}</span>
-        </div>
+        """
+        <div class="ops-header-control-label">Base</div>
+        <div class="ops-filter-static"><span>Todas</span><span>⌄</span></div>
         """,
         unsafe_allow_html=True,
     )
+
+with header_cliente:
+    st.markdown(
+        """
+        <div class="ops-header-control-label">Cliente</div>
+        <div class="ops-filter-static"><span>Todos</span><span>⌄</span></div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
 
 motoristas_df = driver_offenders(fila_filtrada)
 retornos_df = open_returns(fila_filtrada)
@@ -3156,10 +3322,13 @@ if menu == "visao":
         ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
     ]
 
-    cols = st.columns(5)
-    for idx, item in enumerate(primary_cards):
+    first_row = primary_cards[:3]
+    second_row = primary_cards[3:]
+
+    cols = st.columns(3)
+    for idx, item in enumerate(first_row):
         label, value, sub, icon, accent, soft, key, card_type = item
-        with cols[idx % 3]:
+        with cols[idx]:
             if card_type == "pendencia":
                 pendencia_operational_card(
                     fmt_int(resumo_total_pendencia),
@@ -3180,7 +3349,31 @@ if menu == "visao":
                     st.session_state["detail_card"] = key
                 st.rerun()
 
-        # Quatro cards principais em uma única linha.
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+
+    cols = st.columns(2)
+    for idx, item in enumerate(second_row):
+        label, value, sub, icon, accent, soft, key, card_type = item
+        with cols[idx]:
+            if card_type == "pendencia":
+                pendencia_operational_card(
+                    fmt_int(resumo_total_pendencia),
+                    fmt_int(resumo_entraram_pendencia_hoje),
+                    fmt_int(resumo_sairam_pendencia_hoje),
+                    saldo_dia,
+                )
+            elif card_type == "acareacao":
+                acareacao_operational_card(fmt_int(acareacao_qtd), acareacao_valor, fmt_int(acareacao_vencendo_hoje))
+            else:
+                operational_card(label, value, sub, icon, accent, soft)
+
+            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                if st.session_state.get("detail_card") == key:
+                    st.session_state["detail_card"] = ""
+                else:
+                    st.session_state["detail_card"] = key
+                st.rerun()
 
     st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
 
