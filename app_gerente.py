@@ -43,179 +43,159 @@ st.markdown(
     """
     <style>
     :root {
-        --gds-navy: #071d3a;
-        --gds-navy-2: #0b2a52;
-        --gds-blue: #0b63ce;
-        --gds-blue-2: #1d7be8;
-        --gds-blue-soft: #e7f0ff;
-        --gds-bg: #edf3f8;
-        --gds-bg-2: #f4f7fb;
-        --gds-card: #ffffff;
-        --gds-border: #d8e3f0;
-        --gds-text: #0b1f3a;
-        --gds-muted: #5f7188;
-        --gds-shadow: 0 10px 28px rgba(7, 29, 58, .075);
-        --gds-shadow-soft: 0 6px 18px rgba(7, 29, 58, .055);
+        --op-blue-900: #08254e;
+        --op-blue-800: #0a346e;
+        --op-blue-700: #0b63ce;
+        --op-blue-100: #eaf3ff;
+        --op-slate-900: #10213d;
+        --op-slate-700: #3e5168;
+        --op-slate-500: #718198;
+        --op-border: #dbe5f0;
+        --op-bg: #f6f8fb;
+        --op-white: #ffffff;
+        --op-red: #d92d20;
+        --op-orange: #d97706;
+        --op-yellow: #b7791f;
+        --op-green: #0f766e;
+        --op-purple: #7c3aed;
+        --op-shadow: 0 8px 22px rgba(8, 37, 78, .07);
+        --op-shadow-soft: 0 4px 14px rgba(8, 37, 78, .045);
     }
 
     .stApp {
-        background:
-            radial-gradient(circle at top left, rgba(29, 123, 232, .08), transparent 32%),
-            linear-gradient(180deg, #f6f9fd 0%, var(--gds-bg) 100%);
-        color: var(--gds-text);
+        background: var(--op-bg);
+        color: var(--op-slate-900);
     }
 
     .block-container {
-        padding-top: 0.18rem;
-        padding-bottom: 1.2rem;
-        max-width: 1540px;
+        padding-top: .72rem !important;
+        padding-left: 1.15rem !important;
+        padding-right: 1.15rem !important;
+        padding-bottom: 1.2rem !important;
+        max-width: 1560px !important;
     }
 
-    /* Sidebar corporativo */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, var(--gds-navy) 0%, #082341 48%, #06182f 100%);
-        border-right: 1px solid rgba(255,255,255,.08);
-        box-shadow: 10px 0 26px rgba(7, 29, 58, .14);
+        background: #ffffff;
+        border-right: 1px solid var(--op-border);
+        box-shadow: 8px 0 18px rgba(8, 37, 78, .045);
     }
 
     [data-testid="stSidebar"] * {
-        color: #e8f1ff;
+        color: var(--op-slate-900);
     }
 
     .brand-box {
-        padding: 10px 8px 14px 8px;
-        border-bottom: 1px solid rgba(255,255,255,.14);
+        padding: 8px 8px 12px 8px;
+        border-bottom: 1px solid var(--op-border);
         margin-bottom: 10px;
     }
 
     .brand-main {
-        color: #ffffff;
-        font-size: 2.7rem;
+        color: var(--op-blue-900);
+        font-size: 2.25rem;
         font-weight: 950;
         font-style: italic;
-        letter-spacing: -.07em;
-        line-height: .86;
-        text-shadow: 0 8px 20px rgba(0,0,0,.20);
+        letter-spacing: -.06em;
+        line-height: .88;
     }
 
     .brand-sub {
-        color: #b8d8ff;
-        font-size: .68rem;
+        color: var(--op-blue-700);
+        font-size: .62rem;
         font-weight: 850;
-        letter-spacing: .42em;
-        margin-top: 7px;
+        letter-spacing: .34em;
+        margin-top: 6px;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button {
         width: 100%;
         justify-content: flex-start;
         text-align: left;
-        border-radius: 10px;
-        border: 1px solid rgba(184, 216, 255, .24);
-        background: rgba(255,255,255,.055);
-        color: #e8f1ff;
-        font-weight: 760;
-        padding: 0.54rem 0.72rem;
-        margin-bottom: 0.18rem;
-        min-height: 38px;
+        border-radius: 11px;
+        border: 1px solid var(--op-border);
+        background: #ffffff;
+        color: var(--op-slate-900);
+        font-weight: 780;
+        padding: .58rem .72rem;
+        margin-bottom: .24rem;
+        min-height: 39px;
         box-shadow: none;
-        transition: all .16s ease-in-out;
+        transition: all .14s ease-in-out;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: rgba(255,255,255,.105);
-        border-color: rgba(184, 216, 255, .45);
-        transform: translateX(1px);
+        background: var(--op-blue-100);
+        border-color: #9cc5f5;
+        color: var(--op-blue-900);
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: linear-gradient(90deg, #0b63ce 0%, #1d7be8 100%);
+        background: var(--op-blue-700);
         color: #ffffff;
-        border-color: rgba(255,255,255,.35);
-        box-shadow: 0 8px 20px rgba(11, 99, 206, .26);
+        border-color: var(--op-blue-700);
+        box-shadow: 0 6px 16px rgba(11, 99, 206, .20);
     }
 
     .side-note {
         margin-top: 14px;
-        border-top: 1px solid rgba(255,255,255,.13);
-        padding-top: 12px;
-        color: #bdd7f7;
+        border-top: 1px solid var(--op-border);
+        padding-top: 10px;
+        color: var(--op-slate-500);
         font-size: .72rem;
         line-height: 1.42;
     }
 
-    /* Cabeçalho executivo compacto */
     .hero {
-        background: linear-gradient(120deg, #ffffff 0%, #eef5ff 58%, #dcecff 100%);
-        color: var(--gds-text);
-        border: 1px solid #cfe0f5;
-        border-radius: 14px;
-        padding: 12px 18px;
+        background: #ffffff;
+        color: var(--op-slate-900);
+        border: 1px solid var(--op-border);
+        border-left: 5px solid var(--op-blue-700);
+        border-radius: 16px;
+        padding: 12px 16px;
         margin-bottom: 8px;
-        box-shadow: var(--gds-shadow);
+        box-shadow: var(--op-shadow-soft);
         position: relative;
         overflow: hidden;
     }
 
-    .hero:before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 4px;
-        height: 100%;
-        background: linear-gradient(180deg, var(--gds-blue) 0%, var(--gds-blue-2) 100%);
-    }
+    .hero:before { display: none; }
 
     .hero h1 {
-        margin: 0 0 3px 0;
-        font-size: 1.42rem;
+        margin: 0 0 4px 0;
+        font-size: 1.45rem;
         line-height: 1.12;
-        letter-spacing: -0.045em;
-        color: var(--gds-navy);
+        letter-spacing: -0.035em;
+        color: var(--op-blue-900);
         font-weight: 950;
     }
 
     .hero p {
         margin: 0;
-        color: #4d6076;
-        font-size: 0.78rem;
+        color: var(--op-slate-500);
+        font-size: .82rem;
     }
-
-    .badge {
-        display: none;
-        padding: 5px 9px;
-        margin: 0 6px 6px 0;
-        border-radius: 8px;
-        background: #ffffff;
-        border: 1px solid #bad3f5;
-        color: #064a9d;
-        font-size: 0.68rem;
-        font-weight: 850;
-        letter-spacing: .015em;
-    }
-
 
     .status-strip {
         display: flex;
         align-items: center;
         gap: 8px;
         background: #ffffff;
-        border: 1px solid var(--gds-border);
-        border-left: 4px solid var(--gds-blue);
+        border: 1px solid var(--op-border);
+        border-left: 4px solid var(--op-blue-700);
         border-radius: 12px;
-        padding: 8px 11px;
+        padding: 7px 10px;
         margin-bottom: 8px;
-        box-shadow: var(--gds-shadow-soft);
-        color: #4f6279;
-        font-size: .72rem;
+        box-shadow: var(--op-shadow-soft);
+        color: var(--op-slate-500);
+        font-size: .73rem;
         line-height: 1.35;
     }
 
     .status-dot {
         width: 8px;
         height: 8px;
-        background: var(--gds-blue);
+        background: var(--op-blue-700);
         border-radius: 999px;
         display: inline-block;
         box-shadow: 0 0 0 4px rgba(11, 99, 206, .10);
@@ -223,46 +203,133 @@ st.markdown(
     }
 
     .status-strong {
-        color: var(--gds-navy);
+        color: var(--op-blue-900);
         font-weight: 850;
     }
 
-    .info {
-        background: #ffffff;
-        border: 1px solid var(--gds-border);
-        border-left: 4px solid var(--gds-blue);
-        border-radius: 12px;
-        padding: 9px 12px;
-        color: #4f6279;
-        font-size: 0.77rem;
-        margin-bottom: 10px;
-        box-shadow: var(--gds-shadow-soft);
-    }
-
     .filter-caption {
-        color: var(--gds-navy);
+        color: var(--op-blue-900);
         font-weight: 850;
         font-size: .76rem;
         margin-bottom: 4px;
     }
 
     .filter-note-compact {
-        color: #60748d;
+        color: var(--op-slate-500);
         font-size: .68rem;
         text-align: right;
         margin-top: 2px;
     }
 
-    /* Cards executivos */
-    .kpi {
-        background: var(--gds-card);
-        border: 1px solid var(--gds-border);
+    .section-title {
+        font-size: 1.02rem;
+        font-weight: 950;
+        color: var(--op-blue-900);
+        margin: 10px 0 2px 0;
+    }
+
+    .section-subtitle {
+        color: var(--op-slate-500);
+        font-size: .78rem;
+        margin-bottom: 10px;
+    }
+
+    .ops-card {
+        background: #ffffff;
+        border: 1px solid var(--op-border);
+        border-top: 4px solid var(--accent);
         border-radius: 15px;
-        padding: 13px 14px 12px 14px;
-        height: 166px;
-        min-height: 166px;
-        max-height: 166px;
-        box-shadow: var(--gds-shadow-soft);
+        padding: 13px 14px 11px 14px;
+        min-height: 172px;
+        max-height: 172px;
+        box-shadow: var(--op-shadow-soft);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .ops-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: var(--soft);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 950;
+        margin-bottom: 8px;
+        font-size: .88rem;
+    }
+
+    .ops-label {
+        color: var(--op-blue-900);
+        font-size: .70rem;
+        font-weight: 950;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: .012em;
+        min-height: 31px;
+        line-height: 1.22;
+        overflow: hidden;
+    }
+
+    .ops-value {
+        color: var(--accent);
+        font-size: 2.16rem;
+        font-weight: 980;
+        line-height: 1;
+        letter-spacing: -.055em;
+        margin-bottom: 6px;
+    }
+
+    .ops-sub {
+        color: var(--op-slate-500);
+        font-size: .69rem;
+        line-height: 1.28;
+        margin-top: auto;
+        min-height: 34px;
+        overflow: hidden;
+    }
+
+    .ops-mini-grid {
+        margin-top: auto;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+    }
+
+    .ops-mini {
+        border: 1px solid var(--op-border);
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 6px 6px;
+        text-align: center;
+    }
+
+    .ops-mini-title {
+        color: var(--op-slate-500);
+        font-size: .62rem;
+        font-weight: 800;
+        margin-bottom: 2px;
+    }
+
+    .ops-mini-value {
+        color: var(--mini-color);
+        font-size: 1.04rem;
+        font-weight: 950;
+        line-height: 1;
+    }
+
+    .kpi {
+        background: #ffffff;
+        border: 1px solid var(--op-border);
+        border-radius: 15px;
+        padding: 13px 14px 11px 14px;
+        height: 172px;
+        min-height: 172px;
+        max-height: 172px;
+        box-shadow: var(--op-shadow-soft);
         border-top: 4px solid var(--accent);
         display: flex;
         flex-direction: column;
@@ -270,13 +337,7 @@ st.markdown(
         position: relative;
     }
 
-    .kpi:after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(180deg, rgba(255,255,255,.0) 0%, rgba(11,99,206,.025) 100%);
-        pointer-events: none;
-    }
+    .kpi:after { display: none; }
 
     .kpi-icon {
         width: 34px;
@@ -288,163 +349,90 @@ st.markdown(
         align-items: center;
         justify-content: center;
         font-weight: 950;
-        margin-bottom: 9px;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+        margin-bottom: 8px;
     }
 
     .label {
-        color: var(--gds-navy);
-        font-size: 0.70rem;
-        font-weight: 900;
-        margin-bottom: 7px;
+        color: var(--op-blue-900);
+        font-size: .70rem;
+        font-weight: 950;
+        margin-bottom: 6px;
         text-transform: uppercase;
-        min-height: 32px;
-        max-height: 32px;
+        min-height: 31px;
+        max-height: 31px;
         line-height: 1.22;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        word-break: normal;
-        letter-spacing: .008em;
+        letter-spacing: .012em;
     }
 
     .value {
         color: var(--value);
-        font-size: 2.02rem;
+        font-size: 2.16rem;
         font-weight: 980;
         line-height: 1;
-        margin-bottom: 7px;
-        letter-spacing: -0.055em;
+        margin-bottom: 6px;
+        letter-spacing: -.055em;
         min-height: 34px;
         display: flex;
         align-items: center;
     }
 
     .sub {
-        color: var(--gds-muted);
-        font-size: 0.68rem;
-        line-height: 1.32;
-        min-height: 36px;
-        max-height: 36px;
+        color: var(--op-slate-500);
+        font-size: .69rem;
+        line-height: 1.28;
+        min-height: 34px;
+        max-height: 34px;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
         margin-top: auto;
     }
 
-    .section-title {
-        font-size: 1.0rem;
-        font-weight: 900;
-        color: var(--gds-navy);
-        margin: 8px 0 3px 0;
-    }
-
-    .small-muted {
-        color: #63758c;
-        font-size: .76rem;
-        margin-bottom: 8px;
-    }
-
-    /* Botões próximos aos cards */
     div[data-testid="stButton"] button {
-        border-radius: 10px;
-        font-weight: 760;
+        border-radius: 11px;
+        font-weight: 800;
         min-height: 38px;
-        padding-top: .36rem;
-        padding-bottom: .36rem;
-        border: 1px solid #c7d5e7;
+        padding-top: .34rem;
+        padding-bottom: .34rem;
+        border: 1px solid #cfd9e7;
         background: #ffffff;
-        color: var(--gds-navy);
-        box-shadow: 0 3px 10px rgba(7, 29, 58, .035);
+        color: var(--op-blue-900);
+        box-shadow: 0 3px 10px rgba(8, 37, 78, .035);
     }
 
     div[data-testid="stButton"] button:hover {
-        border-color: #8bb8ee;
-        background: #f5f9ff;
-        color: #064a9d;
-    }
-
-    .card-row-spacer {
-        height: 8px;
-    }
-
-    /* Reduz a folga entre card e botão nos containers de coluna */
-    div[data-testid="column"] > div:has(.kpi) + div[data-testid="stButton"] {
-        margin-top: -0.35rem;
+        border-color: var(--op-blue-700);
+        background: var(--op-blue-100);
+        color: var(--op-blue-900);
     }
 
     div[data-testid="column"] div[data-testid="stButton"] {
-        margin-top: -0.30rem;
+        margin-top: -0.34rem;
     }
 
-    /* Tabelas e downloads */
-    div[data-testid="stDataFrame"] {
-        border: 1px solid var(--gds-border);
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 4px 14px rgba(7,29,58,.035);
-    }
-
-    div[data-testid="stDownloadButton"] button {
-        border-radius: 10px;
-        border: 1px solid #bfcfe2;
-        background: #ffffff;
-        color: var(--gds-navy);
-        font-weight: 780;
-        min-height: 38px;
-    }
-
-    div[data-testid="stDownloadButton"] button:hover {
-        border-color: #0b63ce;
-        background: #f3f8ff;
-        color: #064a9d;
-    }
-
-    .chart-card {
-        background: #ffffff;
-        border: 1px solid var(--gds-border);
-        border-radius: 15px;
-        padding: 14px 16px;
-        box-shadow: var(--gds-shadow-soft);
-        margin-top: 12px;
-        margin-bottom: 10px;
-    }
-
-    .chart-title {
-        color: var(--gds-navy);
-        font-size: 1.0rem;
-        font-weight: 950;
-        margin-bottom: 3px;
-    }
-
-    .chart-sub {
-        color: #65768d;
-        font-size: .74rem;
-        margin-bottom: 8px;
+    .card-row-spacer {
+        height: 10px;
     }
 
     .detail-box {
         background: #ffffff;
         border: 1px solid #cfe0f5;
-        border-left: 5px solid var(--gds-blue);
+        border-left: 5px solid var(--op-blue-700);
         border-radius: 15px;
         padding: 14px 16px;
         margin-top: 10px;
         margin-bottom: 10px;
-        box-shadow: var(--gds-shadow-soft);
+        box-shadow: var(--op-shadow-soft);
     }
 
     .detail-title {
-        color: var(--gds-navy);
+        color: var(--op-blue-900);
         font-size: 1.02rem;
         font-weight: 950;
         margin-bottom: 4px;
     }
 
     .detail-sub {
-        color: #5d7087;
+        color: var(--op-slate-500);
         font-size: .76rem;
         margin-bottom: 9px;
         line-height: 1.36;
@@ -452,8 +440,8 @@ st.markdown(
 
     .detail-count {
         display: inline-block;
-        background: var(--gds-blue-soft);
-        color: #064a9d;
+        background: var(--op-blue-100);
+        color: var(--op-blue-900);
         border: 1px solid #c9dcf8;
         border-radius: 999px;
         padding: 5px 9px;
@@ -461,30 +449,26 @@ st.markdown(
         font-weight: 900;
     }
 
-    /* Inputs/filtro */
-    div[data-baseweb="input"] {
-        border-radius: 10px;
+    div[data-testid="stDataFrame"] {
+        border: 1px solid var(--op-border);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: var(--op-shadow-soft);
     }
 
-    [data-testid="stDateInput"] {
-        background: rgba(255,255,255,.55);
-        border-radius: 12px;
+    div[data-testid="stDownloadButton"] button {
+        border-radius: 11px;
+        border: 1px solid #cfd9e7;
+        background: #ffffff;
+        color: var(--op-blue-900);
+        font-weight: 800;
+        min-height: 38px;
     }
 
-    /* Alertas só quando necessário */
-    .stAlert {
-        border-radius: 12px;
-    }
+    .stAlert { border-radius: 13px !important; }
 
-    /* Compactação vertical geral */
-    div[data-testid="stVerticalBlock"] {
-        gap: .55rem;
-    }
-
-    /* Esconde respiros excessivos gerados pelo Streamlit */
-    .element-container {
-        margin-bottom: .25rem;
-    }
+    div[data-testid="stVerticalBlock"] { gap: .50rem; }
+    .element-container { margin-bottom: .18rem; }
 </style>
     """,
     unsafe_allow_html=True,
@@ -845,6 +829,77 @@ def apply_date_filter(df, date_range):
     # Se não achou nenhuma data útil, não corta a base.
     return df.copy(), "sem coluna de data disponível — exibindo tudo que está aberto"
 
+
+
+
+def operational_card(label, value, subtitle, icon, accent, soft):
+    st.markdown(
+        f"""
+        <div class="ops-card" style="--accent:{accent}; --soft:{soft};">
+            <div class="ops-icon">{icon}</div>
+            <div class="ops-label">{label}</div>
+            <div class="ops-value">{value}</div>
+            <div class="ops-sub">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def pendencia_operational_card(total, entradas, saidas, saldo):
+    saldo_txt = f"+{saldo}" if saldo > 0 else str(saldo)
+    saldo_color = "#d97706" if saldo > 0 else "#0f766e"
+    st.markdown(
+        f"""
+        <div class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
+            <div class="ops-icon">Σ</div>
+            <div class="ops-label">Pendências da Torre</div>
+            <div class="ops-value">{total}</div>
+            <div class="ops-mini-grid">
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Entraram hoje</div>
+                    <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
+                </div>
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Saíram hoje</div>
+                    <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
+                </div>
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Saldo do dia</div>
+                    <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def acareacao_operational_card(qtd, valor, vencendo_hoje):
+    st.markdown(
+        f"""
+        <div class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
+            <div class="ops-icon">▤</div>
+            <div class="ops-label">Acareações</div>
+            <div class="ops-value">{qtd}</div>
+            <div class="ops-mini-grid">
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Valor</div>
+                    <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
+                </div>
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Vencem hoje</div>
+                    <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
+                </div>
+                <div class="ops-mini">
+                    <div class="ops-mini-title">Status</div>
+                    <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 
@@ -2841,13 +2896,13 @@ with st.sidebar:
 
     menu_items = [
         ("visao", "⌂  Visão Geral"),
-        ("motoristas", "☑  Motoristas ofensores"),
-        ("retornos", "↩  Retornos em aberto"),
-        ("edi", "✈  EDI"),
-        ("bi_azul", "▣  BI Azul"),
-        ("acareacao", "⚖  Acareações"),
-        ("pendcorp", "▣  Top clientes pendência"),
-        ("relatorio", "▤  Download diretoria"),
+        ("backlog", "▣  Backlog"),
+        ("pendencias", "Σ  Pendências"),
+        ("sla_dia", "◷  SLA do Dia"),
+        ("acareacao", "▤  Acareações"),
+        ("passivo", "R$  Passivo de Débito"),
+        ("debitos_revertidos", "✓  Débitos Revertidos"),
+        ("relatorio", "▤  Relatórios"),
         ("config", "⚙  Configurações"),
     ]
 
@@ -2879,9 +2934,9 @@ with st.sidebar:
     st.markdown(
         """
         <div class="side-note">
-            <b>Dashboard Gerencial</b><br>
-            Layout claro<br>
-            Menu funcional
+            <b>Central Operacional</b><br>
+            Uso contínuo da Torre<br>
+            Foco em ação
         </div>
         """,
         unsafe_allow_html=True,
@@ -2923,8 +2978,8 @@ atualizado = summary_value(resumo, "Atualizado em", "")
 st.markdown(
     f"""
     <div class="hero">
-        <h1>Dashboard Torre de Controle</h1>
-        <p>Visão executiva de SLA, pendências, integração e ofensores operacionais.</p>
+        <h1>Torre de Controle Logística</h1>
+        <p>Central operacional para ação, SLA, pendências, acareações e risco financeiro.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -3010,6 +3065,15 @@ resumo_entraram_pendencia_hoje = number(
     )
 )
 resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendência hoje", len(pendencia_movimento_rows("SAIU HOJE"))))
+resumo_passivo_valor = pd.to_numeric(summary_value(resumo, "Valor passivo débito", summary_value(resumo, "Passivo de Débito", 0)), errors="coerce")
+resumo_passivo_valor = 0 if pd.isna(resumo_passivo_valor) else float(resumo_passivo_valor)
+resumo_passivo_qtd = number(summary_value(resumo, "Quantidade passivo débito", summary_value(resumo, "Processos passivo débito", 0)))
+resumo_debitos_revertidos_valor = pd.to_numeric(summary_value(resumo, "Valor débito revertido", summary_value(resumo, "Débitos Revertidos", 0)), errors="coerce")
+resumo_debitos_revertidos_valor = 0 if pd.isna(resumo_debitos_revertidos_valor) else float(resumo_debitos_revertidos_valor)
+resumo_debitos_revertidos_qtd = number(summary_value(resumo, "Quantidade débito revertido", summary_value(resumo, "Processos revertidos", 0)))
+resumo_percentual_reversao = pd.to_numeric(summary_value(resumo, "Percentual reversão", 0), errors="coerce")
+resumo_percentual_reversao = 0 if pd.isna(resumo_percentual_reversao) else float(resumo_percentual_reversao)
+
 
 alert_distribution_df = pd.DataFrame(
     [
@@ -3065,16 +3129,11 @@ kpis_df = pd.DataFrame(
 menu = st.session_state["menu_gerente"]
 
 if menu == "visao":
-    st.markdown('<div class="section-title">Resumo gerencial</div>', unsafe_allow_html=True)
-
-    st.caption(
-        "Clique em Abrir para ver somente o detalhe do indicador selecionado. O filtro de data atualiza os cards calculados pela fila."
+    st.markdown('<div class="section-title">Central de ação</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-subtitle">Prioridade operacional: atraso, SLA do dia, pendência, acareações e risco financeiro.</div>',
+        unsafe_allow_html=True,
     )
-
-    if st.button("Abrir EDI / First Mile", key="abrir_edi_home", use_container_width=False):
-        st.session_state["menu_gerente"] = "edi"
-        st.session_state["detail_card"] = ""
-        st.rerun()
 
     acareacao_qtd = resumo_acareacao_qtd
     _acareacao_valor_total = acareacao_total_value(acareacao_df)
@@ -3086,59 +3145,122 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    cards_linha1 = [
-        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
+    # Sem nova regra: se a base ainda não trouxer prazo vencendo hoje, mostra 0.
+    acareacao_vencendo_hoje = number(summary_value(resumo, "Acareações vencendo hoje", 0))
+
+    saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
+
+    primary_cards = [
+        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "!", "#d92d20", "#fff0ef", "atraso", "normal"),
+        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
+        ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
+        ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
+        ("Passivo de Débito", brl(resumo_passivo_valor), f"{fmt_int(resumo_passivo_qtd)} processo(s)", "R$", "#7c3aed", "#f5f3ff", "passivo", "normal"),
+        ("Débitos Revertidos", brl(resumo_debitos_revertidos_valor), f"{fmt_int(resumo_debitos_revertidos_qtd)} processo(s) | {resumo_percentual_reversao:.1f}%", "✓", "#0f766e", "#f0fdfa", "debitos_revertidos", "normal"),
+    ]
+
+    cols = st.columns(3)
+    for idx, item in enumerate(primary_cards):
+        label, value, sub, icon, accent, soft, key, card_type = item
+        with cols[idx % 3]:
+            if card_type == "pendencia":
+                pendencia_operational_card(
+                    fmt_int(resumo_total_pendencia),
+                    fmt_int(resumo_entraram_pendencia_hoje),
+                    fmt_int(resumo_sairam_pendencia_hoje),
+                    saldo_dia,
+                )
+            elif card_type == "acareacao":
+                acareacao_operational_card(fmt_int(acareacao_qtd), acareacao_valor, fmt_int(acareacao_vencendo_hoje))
+            else:
+                operational_card(label, value, sub, icon, accent, soft)
+
+            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                if st.session_state.get("detail_card") == key:
+                    st.session_state["detail_card"] = ""
+                else:
+                    st.session_state["detail_card"] = key
+                st.rerun()
+
+        if idx == 2:
+            st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+            cols = st.columns(3)
+
+    st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
+
+    secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
-        ("Insucesso sem pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#b45309", "#fff7ed", "insucesso_sem_pendencia"),
-        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
-        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
-        ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
+        ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
+        ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
+        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
+        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
     ]
 
-    cards_linha2 = [
-        ("Total na pendência", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#334155", "#f8fafc", "pend_total"),
-        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entradas na Torre hoje", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
-        ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje"),
-        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
-    ]
+    cols = st.columns(3)
+    for idx, item in enumerate(secondary_cards):
+        label, value, sub, icon, accent, soft, key = item
+        with cols[idx % 3]:
+            operational_card(label, value, sub, icon, accent, soft)
+            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                if st.session_state.get("detail_card") == key:
+                    st.session_state["detail_card"] = ""
+                else:
+                    st.session_state["detail_card"] = key
+                st.rerun()
 
-    cards_linha3 = [
-        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
-        ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
-        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Aba Avarias + Salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
-        ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
-    ]
-
-    # Grade padronizada: no máximo 4 cards por linha.
-    # Evita cards estreitos, quebra excessiva de título e alturas diferentes.
-    all_cards = cards_linha1 + cards_linha2 + cards_linha3
-    cards_por_linha = 4
-
-    for start_idx in range(0, len(all_cards), cards_por_linha):
-        cards = all_cards[start_idx:start_idx + cards_por_linha]
-        cols = st.columns(cards_por_linha)
-
-        for idx, item in enumerate(cards):
-            label, value, sub, icon, accent, soft, key = item
-            with cols[idx]:
-                kpi_card(label, value, sub, icon, accent, soft)
-                button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                    if st.session_state.get("detail_card") == key:
-                        st.session_state["detail_card"] = ""
-                    else:
-                        st.session_state["detail_card"] = key
-                    st.rerun()
-
-        # Mantém espaçamento visual entre linhas, sem afetar a altura dos cards.
-        st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+        if idx == 2:
+            st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+            cols = st.columns(3)
 
     detail = st.session_state.get("detail_card", "")
 
-
     if detail:
         render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
+
+
+
+elif menu == "backlog":
+    st.markdown("### Backlog de Entrega")
+    st.caption("Cargas em atraso com SLA vencido. Mesma regra do card da Visão Geral.")
+    render_card_detail("atraso", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
+
+
+elif menu == "pendencias":
+    st.markdown("### Pendências da Torre")
+    st.caption("Pendências atuais, entradas do dia, saídas do dia e movimentação da Torre.")
+    render_card_detail("pend_total", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
+
+
+elif menu == "sla_dia":
+    st.markdown("### SLA do Dia")
+    st.caption("Cargas que precisam sair hoje conforme regra já existente.")
+    render_card_detail("sla_sem_rota", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
+
+
+elif menu == "passivo":
+    st.markdown("### Passivo de Débito")
+    st.caption("Visão financeira conforme dados já sincronizados no RESUMO. Sem nova regra operacional.")
+    resumo_passivo = pd.DataFrame([
+        {"INDICADOR": "Valor financeiro em aberto", "VALOR": brl(resumo_passivo_valor)},
+        {"INDICADOR": "Quantidade de processos", "VALOR": fmt_int(resumo_passivo_qtd)},
+    ])
+    render_table(resumo_passivo, height=180)
+    st.info("Detalhe analítico será exibido aqui quando a origem sincronizada trouxer a aba/tabela de passivo.")
+
+
+elif menu == "debitos_revertidos":
+    st.markdown("### Débitos Revertidos")
+    st.caption("Valor recuperado e processos revertidos conforme dados já sincronizados no RESUMO.")
+    resumo_revertidos = pd.DataFrame([
+        {"INDICADOR": "Valor recuperado", "VALOR": brl(resumo_debitos_revertidos_valor)},
+        {"INDICADOR": "Quantidade de processos revertidos", "VALOR": fmt_int(resumo_debitos_revertidos_qtd)},
+        {"INDICADOR": "Percentual de reversão", "VALOR": f"{resumo_percentual_reversao:.1f}%"},
+    ])
+    render_table(resumo_revertidos, height=210)
+    st.info("Detalhe analítico será exibido aqui quando a origem sincronizada trouxer a aba/tabela de débitos revertidos.")
 
 
 elif menu == "motoristas":
