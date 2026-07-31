@@ -614,6 +614,77 @@ st.markdown(
     }
 
 
+
+    /* Cabeçalho — sincronização administrativa */
+    .sync-card {
+        min-height: 54px;
+        padding: 8px 11px;
+        border-radius: 13px;
+        border: 1px solid #dbe5f0;
+        background: #f8fafc;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        box-shadow: 0 3px 10px rgba(8, 37, 78, .03);
+    }
+
+    .sync-card-label {
+        color: var(--op-slate-500);
+        font-size: .64rem;
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: .035em;
+        margin-bottom: 3px;
+    }
+
+    .sync-card-value {
+        color: var(--op-blue-900);
+        font-size: .82rem;
+        font-weight: 900;
+        white-space: nowrap;
+    }
+
+    .sync-card-detail {
+        color: var(--op-slate-500);
+        font-size: .66rem;
+        font-weight: 650;
+        margin-top: 3px;
+        white-space: nowrap;
+    }
+
+    .sync-success-strip {
+        background: #ecfdf5;
+        border: 1px solid #bbf7d0;
+        color: #0f766e;
+        border-radius: 11px;
+        padding: 6px 10px;
+        font-size: .74rem;
+        font-weight: 800;
+        margin-top: 6px;
+    }
+
+    .ops-header-shell div[data-testid="stButton"] button {
+        min-height: 40px;
+        border-radius: 11px;
+        border: 1px solid var(--op-blue-700);
+        background: var(--op-blue-700);
+        color: #ffffff;
+        font-weight: 850;
+        padding: .40rem .82rem;
+        white-space: nowrap;
+        box-shadow: 0 5px 14px rgba(11, 99, 206, .18);
+    }
+
+    .ops-header-shell div[data-testid="stButton"] button:hover {
+        background: #0959bb;
+        border-color: #0959bb;
+        color: #ffffff;
+    }
+
+    .ops-header-button-spacer {
+        height: 18px;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -3113,23 +3184,67 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-def datahora_local_cabecalho():
-    """
-    Exibe a data/hora local da operação no cabeçalho.
-
-    Observação:
-    Streamlit Cloud pode rodar em fuso diferente.
-    Por isso fixamos America/Sao_Paulo para refletir a operação local.
-    """
+def datahora_local_operacao():
     try:
-        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        return datetime.now(ZoneInfo("America/Sao_Paulo"))
     except Exception:
-        agora = datetime.now()
-
-    return agora.strftime("%d/%m/%y %H:%M")
+        return datetime.now()
 
 
-atualizado_cabecalho = datahora_local_cabecalho()
+def formatar_datahora_sync(valor=None):
+    """
+    Formata a última sincronização no padrão dd/mm/aa • HH:mm.
+    Se o valor sincronizado não for confiável, usa a hora local do app.
+    """
+    txt = str(valor or "").strip()
+    if txt:
+        try:
+            dt = pd.to_datetime(txt, errors="coerce")
+            if pd.notna(dt):
+                try:
+                    if dt.tzinfo is None:
+                        dt = dt.tz_localize("America/Sao_Paulo")
+                    else:
+                        dt = dt.tz_convert("America/Sao_Paulo")
+                except Exception:
+                    pass
+                return dt.strftime("%d/%m/%y • %H:%M")
+        except Exception:
+            pass
+
+    return datahora_local_operacao().strftime("%d/%m/%y • %H:%M")
+
+
+def resumo_carga_cabecalho():
+    """
+    Informação visual discreta, sem alterar regra de negócio.
+    Usa dados já carregados em memória.
+    """
+    partes = []
+
+    try:
+        if "fila" in globals() and fila is not None and not fila.empty:
+            partes.append(f"{len(fila):,}".replace(",", ".") + " registros carregados")
+    except Exception:
+        pass
+
+    try:
+        fontes = 0
+        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe"]:
+            _df = globals().get(_df_name)
+            if _df is not None and hasattr(_df, "empty") and not _df.empty:
+                fontes += 1
+        if fontes:
+            partes.append(f"{fontes} fontes processadas")
+    except Exception:
+        pass
+
+    return " • ".join(partes) if partes else "Dados operacionais carregados"
+
+
+atualizado_cabecalho = formatar_datahora_sync(atualizado)
+info_carga_cabecalho = resumo_carga_cabecalho()
+
 
 # =========================================================
 # CABEÇALHO CORPORATIVO — CENTRAL OPERACIONAL
@@ -3139,8 +3254,8 @@ default_start = today - timedelta(days=7)
 
 st.markdown('<div class="ops-header-shell">', unsafe_allow_html=True)
 
-header_left, header_update, header_button, header_period = st.columns(
-    [3.35, 1.45, 1.25, 1.60],
+header_left, header_sync, header_button, header_period = st.columns(
+    [3.45, 1.55, 1.35, 1.65],
     gap="small",
 )
 
@@ -3158,12 +3273,13 @@ with header_left:
         unsafe_allow_html=True,
     )
 
-with header_update:
+with header_sync:
     st.markdown(
         f"""
-        <div class="ops-update-box">
-            <div class="ops-update-label">Última atualização</div>
-            <div class="ops-update-value">{atualizado_cabecalho}</div>
+        <div class="sync-card">
+            <div class="sync-card-label">Última sincronização</div>
+            <div class="sync-card-value">{atualizado_cabecalho}</div>
+            <div class="sync-card-detail">{info_carga_cabecalho}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3171,9 +3287,19 @@ with header_update:
 
 with header_button:
     st.markdown('<div class="ops-header-button-spacer"></div>', unsafe_allow_html=True)
-    if st.button("↻ Atualizar Dados", key="header_refresh_data", use_container_width=True):
+    button_text = "⏳ Sincronizando..." if st.session_state.get("sync_feedback") == "running" else "🔄 Sincronizar Dados"
+
+    if st.button(button_text, key="header_refresh_data", use_container_width=True):
+        # Mesma funcionalidade já existente: limpar cache e recarregar dados.
+        st.session_state["sync_feedback"] = "success"
         st.cache_data.clear()
         st.rerun()
+
+    if st.session_state.get("sync_feedback") == "success":
+        st.markdown(
+            '<div class="sync-success-strip">✅ Dados sincronizados com sucesso</div>',
+            unsafe_allow_html=True,
+        )
 
 with header_period:
     st.markdown('<div class="ops-header-control-label">Período</div>', unsafe_allow_html=True)
@@ -3184,7 +3310,6 @@ with header_period:
         label_visibility="collapsed",
         help="Deixe em branco para ver tudo que está aberto. Selecione 1 dia para filtrar por SLA do dia ou um período para SLA no intervalo.",
     )
-
 
 st.markdown('</div>', unsafe_allow_html=True)
 
