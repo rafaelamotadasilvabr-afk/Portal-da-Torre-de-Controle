@@ -1252,6 +1252,7 @@ def read_torre(file_bytes):
             status_col = "STATUS_FALLBACK"
             origin_col = "ORIGEM_FALLBACK"
             reason_col = None
+            email_col = None
             date_col = "DATA_EVENTO_FALLBACK"
         else:
             if df is None or df.empty:
@@ -1288,6 +1289,14 @@ def read_torre(file_bytes):
                 "OBS",
                 "OBSERVAÇÃO",
                 "OBSERVACAO",
+            ])
+            email_col = _find_col_fuzzy(df, [
+                "STATUS EMAIL",
+                "STATUS_EMAIL",
+                "STATUS DO EMAIL",
+                "STATUS E-MAIL",
+                "E-MAIL",
+                "EMAIL",
             ])
             date_col = _best_date_col(df, event_type)
 
@@ -1354,11 +1363,13 @@ def read_torre(file_bytes):
                     data_evento.loc[_finalizado_mask]
                 )
 
+        _email_col_local = locals().get("email_col", None)
         part = pd.DataFrame({
             "AWB": df["AWB"],
             "EVENTO_TORRE": evento_series,
             "DATA_EVENTO_TORRE": data_evento,
             "STATUS_TRATATIVA": df[status_col] if status_col else "",
+            "STATUS_EMAIL": df[_email_col_local] if _email_col_local else "",
             "ORIGEM_TORRE": df[origin_col] if origin_col else "",
             "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
             "ABA_ORIGEM": sheet,
@@ -3811,6 +3822,7 @@ try:
                     "DATA_EVENTO_TORRE",
                     "EVENTO_TORRE",
                     "STATUS_TRATATIVA",
+                    "STATUS_EMAIL",
                     "ORIGEM_TORRE",
                     "MOTIVO_PENDENCIA",
                     "ABA_ORIGEM",
@@ -3873,6 +3885,7 @@ try:
                         "DATA_EVENTO_TORRE",
                         "EVENTO_TORRE",
                         "STATUS_TRATATIVA",
+                        "STATUS_EMAIL",
                         "ORIGEM_TORRE",
                         "MOTIVO_PENDENCIA",
                         "ABA_ORIGEM",
@@ -3891,6 +3904,7 @@ try:
                         "DATA_EVENTO_TORRE",
                         "EVENTO_TORRE",
                         "STATUS_TRATATIVA",
+                        "STATUS_EMAIL",
                         "ORIGEM_TORRE",
                         "MOTIVO_PENDENCIA",
                         "ABA_ORIGEM",

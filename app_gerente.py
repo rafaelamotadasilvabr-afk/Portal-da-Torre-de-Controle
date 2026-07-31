@@ -859,7 +859,7 @@ st.markdown(
     }
 
 
-    /* V2.7.0 — cards abrem detalhe na mesma tela, sem query param */
+    /* V2.7.1 — rodapé de ação integrado ao card */
     a.operational-card-link,
     a.operational-card-link:visited,
     a.operational-card-link:hover,
@@ -870,41 +870,73 @@ st.markdown(
         pointer-events: none !important;
     }
 
-    .ops-card {
+    .clickable-card-wrap {
+        margin-bottom: 0 !important;
+    }
+
+    .clickable-card-wrap .ops-card {
         cursor: default !important;
+        border-bottom-left-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+        border-bottom: 0 !important;
+        box-shadow: 0 8px 22px rgba(8, 37, 78, .055) !important;
+        transition:
+            transform .18s ease,
+            box-shadow .18s ease,
+            border-color .18s ease;
+    }
+
+    .ops-card-footer {
+        display: none !important;
+        visibility: hidden !important;
     }
 
     .card-footer-button {
-        margin-top: -49px;
+        margin-top: -1px !important;
+        margin-bottom: 12px !important;
         position: relative;
-        z-index: 10;
-        padding: 0 13px 11px 13px;
-        pointer-events: auto;
+        z-index: 5;
+        padding: 0 !important;
+        width: 100%;
+    }
+
+    .card-footer-button div[data-testid="stButton"] {
+        margin: 0 !important;
+        width: 100%;
     }
 
     .card-footer-button div[data-testid="stButton"] button {
         width: 100% !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        border-radius: 0 0 13px 13px !important;
-        border: 0 !important;
+        height: 42px !important;
+        min-height: 42px !important;
+        border-radius: 0 0 16px 16px !important;
+        border: 1px solid var(--op-border) !important;
         border-top: 1px solid #e5e7eb !important;
-        background: transparent !important;
-        color: var(--op-slate-500) !important;
-        box-shadow: none !important;
-        font-size: .72rem !important;
+        background: #ffffff !important;
+        color: var(--op-slate-700) !important;
+        box-shadow: 0 8px 22px rgba(8, 37, 78, .055) !important;
+        font-size: .78rem !important;
         font-weight: 850 !important;
-        text-align: right !important;
-        justify-content: flex-end !important;
-        padding: 0 !important;
+        line-height: 1 !important;
+        padding: 0 15px !important;
         cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        transition:
+            background-color .18s ease,
+            color .18s ease,
+            border-color .18s ease,
+            box-shadow .18s ease;
     }
 
-    .card-footer-button div[data-testid="stButton"] button:hover {
+    .card-footer-button div[data-testid="stButton"] button:hover,
+    .card-footer-button div[data-testid="stButton"] button:focus {
+        background: #f8fbff !important;
         color: var(--op-blue-700) !important;
-        background: transparent !important;
+        border-color: #c9dcf8 !important;
         border-top-color: #dbe5f0 !important;
-        box-shadow: none !important;
+        box-shadow: 0 10px 24px rgba(8, 37, 78, .075) !important;
         transform: none !important;
     }
 
@@ -912,23 +944,20 @@ st.markdown(
         width: 100%;
         text-align: right;
         color: inherit !important;
+        font-size: inherit !important;
+        font-weight: inherit !important;
     }
 
-    .clickable-card-wrap .ops-card {
-        transition:
-            transform .18s ease,
-            box-shadow .18s ease,
-            border-color .18s ease;
-    }
-
+    .clickable-card-wrap:has(+ .card-footer-button:hover) .ops-card,
     .clickable-card-wrap:hover .ops-card {
         transform: translateY(-2px);
-        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
-        border-color: var(--accent);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, .10) !important;
+        border-color: var(--accent) !important;
     }
 
-    .ops-card-footer {
-        visibility: hidden !important;
+    .clickable-card-wrap:hover + .card-footer-button div[data-testid="stButton"] button {
+        color: var(--op-blue-700) !important;
+        border-color: #c9dcf8 !important;
     }
 
 </style>
@@ -1705,6 +1734,8 @@ def edi_rows_desembarque(df):
     # Prioriza colunas úteis no detalhe.
     preferred = [
         "AWB",
+        "STATUS_EMAIL",
+        "STATUS EMAIL",
         "CLIENTE",
         "BASE",
         "OPS_STATION",
@@ -2052,6 +2083,10 @@ def render_bi_card_detail(card_key):
 def detail_columns(df):
     if df is None or df.empty:
         return df
+
+    df = df.copy()
+    if "STATUS_EMAIL" in df.columns and "STATUS EMAIL" not in df.columns:
+        df = df.rename(columns={"STATUS_EMAIL": "STATUS EMAIL"})
 
     preferred = [
         "PRIORIDADE",
@@ -2606,9 +2641,14 @@ def pendencia_movimento_rows(tipo):
     mask = df["TIPO_MOVIMENTO"].astype(str).map(normalize_text).eq(normalize_text(tipo))
     out = df[mask].copy()
 
+    if "STATUS_EMAIL" in out.columns and "STATUS EMAIL" not in out.columns:
+        out = out.rename(columns={"STATUS_EMAIL": "STATUS EMAIL"})
+
     preferred = [
         "TIPO_MOVIMENTO",
         "AWB",
+        "STATUS_EMAIL",
+        "STATUS EMAIL",
         "DATA_EVENTO_TORRE",
         "EVENTO_TORRE",
         "STATUS_TRATATIVA",
@@ -3381,6 +3421,7 @@ with st.sidebar:
         ("backlog", "▣  Backlog"),
         ("pendencias", "Σ  Pendências"),
         ("sla_dia", "◷  SLA do Dia"),
+        ("edi", "✈  EDI / First Mile"),
         ("acareacao", "▤  Acareações"),
         ("relatorio", "▤  Relatórios"),
         ("config", "⚙  Configurações"),
