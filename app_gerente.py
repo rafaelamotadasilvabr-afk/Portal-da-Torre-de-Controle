@@ -1546,6 +1546,51 @@ st.markdown(
         }
     }
 
+
+    /* =====================================================
+       V2.7.6 — Ícones operacionais maiores
+       Escopo: visual apenas.
+       ===================================================== */
+
+    .ops-icon {
+        width: 48px !important;
+        height: 48px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        border-radius: 15px !important;
+        font-size: 1.34rem !important;
+        line-height: 1 !important;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.55);
+    }
+
+    .ops-card header {
+        min-height: 76px !important;
+        gap: 10px !important;
+    }
+
+    .ops-label {
+        margin-top: 1px !important;
+    }
+
+    .clickable-card-wrap .ops-card {
+        padding-top: 17px !important;
+    }
+
+    /* Ícones compostos, como Avarias / Salvados */
+    .ops-icon {
+        letter-spacing: -0.08em;
+    }
+
+    @media (max-width: 760px) {
+        .ops-icon {
+            width: 44px !important;
+            height: 44px !important;
+            min-width: 44px !important;
+            min-height: 44px !important;
+            font-size: 1.22rem !important;
+        }
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -1936,7 +1981,7 @@ def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
         f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
                     <header>
-                        <div class="ops-icon">Σ</div>
+                        <div class="ops-icon">📋</div>
                         <div class="ops-label">Pendências da Torre</div>
                     </header>
                     <main class="ops-card-main">
@@ -1970,7 +2015,7 @@ def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
         f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
                     <header>
-                        <div class="ops-icon">▤</div>
+                        <div class="ops-icon">🧾</div>
                         <div class="ops-label">Acareações</div>
                     </header>
                     <main class="ops-card-main">
@@ -2664,6 +2709,85 @@ def render_bi_card_detail(card_key):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
+
+
+
+def _find_status_email_col(df):
+    if df is None or df.empty:
+        return None
+    candidatos = [
+        "STATUS EMAIL",
+        "STATUS_EMAIL",
+        "STATUS DO EMAIL",
+        "STATUS E-MAIL",
+        "STATUS E MAIL",
+        "E-MAIL",
+        "EMAIL",
+    ]
+    for alvo in candidatos:
+        col = find_col(df, [alvo])
+        if col:
+            return col
+
+    # Busca final por normalização.
+    for col in df.columns:
+        n = normalize_text(col)
+        if ("STATUS" in n and "EMAIL" in n) or n in {"EMAIL", "E MAIL"}:
+            return col
+    return None
+
+
+def anexar_status_email_pendencia(df):
+    """
+    Exibe STATUS EMAIL nas pendências usando qualquer fonte já carregada.
+    Não altera cálculo nem regra; apenas enriquece a tabela visual.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # Se já veio no próprio detalhe, só padroniza o nome.
+    col_status = _find_status_email_col(out)
+    if col_status:
+        if col_status != "STATUS EMAIL":
+            out = out.rename(columns={col_status: "STATUS EMAIL"})
+        col_status = "STATUS EMAIL"
+
+    # Se não veio, tenta buscar em PENDENCIA_MOVIMENTOS.
+    if "STATUS EMAIL" not in out.columns:
+        fonte = globals().get("pendencia_movimentos", pd.DataFrame())
+        if fonte is not None and hasattr(fonte, "empty") and not fonte.empty:
+            awb_out = find_col(out, ["AWB", "awb", "Awb"])
+            awb_fonte = find_col(fonte, ["AWB", "awb", "Awb"])
+            status_fonte = _find_status_email_col(fonte)
+
+            if awb_out and awb_fonte and status_fonte:
+                mapa = fonte[[awb_fonte, status_fonte]].copy()
+                mapa["__AWB_KEY"] = mapa[awb_fonte].astype(str).str.replace(r"\\.0$", "", regex=True).str.strip()
+                mapa = mapa.dropna(subset=["__AWB_KEY"])
+                mapa = mapa[mapa["__AWB_KEY"].ne("")]
+                mapa = mapa.drop_duplicates(subset=["__AWB_KEY"], keep="last")
+                mapa = mapa[["__AWB_KEY", status_fonte]].rename(columns={status_fonte: "STATUS EMAIL"})
+
+                out["__AWB_KEY"] = out[awb_out].astype(str).str.replace(r"\\.0$", "", regex=True).str.strip()
+                out = out.merge(mapa, on="__AWB_KEY", how="left")
+                out = out.drop(columns=["__AWB_KEY"], errors="ignore")
+
+    if "STATUS EMAIL" not in out.columns:
+        out["STATUS EMAIL"] = ""
+
+    # Colocar STATUS EMAIL depois do AWB.
+    cols = list(out.columns)
+    awb_col = find_col(out, ["AWB", "awb", "Awb"])
+    first = []
+    if awb_col and awb_col in cols:
+        first.append(awb_col)
+    if "STATUS EMAIL" in cols:
+        first.append("STATUS EMAIL")
+    rest = [c for c in cols if c not in first]
+    return out[first + rest]
+
 
 
 def detail_columns(df):
@@ -4336,11 +4460,11 @@ if menu == "visao":
     saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
 
     primary_cards = [
-        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "!", "#d92d20", "#fff0ef", "atraso", "normal"),
-        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
+        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "🚨", "#d92d20", "#fff0ef", "atraso", "normal"),
+        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "⏱️", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
         ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Cargas aguardando desembarque até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque", "normal"),
-        ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
-        ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
+        ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "📋", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
+        ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "🧾", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
     ]
 
     secondary_cards = [
@@ -4348,7 +4472,7 @@ if menu == "visao":
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
-        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
+        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
     ]
 
     def _render_card_item(item, idx=None):
@@ -4605,7 +4729,7 @@ elif menu == "bi_azul":
     )
 
     cards_l2 = [
-        ("Divergências", fmt_int(divergencias_qtd), "BI x EDI", "!", "#d92d20", "#fff0ef", "bi_divergentes"),
+        ("Divergências", fmt_int(divergencias_qtd), "BI x EDI", "🚨", "#d92d20", "#fff0ef", "bi_divergentes"),
         ("No BI e não no EDI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO BI E NÃO NO EDI")), "Cobrado no BI, ausente no EDI", "BI", "#d97706", "#fff7e8", "bi_no_bi_nao_edi"),
         ("No EDI e não no BI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO EDI E NÃO NO BI")), "No EDI, ausente no BI", "EDI", "#7c3aed", "#f5f3ff", "bi_no_edi_nao_bi"),
     ]
