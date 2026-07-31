@@ -814,6 +814,50 @@ st.markdown(
         }
     }
 
+
+    /* V2.6.9 — card como link real, sem botão Streamlit externo */
+    a.operational-card-link,
+    a.operational-card-link:visited,
+    a.operational-card-link:hover,
+    a.operational-card-link:active {
+        text-decoration: none !important;
+        color: inherit !important;
+        display: block;
+        height: 100%;
+    }
+
+    a.operational-card-link .ops-card {
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        min-height: 238px;
+        height: 100%;
+        max-height: none;
+        overflow: hidden;
+        transition:
+            transform .18s ease,
+            box-shadow .18s ease,
+            border-color .18s ease;
+    }
+
+    a.operational-card-link:hover .ops-card {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
+        border-color: var(--accent);
+    }
+
+    a.operational-card-link:hover .ops-card-footer {
+        color: var(--accent);
+        transform: translateX(1px);
+    }
+
+    .card-footer-action {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -1177,94 +1221,100 @@ def apply_date_filter(df, date_range):
 
 
 
-def operational_card(label, value, subtitle, icon, accent, soft):
+def operational_card(label, value, subtitle, icon, accent, soft, card_key=None):
     st.markdown(
         f"""
-        <div class="clickable-card-wrap">
-            <article class="ops-card" style="--accent:{accent}; --soft:{soft};">
-                <header>
-                    <div class="ops-icon">{icon}</div>
-                    <div class="ops-label">{label}</div>
-                </header>
-                <main class="ops-card-main">
-                    <div class="ops-value">{value}</div>
-                    <div class="ops-sub">{subtitle}</div>
-                </main>
-                <footer class="ops-card-footer">Visualizar detalhes →</footer>
-            </article>
-        </div>
+        <a class="operational-card-link" href="?card={card_key or ''}">
+            <div class="clickable-card-wrap">
+                <article class="ops-card" style="--accent:{accent}; --soft:{soft};">
+                    <header>
+                        <div class="ops-icon">{icon}</div>
+                        <div class="ops-label">{label}</div>
+                    </header>
+                    <main class="ops-card-main">
+                        <div class="ops-value">{value}</div>
+                        <div class="ops-sub">{subtitle}</div>
+                    </main>
+                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
+                </article>
+            </div>
+        </a>
         """,
         unsafe_allow_html=True,
     )
 
 
-def pendencia_operational_card(total, entradas, saidas, saldo):
+def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
     saldo_txt = f"+{saldo}" if saldo > 0 else str(saldo)
     saldo_color = "#d97706" if saldo > 0 else "#0f766e"
     st.markdown(
         f"""
-        <div class="clickable-card-wrap">
-            <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
-                <header>
-                    <div class="ops-icon">Σ</div>
-                    <div class="ops-label">Pendências da Torre</div>
-                </header>
-                <main class="ops-card-main">
-                    <div class="ops-value">{total}</div>
-                    <div class="ops-sub">Backlog atual da Torre</div>
-                    <section class="ops-mini-grid">
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Entraram hoje</div>
-                            <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
-                        </div>
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Saíram hoje</div>
-                            <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
-                        </div>
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Saldo do dia</div>
-                            <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
-                        </div>
-                    </section>
-                </main>
-                <footer class="ops-card-footer">Visualizar detalhes →</footer>
-            </article>
-        </div>
+        <a class="operational-card-link" href="?card={card_key or ''}">
+            <div class="clickable-card-wrap">
+                <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
+                    <header>
+                        <div class="ops-icon">Σ</div>
+                        <div class="ops-label">Pendências da Torre</div>
+                    </header>
+                    <main class="ops-card-main">
+                        <div class="ops-value">{total}</div>
+                        <div class="ops-sub">Backlog atual da Torre</div>
+                        <section class="ops-mini-grid">
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Entraram hoje</div>
+                                <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
+                            </div>
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Saíram hoje</div>
+                                <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
+                            </div>
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Saldo do dia</div>
+                                <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
+                            </div>
+                        </section>
+                    </main>
+                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
+                </article>
+            </div>
+        </a>
         """,
         unsafe_allow_html=True,
     )
 
 
-def acareacao_operational_card(qtd, valor, vencendo_hoje):
+def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
     st.markdown(
         f"""
-        <div class="clickable-card-wrap">
-            <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
-                <header>
-                    <div class="ops-icon">▤</div>
-                    <div class="ops-label">Acareações</div>
-                </header>
-                <main class="ops-card-main">
-                    <div class="ops-value">{qtd}</div>
-                    <div class="ops-sub">Solicitações de comprovação em aberto</div>
-                    <section class="ops-mini-grid">
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Valor</div>
-                            <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
-                        </div>
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Vencem hoje</div>
-                            <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
-                        </div>
-                        <div class="ops-mini">
-                            <div class="ops-mini-title">Status</div>
-                            <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
-                        </div>
-                    </section>
-                </main>
-                <footer class="ops-card-footer">Visualizar detalhes →</footer>
-            </article>
-        </div>
+        <a class="operational-card-link" href="?card={card_key or ''}">
+            <div class="clickable-card-wrap">
+                <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
+                    <header>
+                        <div class="ops-icon">▤</div>
+                        <div class="ops-label">Acareações</div>
+                    </header>
+                    <main class="ops-card-main">
+                        <div class="ops-value">{qtd}</div>
+                        <div class="ops-sub">Solicitações de comprovação em aberto</div>
+                        <section class="ops-mini-grid">
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Valor</div>
+                                <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
+                            </div>
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Vencem hoje</div>
+                                <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
+                            </div>
+                            <div class="ops-mini">
+                                <div class="ops-mini-title">Status</div>
+                                <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
+                            </div>
+                        </section>
+                    </main>
+                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
+                </article>
+            </div>
+        </a>
         """,
         unsafe_allow_html=True,
     )
@@ -3278,6 +3328,16 @@ with st.sidebar:
     if "detail_card" not in st.session_state:
         st.session_state["detail_card"] = ""
 
+    # Card clicável via query parameter visual.
+    # Não altera regra operacional; apenas seleciona o mesmo detalhe já existente.
+    try:
+        _card_param = st.query_params.get("card", "")
+        if _card_param:
+            st.session_state["detail_card"] = str(_card_param)
+            st.query_params.clear()
+    except Exception:
+        pass
+
     if "edi_detail_card" not in st.session_state:
         st.session_state["edi_detail_card"] = ""
 
@@ -3619,25 +3679,17 @@ if menu == "visao":
                 fmt_int(resumo_entraram_pendencia_hoje),
                 fmt_int(resumo_sairam_pendencia_hoje),
                 saldo_dia,
+                card_key=key,
             )
         elif card_type == "acareacao":
             acareacao_operational_card(
                 fmt_int(acareacao_qtd),
                 acareacao_valor,
                 fmt_int(acareacao_vencendo_hoje),
+                card_key=key,
             )
         else:
-            operational_card(label, value, sub, icon, accent, soft)
-
-        st.markdown('<div class="card-footer-action">', unsafe_allow_html=True)
-        button_label = f"Visualizar detalhes {label}"
-        if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-            if st.session_state.get("detail_card") == key:
-                st.session_state["detail_card"] = ""
-            else:
-                st.session_state["detail_card"] = key
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+            operational_card(label, value, sub, icon, accent, soft, card_key=key)
 
     def _render_detail_if_row(row_keys):
         detail = st.session_state.get("detail_card", "")
