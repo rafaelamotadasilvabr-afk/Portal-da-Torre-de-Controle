@@ -685,6 +685,83 @@ st.markdown(
         height: 18px;
     }
 
+
+    /* Cards clicáveis — substitui visualmente o botão Abrir */
+    .clickable-card-wrap {
+        position: relative;
+    }
+
+    .clickable-card-wrap .ops-card {
+        cursor: pointer;
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+
+    .clickable-card-wrap:hover .ops-card {
+        transform: translateY(-3px);
+        box-shadow: 0 14px 30px rgba(8, 37, 78, .12);
+        border-color: var(--accent);
+    }
+
+    .clickable-card-wrap .ops-card::after {
+        content: "Clique para visualizar →";
+        position: absolute;
+        right: 16px;
+        bottom: 12px;
+        color: var(--op-slate-500);
+        font-size: .70rem;
+        font-weight: 850;
+        opacity: .72;
+        transition: color .18s ease, opacity .18s ease;
+        pointer-events: none;
+    }
+
+    .clickable-card-wrap:hover .ops-card::after {
+        color: var(--accent);
+        opacity: 1;
+    }
+
+    .card-click-target div[data-testid="stButton"] {
+        margin-top: -208px !important;
+        height: 208px !important;
+        position: relative;
+        z-index: 20;
+    }
+
+    .card-click-target div[data-testid="stButton"] button {
+        height: 208px !important;
+        min-height: 208px !important;
+        width: 100% !important;
+        border: 0 !important;
+        background: transparent !important;
+        color: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        cursor: pointer !important;
+    }
+
+    .card-click-target div[data-testid="stButton"] button:hover,
+    .card-click-target div[data-testid="stButton"] button:focus,
+    .card-click-target div[data-testid="stButton"] button:active {
+        background: transparent !important;
+        color: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+    }
+
+    .card-click-target div[data-testid="stButton"] button p {
+        color: transparent !important;
+    }
+
+    .card-click-target + div {
+        margin-top: -208px !important;
+    }
+
+    /* Remove o espaço vertical que antes era ocupado pelo botão Abrir. */
+    .clickable-card-wrap {
+        margin-bottom: 10px;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -1051,11 +1128,13 @@ def apply_date_filter(df, date_range):
 def operational_card(label, value, subtitle, icon, accent, soft):
     st.markdown(
         f"""
-        <div class="ops-card" style="--accent:{accent}; --soft:{soft};">
-            <div class="ops-icon">{icon}</div>
-            <div class="ops-label">{label}</div>
-            <div class="ops-value">{value}</div>
-            <div class="ops-sub">{subtitle}</div>
+        <div class="clickable-card-wrap">
+            <div class="ops-card" style="--accent:{accent}; --soft:{soft};">
+                <div class="ops-icon">{icon}</div>
+                <div class="ops-label">{label}</div>
+                <div class="ops-value">{value}</div>
+                <div class="ops-sub">{subtitle}</div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1067,22 +1146,24 @@ def pendencia_operational_card(total, entradas, saidas, saldo):
     saldo_color = "#d97706" if saldo > 0 else "#0f766e"
     st.markdown(
         f"""
-        <div class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
-            <div class="ops-icon">Σ</div>
-            <div class="ops-label">Pendências da Torre</div>
-            <div class="ops-value">{total}</div>
-            <div class="ops-mini-grid">
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Entraram hoje</div>
-                    <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
-                </div>
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Saíram hoje</div>
-                    <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
-                </div>
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Saldo do dia</div>
-                    <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
+        <div class="clickable-card-wrap">
+            <div class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
+                <div class="ops-icon">Σ</div>
+                <div class="ops-label">Pendências da Torre</div>
+                <div class="ops-value">{total}</div>
+                <div class="ops-mini-grid">
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Entraram hoje</div>
+                        <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
+                    </div>
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Saíram hoje</div>
+                        <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
+                    </div>
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Saldo do dia</div>
+                        <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1094,22 +1175,24 @@ def pendencia_operational_card(total, entradas, saidas, saldo):
 def acareacao_operational_card(qtd, valor, vencendo_hoje):
     st.markdown(
         f"""
-        <div class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
-            <div class="ops-icon">▤</div>
-            <div class="ops-label">Acareações</div>
-            <div class="ops-value">{qtd}</div>
-            <div class="ops-mini-grid">
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Valor</div>
-                    <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
-                </div>
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Vencem hoje</div>
-                    <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
-                </div>
-                <div class="ops-mini">
-                    <div class="ops-mini-title">Status</div>
-                    <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
+        <div class="clickable-card-wrap">
+            <div class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
+                <div class="ops-icon">▤</div>
+                <div class="ops-label">Acareações</div>
+                <div class="ops-value">{qtd}</div>
+                <div class="ops-mini-grid">
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Valor</div>
+                        <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
+                    </div>
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Vencem hoje</div>
+                        <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
+                    </div>
+                    <div class="ops-mini">
+                        <div class="ops-mini-title">Status</div>
+                        <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3477,13 +3560,15 @@ if menu == "visao":
         else:
             operational_card(label, value, sub, icon, accent, soft)
 
-        button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+        st.markdown('<div class="card-click-target">', unsafe_allow_html=True)
+        button_label = f"Abrir {label}"
         if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
             if st.session_state.get("detail_card") == key:
                 st.session_state["detail_card"] = ""
             else:
                 st.session_state["detail_card"] = key
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     def _render_detail_if_row(row_keys):
         detail = st.session_state.get("detail_card", "")
