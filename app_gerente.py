@@ -1410,6 +1410,142 @@ st.markdown(
         }
     }
 
+
+    /* =====================================================
+       V2.7.5 — Correção de proporção dos cards
+       Escopo: CSS apenas. Sem regra de negócio.
+       ===================================================== */
+
+    .block-container {
+        padding-top: .85rem !important;
+    }
+
+    .ops-header-shell {
+        margin-bottom: 16px !important;
+        padding: 13px 15px !important;
+    }
+
+    .sync-card {
+        min-height: 54px !important;
+    }
+
+    .ops-header-button-spacer {
+        height: 12px !important;
+    }
+
+    /* Reduz o vazio vertical dos cards */
+    .clickable-card-wrap .ops-card {
+        min-height: 206px !important;
+        height: 206px !important;
+        padding: 15px 16px 12px 16px !important;
+        justify-content: space-between !important;
+    }
+
+    .ops-card header {
+        min-height: 68px !important;
+        gap: 8px !important;
+    }
+
+    .ops-icon {
+        width: 37px !important;
+        height: 37px !important;
+    }
+
+    .ops-label {
+        font-size: .73rem !important;
+        line-height: 1.18 !important;
+    }
+
+    .ops-card-main {
+        min-height: 88px !important;
+        justify-content: flex-end !important;
+        gap: 7px !important;
+        flex: 0 0 auto !important;
+    }
+
+    .ops-value {
+        font-size: clamp(2.05rem, 1.80rem + .70vw, 2.42rem) !important;
+        line-height: .92 !important;
+        margin: 0 !important;
+    }
+
+    .ops-sub {
+        font-size: .76rem !important;
+        line-height: 1.26 !important;
+        margin: 0 !important;
+    }
+
+    .ops-mini-grid {
+        margin-top: 8px !important;
+        gap: 7px !important;
+    }
+
+    .ops-mini {
+        padding: 7px 7px !important;
+        border-radius: 10px !important;
+    }
+
+    .ops-mini-title {
+        font-size: .58rem !important;
+    }
+
+    .ops-mini-value {
+        font-size: .82rem !important;
+        margin-top: 3px !important;
+    }
+
+    /* Rodapé colado ao card, sem parecer elemento solto */
+    .card-footer-button {
+        margin-top: -1px !important;
+        margin-bottom: 18px !important;
+    }
+
+    .card-footer-button div[data-testid="stButton"] button {
+        height: 40px !important;
+        min-height: 40px !important;
+        box-shadow: 0 7px 18px rgba(8, 37, 78, .045) !important;
+        font-size: .76rem !important;
+    }
+
+    /* Cards com mini-indicadores precisam de altura um pouco maior */
+    .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+        min-height: 236px !important;
+        height: 236px !important;
+    }
+
+    .clickable-card-wrap .ops-card:has(.ops-mini-grid) .ops-card-main {
+        min-height: 132px !important;
+    }
+
+    /* Em telas menores, não força altura exagerada */
+    @media (max-width: 1100px) {
+        .clickable-card-wrap .ops-card {
+            min-height: 206px !important;
+            height: auto !important;
+        }
+
+        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+            min-height: 236px !important;
+            height: auto !important;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .clickable-card-wrap .ops-card {
+            min-height: 210px !important;
+            height: auto !important;
+        }
+
+        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+            min-height: 260px !important;
+            height: auto !important;
+        }
+
+        .card-footer-button {
+            margin-bottom: 14px !important;
+        }
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
