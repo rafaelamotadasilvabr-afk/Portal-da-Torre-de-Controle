@@ -858,6 +858,79 @@ st.markdown(
         padding: 0 !important;
     }
 
+
+    /* V2.7.0 — cards abrem detalhe na mesma tela, sem query param */
+    a.operational-card-link,
+    a.operational-card-link:visited,
+    a.operational-card-link:hover,
+    a.operational-card-link:active {
+        text-decoration: none !important;
+        color: inherit !important;
+        cursor: default !important;
+        pointer-events: none !important;
+    }
+
+    .ops-card {
+        cursor: default !important;
+    }
+
+    .card-footer-button {
+        margin-top: -49px;
+        position: relative;
+        z-index: 10;
+        padding: 0 13px 11px 13px;
+        pointer-events: auto;
+    }
+
+    .card-footer-button div[data-testid="stButton"] button {
+        width: 100% !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        border-radius: 0 0 13px 13px !important;
+        border: 0 !important;
+        border-top: 1px solid #e5e7eb !important;
+        background: transparent !important;
+        color: var(--op-slate-500) !important;
+        box-shadow: none !important;
+        font-size: .72rem !important;
+        font-weight: 850 !important;
+        text-align: right !important;
+        justify-content: flex-end !important;
+        padding: 0 !important;
+        cursor: pointer !important;
+    }
+
+    .card-footer-button div[data-testid="stButton"] button:hover {
+        color: var(--op-blue-700) !important;
+        background: transparent !important;
+        border-top-color: #dbe5f0 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    .card-footer-button div[data-testid="stButton"] button p {
+        width: 100%;
+        text-align: right;
+        color: inherit !important;
+    }
+
+    .clickable-card-wrap .ops-card {
+        transition:
+            transform .18s ease,
+            box-shadow .18s ease,
+            border-color .18s ease;
+    }
+
+    .clickable-card-wrap:hover .ops-card {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
+        border-color: var(--accent);
+    }
+
+    .ops-card-footer {
+        visibility: hidden !important;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -1223,9 +1296,7 @@ def apply_date_filter(df, date_range):
 
 def operational_card(label, value, subtitle, icon, accent, soft, card_key=None):
     st.markdown(
-        f"""
-        <a class="operational-card-link" href="?card={card_key or ''}">
-            <div class="clickable-card-wrap">
+        f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:{accent}; --soft:{soft};">
                     <header>
                         <div class="ops-icon">{icon}</div>
@@ -1238,7 +1309,6 @@ def operational_card(label, value, subtitle, icon, accent, soft, card_key=None):
                     <footer class="ops-card-footer">Visualizar detalhes →</footer>
                 </article>
             </div>
-        </a>
         """,
         unsafe_allow_html=True,
     )
@@ -1248,9 +1318,7 @@ def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
     saldo_txt = f"+{saldo}" if saldo > 0 else str(saldo)
     saldo_color = "#d97706" if saldo > 0 else "#0f766e"
     st.markdown(
-        f"""
-        <a class="operational-card-link" href="?card={card_key or ''}">
-            <div class="clickable-card-wrap">
+        f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
                     <header>
                         <div class="ops-icon">Σ</div>
@@ -1277,7 +1345,6 @@ def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
                     <footer class="ops-card-footer">Visualizar detalhes →</footer>
                 </article>
             </div>
-        </a>
         """,
         unsafe_allow_html=True,
     )
@@ -1285,9 +1352,7 @@ def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
 
 def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
     st.markdown(
-        f"""
-        <a class="operational-card-link" href="?card={card_key or ''}">
-            <div class="clickable-card-wrap">
+        f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
                     <header>
                         <div class="ops-icon">▤</div>
@@ -1314,7 +1379,6 @@ def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
                     <footer class="ops-card-footer">Visualizar detalhes →</footer>
                 </article>
             </div>
-        </a>
         """,
         unsafe_allow_html=True,
     )
@@ -3328,15 +3392,6 @@ with st.sidebar:
     if "detail_card" not in st.session_state:
         st.session_state["detail_card"] = ""
 
-    # Card clicável via query parameter visual.
-    # Não altera regra operacional; apenas seleciona o mesmo detalhe já existente.
-    try:
-        _card_param = st.query_params.get("card", "")
-        if _card_param:
-            st.session_state["detail_card"] = str(_card_param)
-            st.query_params.clear()
-    except Exception:
-        pass
 
     if "edi_detail_card" not in st.session_state:
         st.session_state["edi_detail_card"] = ""
@@ -3690,6 +3745,16 @@ if menu == "visao":
             )
         else:
             operational_card(label, value, sub, icon, accent, soft, card_key=key)
+
+        st.markdown('<div class="card-footer-button">', unsafe_allow_html=True)
+        footer_label = "Visualizar detalhes →"
+        if st.button(footer_label, key=f"abrir_{key}", use_container_width=True):
+            if st.session_state.get("detail_card") == key:
+                st.session_state["detail_card"] = ""
+            else:
+                st.session_state["detail_card"] = key
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     def _render_detail_if_row(row_keys):
         detail = st.session_state.get("detail_card", "")
