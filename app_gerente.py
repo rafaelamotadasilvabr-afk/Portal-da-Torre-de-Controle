@@ -1,7 +1,8 @@
 import io
 import re
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import altair as alt
@@ -419,9 +420,9 @@ st.markdown(
         border-left: 5px solid var(--op-blue-700);
         border-radius: 15px;
         padding: 14px 16px;
-        margin-top: 10px;
-        margin-bottom: 10px;
-        box-shadow: var(--op-shadow-soft);
+        margin-top: 4px;
+        margin-bottom: 14px;
+        box-shadow: 0 10px 24px rgba(8, 37, 78, .075);
     }
 
     .detail-title {
@@ -3112,22 +3113,23 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-def formatar_datahora_cabecalho(valor):
-    txt = str(valor or "").strip()
-    if not txt:
-        return "Não informado"
-    try:
-        dt = pd.to_datetime(txt, errors="coerce")
-        if pd.notna(dt):
-            return dt.strftime("%d/%m/%y %H:%M")
-    except Exception:
-        pass
-    m = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})", txt)
-    if m:
-        return f"{m.group(3)}/{m.group(2)}/{m.group(1)[2:]} {m.group(4)}:{m.group(5)}"
-    return txt
+def datahora_local_cabecalho():
+    """
+    Exibe a data/hora local da operação no cabeçalho.
 
-atualizado_cabecalho = formatar_datahora_cabecalho(atualizado)
+    Observação:
+    Streamlit Cloud pode rodar em fuso diferente.
+    Por isso fixamos America/Sao_Paulo para refletir a operação local.
+    """
+    try:
+        agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    except Exception:
+        agora = datetime.now()
+
+    return agora.strftime("%d/%m/%y %H:%M")
+
+
+atualizado_cabecalho = datahora_local_cabecalho()
 
 # =========================================================
 # CABEÇALHO CORPORATIVO — CENTRAL OPERACIONAL
@@ -3322,61 +3324,6 @@ if menu == "visao":
         ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
     ]
 
-    first_row = primary_cards[:3]
-    second_row = primary_cards[3:]
-
-    cols = st.columns(3)
-    for idx, item in enumerate(first_row):
-        label, value, sub, icon, accent, soft, key, card_type = item
-        with cols[idx]:
-            if card_type == "pendencia":
-                pendencia_operational_card(
-                    fmt_int(resumo_total_pendencia),
-                    fmt_int(resumo_entraram_pendencia_hoje),
-                    fmt_int(resumo_sairam_pendencia_hoje),
-                    saldo_dia,
-                )
-            elif card_type == "acareacao":
-                acareacao_operational_card(fmt_int(acareacao_qtd), acareacao_valor, fmt_int(acareacao_vencendo_hoje))
-            else:
-                operational_card(label, value, sub, icon, accent, soft)
-
-            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                if st.session_state.get("detail_card") == key:
-                    st.session_state["detail_card"] = ""
-                else:
-                    st.session_state["detail_card"] = key
-                st.rerun()
-
-    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-
-    cols = st.columns(2)
-    for idx, item in enumerate(second_row):
-        label, value, sub, icon, accent, soft, key, card_type = item
-        with cols[idx]:
-            if card_type == "pendencia":
-                pendencia_operational_card(
-                    fmt_int(resumo_total_pendencia),
-                    fmt_int(resumo_entraram_pendencia_hoje),
-                    fmt_int(resumo_sairam_pendencia_hoje),
-                    saldo_dia,
-                )
-            elif card_type == "acareacao":
-                acareacao_operational_card(fmt_int(acareacao_qtd), acareacao_valor, fmt_int(acareacao_vencendo_hoje))
-            else:
-                operational_card(label, value, sub, icon, accent, soft)
-
-            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                if st.session_state.get("detail_card") == key:
-                    st.session_state["detail_card"] = ""
-                else:
-                    st.session_state["detail_card"] = key
-                st.rerun()
-
-    st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
-
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
@@ -3385,27 +3332,80 @@ if menu == "visao":
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
     ]
 
-    cols = st.columns(3)
-    for idx, item in enumerate(secondary_cards):
-        label, value, sub, icon, accent, soft, key = item
-        with cols[idx % 3]:
+    def _render_card_item(item, idx=None):
+        label, value, sub, icon, accent, soft, key = item[:7]
+        card_type = item[7] if len(item) > 7 else "normal"
+
+        if card_type == "pendencia":
+            pendencia_operational_card(
+                fmt_int(resumo_total_pendencia),
+                fmt_int(resumo_entraram_pendencia_hoje),
+                fmt_int(resumo_sairam_pendencia_hoje),
+                saldo_dia,
+            )
+        elif card_type == "acareacao":
+            acareacao_operational_card(
+                fmt_int(acareacao_qtd),
+                acareacao_valor,
+                fmt_int(acareacao_vencendo_hoje),
+            )
+        else:
             operational_card(label, value, sub, icon, accent, soft)
-            button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
-            if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
-                if st.session_state.get("detail_card") == key:
-                    st.session_state["detail_card"] = ""
-                else:
-                    st.session_state["detail_card"] = key
-                st.rerun()
 
-        if idx == 2:
-            st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
-            cols = st.columns(3)
+        button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+        if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+            if st.session_state.get("detail_card") == key:
+                st.session_state["detail_card"] = ""
+            else:
+                st.session_state["detail_card"] = key
+            st.rerun()
 
-    detail = st.session_state.get("detail_card", "")
+    def _render_detail_if_row(row_keys):
+        detail = st.session_state.get("detail_card", "")
+        if detail and detail in row_keys:
+            render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
 
-    if detail:
-        render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
+    # Linha 1 — cards críticos do piso/entrega.
+    primary_row_1 = primary_cards[:3]
+    cols = st.columns(3)
+    for idx, item in enumerate(primary_row_1):
+        with cols[idx]:
+            _render_card_item(item, idx)
+
+    _render_detail_if_row([item[6] for item in primary_row_1])
+
+    st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+
+    # Linha 2 — pendência e acareação. Cards mais largos.
+    primary_row_2 = primary_cards[3:]
+    cols = st.columns(2)
+    for idx, item in enumerate(primary_row_2):
+        with cols[idx]:
+            _render_card_item(item, idx)
+
+    _render_detail_if_row([item[6] for item in primary_row_2])
+
+    st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
+
+    # Linha 3 — outras frentes.
+    secondary_row_1 = secondary_cards[:3]
+    cols = st.columns(3)
+    for idx, item in enumerate(secondary_row_1):
+        with cols[idx]:
+            _render_card_item(item, idx)
+
+    _render_detail_if_row([item[6] for item in secondary_row_1])
+
+    st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
+
+    # Linha 4 — outras frentes remanescentes.
+    secondary_row_2 = secondary_cards[3:]
+    cols = st.columns(2)
+    for idx, item in enumerate(secondary_row_2):
+        with cols[idx]:
+            _render_card_item(item, idx)
+
+    _render_detail_if_row([item[6] for item in secondary_row_2])
 
 
 
