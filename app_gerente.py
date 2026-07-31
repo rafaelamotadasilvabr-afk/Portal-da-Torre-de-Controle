@@ -1,7 +1,7 @@
 import io
 import re
 import unicodedata
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -4202,35 +4202,23 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-def datahora_local_operacao():
+def datahora_brasilia_agora():
+    """
+    Hora oficial operacional: Brasília.
+    Usa UTC como base e converte para America/Sao_Paulo para evitar horário do servidor.
+    """
     try:
-        return datetime.now(ZoneInfo("America/Sao_Paulo"))
+        return datetime.now(timezone.utc).astimezone(ZoneInfo("America/Sao_Paulo"))
     except Exception:
-        return datetime.now()
+        return datetime.utcnow() - timedelta(hours=3)
 
 
 def formatar_datahora_sync(valor=None):
     """
-    Formata a última sincronização no padrão dd/mm/aa • HH:mm.
-    Se o valor sincronizado não for confiável, usa a hora local do app.
+    Exibe a hora de Brasília no cabeçalho.
+    Não usa o horário salvo na planilha porque pode chegar como UTC/servidor.
     """
-    txt = str(valor or "").strip()
-    if txt:
-        try:
-            dt = pd.to_datetime(txt, errors="coerce")
-            if pd.notna(dt):
-                try:
-                    if dt.tzinfo is None:
-                        dt = dt.tz_localize("America/Sao_Paulo")
-                    else:
-                        dt = dt.tz_convert("America/Sao_Paulo")
-                except Exception:
-                    pass
-                return dt.strftime("%d/%m/%y • %H:%M")
-        except Exception:
-            pass
-
-    return datahora_local_operacao().strftime("%d/%m/%y • %H:%M")
+    return datahora_brasilia_agora().strftime("%d/%m/%y • %H:%M")
 
 
 def resumo_carga_cabecalho():
@@ -4260,7 +4248,7 @@ def resumo_carga_cabecalho():
     return " • ".join(partes) if partes else "Dados operacionais carregados"
 
 
-atualizado_cabecalho = formatar_datahora_sync(atualizado)
+atualizado_cabecalho = formatar_datahora_sync()
 info_carga_cabecalho = resumo_carga_cabecalho()
 
 
