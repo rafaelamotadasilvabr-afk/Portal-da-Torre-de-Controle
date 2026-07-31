@@ -2900,8 +2900,6 @@ with st.sidebar:
         ("pendencias", "Σ  Pendências"),
         ("sla_dia", "◷  SLA do Dia"),
         ("acareacao", "▤  Acareações"),
-        ("passivo", "R$  Passivo de Débito"),
-        ("debitos_revertidos", "✓  Débitos Revertidos"),
         ("relatorio", "▤  Relatórios"),
         ("config", "⚙  Configurações"),
     ]
@@ -3155,11 +3153,9 @@ if menu == "visao":
         ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
         ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
         ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
-        ("Passivo de Débito", brl(resumo_passivo_valor), f"{fmt_int(resumo_passivo_qtd)} processo(s)", "R$", "#7c3aed", "#f5f3ff", "passivo", "normal"),
-        ("Débitos Revertidos", brl(resumo_debitos_revertidos_valor), f"{fmt_int(resumo_debitos_revertidos_qtd)} processo(s) | {resumo_percentual_reversao:.1f}%", "✓", "#0f766e", "#f0fdfa", "debitos_revertidos", "normal"),
     ]
 
-    cols = st.columns(3)
+    cols = st.columns(4)
     for idx, item in enumerate(primary_cards):
         label, value, sub, icon, accent, soft, key, card_type = item
         with cols[idx % 3]:
@@ -3183,9 +3179,7 @@ if menu == "visao":
                     st.session_state["detail_card"] = key
                 st.rerun()
 
-        if idx == 2:
-            st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
-            cols = st.columns(3)
+        # Quatro cards principais em uma única linha.
 
     st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
 
