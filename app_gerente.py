@@ -3151,11 +3151,12 @@ if menu == "visao":
     primary_cards = [
         ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "!", "#d92d20", "#fff0ef", "atraso", "normal"),
         ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
+        ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Cargas aguardando desembarque até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque", "normal"),
         ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
         ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "▤", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
     ]
 
-    cols = st.columns(4)
+    cols = st.columns(5)
     for idx, item in enumerate(primary_cards):
         label, value, sub, icon, accent, soft, key, card_type = item
         with cols[idx % 3]:
@@ -3187,7 +3188,6 @@ if menu == "visao":
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
-        ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria"),
     ]
