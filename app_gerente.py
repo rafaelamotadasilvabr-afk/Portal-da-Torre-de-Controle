@@ -686,50 +686,96 @@ st.markdown(
     }
 
 
-    /* Cards clicáveis — substitui visualmente o botão Abrir */
+
+    /* Cards operacionais — footer interno sem sobreposição */
     .clickable-card-wrap {
-        position: relative;
+        height: 100%;
+        margin-bottom: 0;
     }
 
     .clickable-card-wrap .ops-card {
         cursor: pointer;
-        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        display: flex;
+        flex-direction: column;
+        min-height: 238px;
+        max-height: none;
+        height: 100%;
+        overflow: hidden;
+        transition:
+            transform .18s ease,
+            box-shadow .18s ease,
+            border-color .18s ease;
     }
 
     .clickable-card-wrap:hover .ops-card {
-        transform: translateY(-3px);
-        box-shadow: 0 14px 30px rgba(8, 37, 78, .12);
+        transform: translateY(-2px);
+        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
         border-color: var(--accent);
     }
 
-    .clickable-card-wrap .ops-card::after {
-        content: "Clique para visualizar →";
-        position: absolute;
-        right: 16px;
-        bottom: 12px;
+    .ops-card-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .ops-sub {
+        min-height: auto !important;
+        max-height: none !important;
+        margin-top: 0 !important;
+        overflow: visible !important;
+    }
+
+    .ops-mini-grid {
+        margin-top: 12px !important;
+        margin-bottom: 0 !important;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .ops-mini {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .ops-mini-title,
+    .ops-mini-value {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .ops-card-footer {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        min-height: 36px;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #e5e7eb;
         color: var(--op-slate-500);
-        font-size: .70rem;
+        font-size: .72rem;
         font-weight: 850;
-        opacity: .72;
-        transition: color .18s ease, opacity .18s ease;
-        pointer-events: none;
+        white-space: nowrap;
+        transition: color .18s ease, transform .18s ease;
     }
 
-    .clickable-card-wrap:hover .ops-card::after {
+    .clickable-card-wrap:hover .ops-card-footer {
         color: var(--accent);
-        opacity: 1;
+        transform: translateX(1px);
     }
 
-    .card-click-target div[data-testid="stButton"] {
-        margin-top: -208px !important;
-        height: 208px !important;
+    .card-footer-action div[data-testid="stButton"] {
+        margin-top: -48px !important;
+        height: 48px !important;
         position: relative;
-        z-index: 20;
+        z-index: 15;
     }
 
-    .card-click-target div[data-testid="stButton"] button {
-        height: 208px !important;
-        min-height: 208px !important;
+    .card-footer-action div[data-testid="stButton"] button {
+        height: 48px !important;
+        min-height: 48px !important;
         width: 100% !important;
         border: 0 !important;
         background: transparent !important;
@@ -740,26 +786,32 @@ st.markdown(
         cursor: pointer !important;
     }
 
-    .card-click-target div[data-testid="stButton"] button:hover,
-    .card-click-target div[data-testid="stButton"] button:focus,
-    .card-click-target div[data-testid="stButton"] button:active {
+    .card-footer-action div[data-testid="stButton"] button:hover,
+    .card-footer-action div[data-testid="stButton"] button:focus,
+    .card-footer-action div[data-testid="stButton"] button:active {
         background: transparent !important;
         color: transparent !important;
         border: 0 !important;
         box-shadow: none !important;
     }
 
-    .card-click-target div[data-testid="stButton"] button p {
+    .card-footer-action div[data-testid="stButton"] button p {
         color: transparent !important;
     }
 
-    .card-click-target + div {
-        margin-top: -208px !important;
+    @media (max-width: 900px) {
+        .ops-mini-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
     }
 
-    /* Remove o espaço vertical que antes era ocupado pelo botão Abrir. */
-    .clickable-card-wrap {
-        margin-bottom: 10px;
+    @media (max-width: 640px) {
+        .ops-mini-grid {
+            grid-template-columns: 1fr;
+        }
+        .clickable-card-wrap .ops-card {
+            min-height: 260px;
+        }
     }
 
 </style>
@@ -1129,12 +1181,17 @@ def operational_card(label, value, subtitle, icon, accent, soft):
     st.markdown(
         f"""
         <div class="clickable-card-wrap">
-            <div class="ops-card" style="--accent:{accent}; --soft:{soft};">
-                <div class="ops-icon">{icon}</div>
-                <div class="ops-label">{label}</div>
-                <div class="ops-value">{value}</div>
-                <div class="ops-sub">{subtitle}</div>
-            </div>
+            <article class="ops-card" style="--accent:{accent}; --soft:{soft};">
+                <header>
+                    <div class="ops-icon">{icon}</div>
+                    <div class="ops-label">{label}</div>
+                </header>
+                <main class="ops-card-main">
+                    <div class="ops-value">{value}</div>
+                    <div class="ops-sub">{subtitle}</div>
+                </main>
+                <footer class="ops-card-footer">Visualizar detalhes →</footer>
+            </article>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1147,25 +1204,31 @@ def pendencia_operational_card(total, entradas, saidas, saldo):
     st.markdown(
         f"""
         <div class="clickable-card-wrap">
-            <div class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
-                <div class="ops-icon">Σ</div>
-                <div class="ops-label">Pendências da Torre</div>
-                <div class="ops-value">{total}</div>
-                <div class="ops-mini-grid">
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Entraram hoje</div>
-                        <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
-                    </div>
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Saíram hoje</div>
-                        <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
-                    </div>
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Saldo do dia</div>
-                        <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
-                    </div>
-                </div>
-            </div>
+            <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
+                <header>
+                    <div class="ops-icon">Σ</div>
+                    <div class="ops-label">Pendências da Torre</div>
+                </header>
+                <main class="ops-card-main">
+                    <div class="ops-value">{total}</div>
+                    <div class="ops-sub">Backlog atual da Torre</div>
+                    <section class="ops-mini-grid">
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Entraram hoje</div>
+                            <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
+                        </div>
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Saíram hoje</div>
+                            <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
+                        </div>
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Saldo do dia</div>
+                            <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
+                        </div>
+                    </section>
+                </main>
+                <footer class="ops-card-footer">Visualizar detalhes →</footer>
+            </article>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1176,25 +1239,31 @@ def acareacao_operational_card(qtd, valor, vencendo_hoje):
     st.markdown(
         f"""
         <div class="clickable-card-wrap">
-            <div class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
-                <div class="ops-icon">▤</div>
-                <div class="ops-label">Acareações</div>
-                <div class="ops-value">{qtd}</div>
-                <div class="ops-mini-grid">
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Valor</div>
-                        <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
-                    </div>
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Vencem hoje</div>
-                        <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
-                    </div>
-                    <div class="ops-mini">
-                        <div class="ops-mini-title">Status</div>
-                        <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
-                    </div>
-                </div>
-            </div>
+            <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
+                <header>
+                    <div class="ops-icon">▤</div>
+                    <div class="ops-label">Acareações</div>
+                </header>
+                <main class="ops-card-main">
+                    <div class="ops-value">{qtd}</div>
+                    <div class="ops-sub">Solicitações de comprovação em aberto</div>
+                    <section class="ops-mini-grid">
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Valor</div>
+                            <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
+                        </div>
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Vencem hoje</div>
+                            <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
+                        </div>
+                        <div class="ops-mini">
+                            <div class="ops-mini-title">Status</div>
+                            <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
+                        </div>
+                    </section>
+                </main>
+                <footer class="ops-card-footer">Visualizar detalhes →</footer>
+            </article>
         </div>
         """,
         unsafe_allow_html=True,
@@ -3560,8 +3629,8 @@ if menu == "visao":
         else:
             operational_card(label, value, sub, icon, accent, soft)
 
-        st.markdown('<div class="card-click-target">', unsafe_allow_html=True)
-        button_label = f"Abrir {label}"
+        st.markdown('<div class="card-footer-action">', unsafe_allow_html=True)
+        button_label = f"Visualizar detalhes {label}"
         if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
             if st.session_state.get("detail_card") == key:
                 st.session_state["detail_card"] = ""
