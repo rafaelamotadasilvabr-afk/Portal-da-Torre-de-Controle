@@ -30,6 +30,7 @@ SHEET_NAMES = [
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
     "QUALIDADE_DETALHE",
+    "PASSIVEL_DEBITO_DETALHE",
     "BI_AZUL_RESUMO",
     "BI_AZUL_DETALHE",
     "BI_AZUL_CONFERENCIA",
@@ -1589,6 +1590,63 @@ st.markdown(
             min-height: 44px !important;
             font-size: 1.22rem !important;
         }
+    }
+
+
+    /* V2.8.0 — Painel de Indenização */
+    .indenizacao-card {
+        background: #ffffff;
+        border: 1px solid var(--op-line);
+        border-top: 4px solid var(--accent);
+        border-radius: var(--op-radius-lg);
+        min-height: 158px;
+        padding: 16px 16px 14px 16px;
+        box-shadow: var(--op-shadow-soft);
+        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    }
+
+    .indenizacao-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--op-shadow-hover);
+        border-color: var(--accent);
+    }
+
+    .indenizacao-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 13px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: #f3f7fc;
+        font-size: 1.18rem;
+        margin-bottom: 12px;
+    }
+
+    .indenizacao-label {
+        color: var(--op-blue-900);
+        font-size: .72rem;
+        font-weight: 950;
+        text-transform: uppercase;
+        letter-spacing: .025em;
+        line-height: 1.18;
+    }
+
+    .indenizacao-value {
+        color: var(--accent);
+        font-size: 1.64rem;
+        font-weight: 950;
+        letter-spacing: -.045em;
+        line-height: 1;
+        margin-top: 12px;
+    }
+
+    .indenizacao-sub {
+        color: var(--op-slate-600);
+        font-size: .75rem;
+        font-weight: 650;
+        line-height: 1.30;
+        margin-top: 8px;
     }
 
 </style>
@@ -4149,6 +4207,287 @@ if not SOURCE_URL:
     st.stop()
 
 
+
+def indenizacao_base_rows():
+    """
+    Base do painel de Indenização.
+    Usa a aba sincronizada PASSIVEL_DEBITO_DETALHE, vinda da planilha Passível a Débito.
+    """
+    df = globals().get("passivel_debito_detalhe", pd.DataFrame())
+    return pd.DataFrame() if df is None else df.copy()
+
+
+def _indenizacao_base_col(df):
+    return first_col(df, [
+        "BASE OFENSORA",
+        "BASE",
+        "OFENSOR",
+        "ORIGEM",
+        "ESTAÇÃO",
+        "ESTACAO",
+        "UNIDADE",
+        "STATION",
+        "OPS_STATION",
+        "OPSStation",
+        "FILIAL",
+    ])
+
+
+def _indenizacao_status_col(df):
+    return first_col(df, [
+        "STATUS",
+        "STATUS INDENIZACAO",
+        "STATUS INDENIZAÇÃO",
+        "STATUS DEBITO",
+        "STATUS DÉBITO",
+        "STATUS SUPERVISAO",
+        "STATUS SUPERVISÃO",
+        "ANALISE SUPERVISAO",
+        "ANÁLISE SUPERVISÃO",
+        "RETORNO SUPERVISAO",
+        "RETORNO SUPERVISÃO",
+    ])
+
+
+def _indenizacao_valor_col(df):
+    return first_col(df, [
+        "VALOR INDENIZAÇÃO",
+        "VALOR INDENIZACAO",
+        "VALOR DO CLAIM",
+        "VALOR CLAIM",
+        "VALOR DEBITO",
+        "VALOR DÉBITO",
+        "VALOR",
+        "VALOR TOTAL",
+        "TOTAL",
+        "PREJUIZO",
+        "PREJUÍZO",
+    ])
+
+
+def _indenizacao_data_col(df):
+    return first_col(df, [
+        "DATA DE CLAIM",
+        "DATA CLAIM",
+        "DATA DE EMISSÃO",
+        "DATA DE EMISSAO",
+        "DATA",
+    ])
+
+
+def _to_money_series_ind(s):
+    if s is None:
+        return pd.Series(dtype=float)
+
+    txt = s.astype(str).str.strip()
+    txt = (
+        txt.str.replace("R$", "", regex=False)
+           .str.replace(" ", "", regex=False)
+           .str.replace(".", "", regex=False)
+           .str.replace(",", ".", regex=False)
+    )
+    return pd.to_numeric(txt, errors="coerce").fillna(0)
+
+
+def _money_br_ind(value):
+    try:
+        value = float(value or 0)
+    except Exception:
+        value = 0
+    return "R$ " + f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def indenizacao_prepare(df):
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    base_col = _indenizacao_base_col(out)
+    status_col = _indenizacao_status_col(out)
+    valor_col = _indenizacao_valor_col(out)
+    data_col = _indenizacao_data_col(out)
+
+    if base_col:
+        out["_BASE_INDENIZACAO"] = out[base_col].astype(str).map(normalize_text)
+    else:
+        out["_BASE_INDENIZACAO"] = ""
+
+    if status_col:
+        out["_STATUS_INDENIZACAO"] = out[status_col].astype(str).map(normalize_text)
+    else:
+        out["_STATUS_INDENIZACAO"] = ""
+
+    if valor_col:
+        out["_VALOR_INDENIZACAO"] = _to_money_series_ind(out[valor_col])
+    else:
+        out["_VALOR_INDENIZACAO"] = 0.0
+
+    if data_col:
+        ano_ref = pd.to_datetime(out[data_col], errors="coerce").dt.year
+        out = out[ano_ref.eq(2026)].copy()
+
+    return out
+
+
+def indenizacao_metrics():
+    df = indenizacao_prepare(indenizacao_base_rows())
+
+    if df.empty:
+        return {
+            "base": df,
+            "valor_cdsp2": 0.0,
+            "valor_sao12": 0.0,
+            "valor_revertido": 0.0,
+            "qtd_supervisao": 0,
+            "valor_supervisao": 0.0,
+        }
+
+    base = df["_BASE_INDENIZACAO"].astype(str)
+    status = df["_STATUS_INDENIZACAO"].astype(str)
+    valor = df["_VALOR_INDENIZACAO"]
+
+    mask_cdsp2 = base.str.contains("CDSP2", na=False)
+    mask_sao12 = base.str.contains("SAO12", na=False)
+    mask_revertido = status.str.contains("REVERT", na=False)
+
+    mask_supervisao = (
+        status.str.contains("SUPERV", na=False)
+        | status.str.contains("ANALIS", na=False)
+        | status.str.contains("ANALISE", na=False)
+        | status.str.contains("PENDENTE", na=False)
+        | status.str.contains("AGUARD", na=False)
+    ) & ~mask_revertido
+
+    return {
+        "base": df,
+        "valor_cdsp2": float(valor[mask_cdsp2].sum()),
+        "valor_sao12": float(valor[mask_sao12].sum()),
+        "valor_revertido": float(valor[mask_revertido].sum()),
+        "qtd_supervisao": int(mask_supervisao.sum()),
+        "valor_supervisao": float(valor[mask_supervisao].sum()),
+    }
+
+
+def indenizacao_detail_rows(tipo):
+    df = indenizacao_prepare(indenizacao_base_rows())
+    if df.empty:
+        return df
+
+    base = df["_BASE_INDENIZACAO"].astype(str)
+    status = df["_STATUS_INDENIZACAO"].astype(str)
+
+    if tipo == "cdsp2":
+        out = df[base.str.contains("CDSP2", na=False)].copy()
+    elif tipo == "sao12":
+        out = df[base.str.contains("SAO12", na=False)].copy()
+    elif tipo == "revertido":
+        out = df[status.str.contains("REVERT", na=False)].copy()
+    elif tipo == "supervisao":
+        mask = (
+            status.str.contains("SUPERV", na=False)
+            | status.str.contains("ANALIS", na=False)
+            | status.str.contains("ANALISE", na=False)
+            | status.str.contains("PENDENTE", na=False)
+            | status.str.contains("AGUARD", na=False)
+        ) & ~status.str.contains("REVERT", na=False)
+        out = df[mask].copy()
+    else:
+        out = df.copy()
+
+    return out.drop(columns=[c for c in out.columns if c.startswith("_")], errors="ignore")
+
+
+
+def indenizacao_evolucao_mensal():
+    """
+    Evolução mensal do valor de indenização.
+    Agrupa por mês/ano com base na coluna de data da planilha Passível a Débito.
+    """
+    df_raw = indenizacao_base_rows()
+    if df_raw is None or df_raw.empty:
+        return pd.DataFrame()
+
+    data_col = _indenizacao_data_col(df_raw)
+    valor_col = _indenizacao_valor_col(df_raw)
+
+    if not data_col or not valor_col:
+        return pd.DataFrame()
+
+    df = df_raw.copy()
+    df["_DATA_INDENIZACAO"] = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True)
+    df["_VALOR_INDENIZACAO"] = _to_money_series_ind(df[valor_col])
+
+    df = df.dropna(subset=["_DATA_INDENIZACAO"]).copy()
+    if df.empty:
+        return pd.DataFrame()
+
+    df["ANO"] = df["_DATA_INDENIZACAO"].dt.year
+    df["MES_NUM"] = df["_DATA_INDENIZACAO"].dt.month
+    df["MES_ANO"] = df["_DATA_INDENIZACAO"].dt.strftime("%m/%Y")
+
+    evol = (
+        df.groupby(["ANO", "MES_NUM", "MES_ANO"], as_index=False)["_VALOR_INDENIZACAO"]
+        .sum()
+        .sort_values(["ANO", "MES_NUM"])
+    )
+    evol = evol.rename(columns={"_VALOR_INDENIZACAO": "VALOR"})
+    evol["VALOR_FORMATADO"] = evol["VALOR"].map(_money_br_ind)
+
+    return evol
+
+
+def render_indenizacao_evolucao():
+    evol = indenizacao_evolucao_mensal()
+
+    st.markdown("### Evolução mensal")
+    st.caption("Valor total por mês/ano com base na data da planilha Passível a Débito.")
+
+    if evol is None or evol.empty:
+        st.info("Não foi possível montar a evolução mensal. Verifique se a planilha possui coluna de data e valor.")
+        return
+
+    chart_df = evol.copy()
+    chart = (
+        alt.Chart(chart_df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("MES_ANO:N", title="Mês/Ano", sort=list(chart_df["MES_ANO"])),
+            y=alt.Y("VALOR:Q", title="Valor"),
+            tooltip=[
+                alt.Tooltip("MES_ANO:N", title="Mês/Ano"),
+                alt.Tooltip("VALOR_FORMATADO:N", title="Valor"),
+            ],
+        )
+        .properties(height=280)
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+    tabela = evol[["MES_ANO", "VALOR_FORMATADO"]].rename(
+        columns={
+            "MES_ANO": "MÊS/ANO",
+            "VALOR_FORMATADO": "VALOR",
+        }
+    )
+    render_table(tabela, height=260)
+
+
+
+def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰"):
+    st.markdown(
+        f"""
+        <div class="indenizacao-card" style="--accent:{accent};">
+            <div class="indenizacao-icon">{icon}</div>
+            <div class="indenizacao-label">{label}</div>
+            <div class="indenizacao-value">{value}</div>
+            <div class="indenizacao-sub">{subtitle}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
 # =========================================================
 # SIDEBAR FUNCIONAL
 # =========================================================
@@ -4173,6 +4512,7 @@ with st.sidebar:
         ("pendencias", "Σ  Pendências"),
         ("sla_dia", "◷  SLA do Dia"),
         ("edi", "✈  EDI / First Mile"),
+        ("indenizacao", "💰  Indenização"),
         ("acareacao", "▤  Acareações"),
         ("relatorio", "▤  Relatórios"),
         ("config", "⚙  Configurações"),
@@ -4233,6 +4573,7 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
+passivel_debito_detalhe = pack.get("PASSIVEL_DEBITO_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
 bi_azul_detalhe = pack.get("BI_AZUL_DETALHE", pd.DataFrame())
 bi_azul_conferencia = pack.get("BI_AZUL_CONFERENCIA", pd.DataFrame())
@@ -4830,6 +5171,79 @@ elif menu == "pendcorp":
     if pendcorp_base.empty:
         pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA", "PENDÊNCIA"])
     render_table(pendcorp_base.head(500), height=520)
+
+
+
+elif menu == "indenizacao":
+    st.title("Indenização")
+    st.caption("Visão operacional baseada na planilha Passível a Débito.")
+
+    metrics_ind = indenizacao_metrics()
+    base_ind = metrics_ind["base"]
+
+    if base_ind is None or base_ind.empty:
+        st.info("Nenhum dado de Passível a Débito sincronizado para exibir o painel de Indenização.")
+    else:
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+
+        with c1:
+            indenizacao_metric_card(
+                "Valor total CDSP2",
+                _money_br_ind(metrics_ind["valor_cdsp2"]),
+                "Total passível identificado para CDSP2",
+                "#0b63ce",
+                "🏢",
+            )
+
+        with c2:
+            indenizacao_metric_card(
+                "Valor total SAO12",
+                _money_br_ind(metrics_ind["valor_sao12"]),
+                "Total passível identificado para SAO12",
+                "#7c3aed",
+                "🏬",
+            )
+
+        with c3:
+            indenizacao_metric_card(
+                "Valor revertido",
+                _money_br_ind(metrics_ind["valor_revertido"]),
+                "Casos marcados como revertidos",
+                "#0f766e",
+                "↩️",
+            )
+
+        with c4:
+            indenizacao_metric_card(
+                "Falta análise supervisão",
+                fmt_int(metrics_ind["qtd_supervisao"]),
+                f"Valor em análise: {_money_br_ind(metrics_ind['valor_supervisao'])}",
+                "#d97706",
+                "🔎",
+            )
+
+        render_indenizacao_evolucao()
+
+        st.markdown("### Detalhamento da Indenização")
+
+        aba = st.radio(
+            "Selecionar visão",
+            ["CDSP2", "SAO12", "Revertido", "Falta análise supervisão", "Base completa"],
+            horizontal=True,
+        )
+
+        mapa = {
+            "CDSP2": "cdsp2",
+            "SAO12": "sao12",
+            "Revertido": "revertido",
+            "Falta análise supervisão": "supervisao",
+            "Base completa": "todos",
+        }
+
+        detalhe = indenizacao_detail_rows(mapa[aba])
+        st.caption(f"{fmt_int(len(detalhe))} registro(s) encontrado(s).")
+        render_table(detalhe, height=460)
+
 
 
 elif menu == "relatorio":

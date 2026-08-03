@@ -4057,6 +4057,13 @@ try:
             else:
                 passivel_total = 0.0
 
+            # Passível a Débito / Indenização — detalhe para o app gerente.
+            # Fonte já existente no app operacional: planilha Passível a Débito e Indenização.
+            try:
+                passivel_debito_detalhe_gerente = debito_indenizacao_link.copy()
+            except Exception:
+                passivel_debito_detalhe_gerente = pd.DataFrame()
+
             # EDI gerencial: First Mile será exibido como EDI no painel do gerente.
             fm_frames_gerente = []
             if file_sao12:
@@ -4386,6 +4393,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4416,6 +4424,7 @@ try:
                 int(len(acar_andamento)),
                 int(len(avarias_detalhe_gerente)),
                 int(len(qualidade_detalhe_gerente)),
+                int(len(passivel_debito_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
                 int(len(bi_azul_detalhe_gerente)),
@@ -4435,6 +4444,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -4457,6 +4467,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
