@@ -4329,6 +4329,74 @@ def indenizacao_prepare(df):
     return out
 
 
+
+def _indenizacao_supervisora_col(df):
+    """
+    Coluna M da planilha Passível a Débito:
+    STATUS ANALISE SUPERVISORA.
+    """
+    col = first_col(df, [
+        "STATUS ANALISE SUPERVISORA",
+        "STATUS ANÁLISE SUPERVISORA",
+        "STATUS_ANALISE_SUPERVISORA",
+        "ANALISE SUPERVISORA",
+        "ANÁLISE SUPERVISORA",
+        "STATUS SUPERVISORA",
+    ])
+    if col:
+        return col
+
+    # Fallback pela posição da planilha: coluna M = índice 12.
+    try:
+        if df is not None and len(df.columns) > 12:
+            return df.columns[12]
+    except Exception:
+        pass
+
+    return None
+
+
+def _indenizacao_debito_revertido_col(df):
+    """
+    Coluna P da planilha Passível a Débito:
+    DÉBITO REVERTIDO.
+    """
+    col = first_col(df, [
+        "DÉBITO REVERTIDO",
+        "DEBITO REVERTIDO",
+        "DEBITO_REVERTIDO",
+        "DÉBITO_REVERTIDO",
+        "STATUS DÉBITO REVERTIDO",
+        "STATUS DEBITO REVERTIDO",
+    ])
+    if col:
+        return col
+
+    # Fallback pela posição da planilha: coluna P = índice 15.
+    try:
+        if df is not None and len(df.columns) > 15:
+            return df.columns[15]
+    except Exception:
+        pass
+
+    return None
+
+
+def _serie_preenchida(s):
+    if s is None:
+        return pd.Series(dtype=bool)
+    txt = s.fillna("").astype(str).str.strip()
+    norm = txt.map(normalize_text)
+    return txt.ne("") & ~norm.isin({"NAN", "NONE", "NULL", "-", "NA", "N/A"})
+
+
+def _serie_vazia(s):
+    if s is None:
+        return pd.Series(dtype=bool)
+    return ~_serie_preenchida(s)
+
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4339,32 +4407,30 @@ def indenizacao_metrics():
             "valor_sao12": 0.0,
             "qtd_revertido": 0,
             "valor_revertido": 0.0,
-            "qtd_status_vazio": 0,
-            "valor_status_vazio": 0.0,
             "qtd_supervisao": 0,
             "valor_supervisao": 0.0,
         }
 
     base = df["_BASE_INDENIZACAO"].astype(str)
-    status = df["_STATUS_INDENIZACAO"].fillna("").astype(str).str.strip()
     valor = df["_VALOR_INDENIZACAO"]
 
     mask_cdsp2 = base.str.contains("CDSP2", na=False)
     mask_sao12 = base.str.contains("SAO12", na=False)
 
-    # Débito revertido: captura variações como DÉBITO REVERTIDO, DEBITO REVERTIDO e REVERTIDO.
-    mask_revertido = status.str.contains("REVERT", na=False)
+    col_debito_revertido = _indenizacao_debito_revertido_col(df)
+    col_supervisora = _indenizacao_supervisora_col(df)
 
-    # Status vazio: linhas sem retorno/status preenchido na planilha.
-    mask_status_vazio = status.eq("") | status.eq("NAN") | status.eq("NONE") | status.eq("NULL")
+    # Débito revertido = coluna P / DÉBITO REVERTIDO preenchida.
+    if col_debito_revertido and col_debito_revertido in df.columns:
+        mask_revertido = _serie_preenchida(df[col_debito_revertido])
+    else:
+        mask_revertido = pd.Series(False, index=df.index)
 
-    mask_supervisao = (
-        status.str.contains("SUPERV", na=False)
-        | status.str.contains("ANALIS", na=False)
-        | status.str.contains("ANALISE", na=False)
-        | status.str.contains("PENDENTE", na=False)
-        | status.str.contains("AGUARD", na=False)
-    ) & ~mask_revertido & ~mask_status_vazio
+    # Falta análise supervisora = coluna M / STATUS ANALISE SUPERVISORA vazia.
+    if col_supervisora and col_supervisora in df.columns:
+        mask_supervisao = _serie_vazia(df[col_supervisora]) & ~mask_revertido
+    else:
+        mask_supervisao = pd.Series(False, index=df.index)
 
     return {
         "base": df,
@@ -4372,8 +4438,6 @@ def indenizacao_metrics():
         "valor_sao12": float(valor[mask_sao12].sum()),
         "qtd_revertido": int(mask_revertido.sum()),
         "valor_revertido": float(valor[mask_revertido].sum()),
-        "qtd_status_vazio": int(mask_status_vazio.sum()),
-        "valor_status_vazio": float(valor[mask_status_vazio].sum()),
         "qtd_supervisao": int(mask_supervisao.sum()),
         "valor_supervisao": float(valor[mask_supervisao].sum()),
     }
@@ -4385,10 +4449,19 @@ def indenizacao_detail_rows(tipo):
         return df
 
     base = df["_BASE_INDENIZACAO"].astype(str)
-    status = df["_STATUS_INDENIZACAO"].fillna("").astype(str).str.strip()
 
-    mask_revertido = status.str.contains("REVERT", na=False)
-    mask_status_vazio = status.eq("") | status.eq("NAN") | status.eq("NONE") | status.eq("NULL")
+    col_debito_revertido = _indenizacao_debito_revertido_col(df)
+    col_supervisora = _indenizacao_supervisora_col(df)
+
+    if col_debito_revertido and col_debito_revertido in df.columns:
+        mask_revertido = _serie_preenchida(df[col_debito_revertido])
+    else:
+        mask_revertido = pd.Series(False, index=df.index)
+
+    if col_supervisora and col_supervisora in df.columns:
+        mask_supervisao = _serie_vazia(df[col_supervisora]) & ~mask_revertido
+    else:
+        mask_supervisao = pd.Series(False, index=df.index)
 
     if tipo == "cdsp2":
         out = df[base.str.contains("CDSP2", na=False)].copy()
@@ -4396,97 +4469,12 @@ def indenizacao_detail_rows(tipo):
         out = df[base.str.contains("SAO12", na=False)].copy()
     elif tipo == "revertido":
         out = df[mask_revertido].copy()
-    elif tipo == "status_vazio":
-        out = df[mask_status_vazio].copy()
     elif tipo == "supervisao":
-        mask = (
-            status.str.contains("SUPERV", na=False)
-            | status.str.contains("ANALIS", na=False)
-            | status.str.contains("ANALISE", na=False)
-            | status.str.contains("PENDENTE", na=False)
-            | status.str.contains("AGUARD", na=False)
-        ) & ~mask_revertido & ~mask_status_vazio
-        out = df[mask].copy()
+        out = df[mask_supervisao].copy()
     else:
         out = df.copy()
 
     return out.drop(columns=[c for c in out.columns if c.startswith("_")], errors="ignore")
-
-
-
-def indenizacao_evolucao_mensal():
-    """
-    Evolução mensal do valor de indenização.
-    Agrupa por mês/ano com base na coluna de data da planilha Passível a Débito.
-    """
-    df_raw = indenizacao_base_rows()
-    if df_raw is None or df_raw.empty:
-        return pd.DataFrame()
-
-    data_col = _indenizacao_data_col(df_raw)
-    valor_col = _indenizacao_valor_col(df_raw)
-
-    if not data_col or not valor_col:
-        return pd.DataFrame()
-
-    df = df_raw.copy()
-    df["_DATA_INDENIZACAO"] = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True)
-    df["_VALOR_INDENIZACAO"] = _to_money_series_ind(df[valor_col])
-
-    df = df.dropna(subset=["_DATA_INDENIZACAO"]).copy()
-    if df.empty:
-        return pd.DataFrame()
-
-    df["ANO"] = df["_DATA_INDENIZACAO"].dt.year
-    df["MES_NUM"] = df["_DATA_INDENIZACAO"].dt.month
-    df["MES_ANO"] = df["_DATA_INDENIZACAO"].dt.strftime("%m/%Y")
-
-    evol = (
-        df.groupby(["ANO", "MES_NUM", "MES_ANO"], as_index=False)["_VALOR_INDENIZACAO"]
-        .sum()
-        .sort_values(["ANO", "MES_NUM"])
-    )
-    evol = evol.rename(columns={"_VALOR_INDENIZACAO": "VALOR"})
-    evol["VALOR_FORMATADO"] = evol["VALOR"].map(_money_br_ind)
-
-    return evol
-
-
-def render_indenizacao_evolucao():
-    evol = indenizacao_evolucao_mensal()
-
-    st.markdown("### Evolução mensal")
-    st.caption("Valor total por mês/ano com base na data da planilha Passível a Débito.")
-
-    if evol is None or evol.empty:
-        st.info("Não foi possível montar a evolução mensal. Verifique se a planilha possui coluna de data e valor.")
-        return
-
-    chart_df = evol.copy()
-    chart = (
-        alt.Chart(chart_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("MES_ANO:N", title="Mês/Ano", sort=list(chart_df["MES_ANO"])),
-            y=alt.Y("VALOR:Q", title="Valor"),
-            tooltip=[
-                alt.Tooltip("MES_ANO:N", title="Mês/Ano"),
-                alt.Tooltip("VALOR_FORMATADO:N", title="Valor"),
-            ],
-        )
-        .properties(height=280)
-    )
-
-    st.altair_chart(chart, use_container_width=True)
-
-    tabela = evol[["MES_ANO", "VALOR_FORMATADO"]].rename(
-        columns={
-            "MES_ANO": "MÊS/ANO",
-            "VALOR_FORMATADO": "VALOR",
-        }
-    )
-    render_table(tabela, height=260)
-
 
 
 def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰"):
@@ -5224,32 +5212,23 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Débito revertido",
                 _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) revertido(s)",
+                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com débito revertido",
                 "#0f766e",
                 "↩️",
             )
 
-        c4, c5, c6 = st.columns(3, gap="small")
+        c4, c5 = st.columns(2, gap="small")
 
         with c4:
             indenizacao_metric_card(
-                "Status vazio",
-                fmt_int(metrics_ind["qtd_status_vazio"]),
-                f"Valor sem status: {_money_br_ind(metrics_ind['valor_status_vazio'])}",
-                "#64748b",
-                "∅",
-            )
-
-        with c5:
-            indenizacao_metric_card(
-                "Falta análise supervisão",
+                "Falta análise supervisora",
                 fmt_int(metrics_ind["qtd_supervisao"]),
-                f"Valor em análise: {_money_br_ind(metrics_ind['valor_supervisao'])}",
+                f"Valor pendente de análise: {_money_br_ind(metrics_ind['valor_supervisao'])}",
                 "#d97706",
                 "🔎",
             )
 
-        with c6:
+        with c5:
             indenizacao_metric_card(
                 "Total monitorado",
                 fmt_int(len(base_ind)),
@@ -5264,7 +5243,7 @@ elif menu == "indenizacao":
 
         aba = st.radio(
             "Selecionar visão",
-            ["CDSP2", "SAO12", "Débito revertido", "Status vazio", "Falta análise supervisão", "Base completa"],
+            ["CDSP2", "SAO12", "Débito revertido", "Falta análise supervisora", "Base completa"],
             horizontal=True,
         )
 
@@ -5272,8 +5251,7 @@ elif menu == "indenizacao":
             "CDSP2": "cdsp2",
             "SAO12": "sao12",
             "Débito revertido": "revertido",
-            "Status vazio": "status_vazio",
-            "Falta análise supervisão": "supervisao",
+            "Falta análise supervisora": "supervisao",
             "Base completa": "todos",
         }
 
