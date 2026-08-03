@@ -4337,18 +4337,26 @@ def indenizacao_metrics():
             "base": df,
             "valor_cdsp2": 0.0,
             "valor_sao12": 0.0,
+            "qtd_revertido": 0,
             "valor_revertido": 0.0,
+            "qtd_status_vazio": 0,
+            "valor_status_vazio": 0.0,
             "qtd_supervisao": 0,
             "valor_supervisao": 0.0,
         }
 
     base = df["_BASE_INDENIZACAO"].astype(str)
-    status = df["_STATUS_INDENIZACAO"].astype(str)
+    status = df["_STATUS_INDENIZACAO"].fillna("").astype(str).str.strip()
     valor = df["_VALOR_INDENIZACAO"]
 
     mask_cdsp2 = base.str.contains("CDSP2", na=False)
     mask_sao12 = base.str.contains("SAO12", na=False)
+
+    # Débito revertido: captura variações como DÉBITO REVERTIDO, DEBITO REVERTIDO e REVERTIDO.
     mask_revertido = status.str.contains("REVERT", na=False)
+
+    # Status vazio: linhas sem retorno/status preenchido na planilha.
+    mask_status_vazio = status.eq("") | status.eq("NAN") | status.eq("NONE") | status.eq("NULL")
 
     mask_supervisao = (
         status.str.contains("SUPERV", na=False)
@@ -4356,13 +4364,16 @@ def indenizacao_metrics():
         | status.str.contains("ANALISE", na=False)
         | status.str.contains("PENDENTE", na=False)
         | status.str.contains("AGUARD", na=False)
-    ) & ~mask_revertido
+    ) & ~mask_revertido & ~mask_status_vazio
 
     return {
         "base": df,
         "valor_cdsp2": float(valor[mask_cdsp2].sum()),
         "valor_sao12": float(valor[mask_sao12].sum()),
+        "qtd_revertido": int(mask_revertido.sum()),
         "valor_revertido": float(valor[mask_revertido].sum()),
+        "qtd_status_vazio": int(mask_status_vazio.sum()),
+        "valor_status_vazio": float(valor[mask_status_vazio].sum()),
         "qtd_supervisao": int(mask_supervisao.sum()),
         "valor_supervisao": float(valor[mask_supervisao].sum()),
     }
@@ -4374,14 +4385,19 @@ def indenizacao_detail_rows(tipo):
         return df
 
     base = df["_BASE_INDENIZACAO"].astype(str)
-    status = df["_STATUS_INDENIZACAO"].astype(str)
+    status = df["_STATUS_INDENIZACAO"].fillna("").astype(str).str.strip()
+
+    mask_revertido = status.str.contains("REVERT", na=False)
+    mask_status_vazio = status.eq("") | status.eq("NAN") | status.eq("NONE") | status.eq("NULL")
 
     if tipo == "cdsp2":
         out = df[base.str.contains("CDSP2", na=False)].copy()
     elif tipo == "sao12":
         out = df[base.str.contains("SAO12", na=False)].copy()
     elif tipo == "revertido":
-        out = df[status.str.contains("REVERT", na=False)].copy()
+        out = df[mask_revertido].copy()
+    elif tipo == "status_vazio":
+        out = df[mask_status_vazio].copy()
     elif tipo == "supervisao":
         mask = (
             status.str.contains("SUPERV", na=False)
@@ -4389,7 +4405,7 @@ def indenizacao_detail_rows(tipo):
             | status.str.contains("ANALISE", na=False)
             | status.str.contains("PENDENTE", na=False)
             | status.str.contains("AGUARD", na=False)
-        ) & ~status.str.contains("REVERT", na=False)
+        ) & ~mask_revertido & ~mask_status_vazio
         out = df[mask].copy()
     else:
         out = df.copy()
@@ -5184,7 +5200,7 @@ elif menu == "indenizacao":
     if base_ind is None or base_ind.empty:
         st.info("Nenhum dado de Passível a Débito sincronizado para exibir o painel de Indenização.")
     else:
-        c1, c2, c3, c4 = st.columns(4, gap="small")
+        c1, c2, c3 = st.columns(3, gap="small")
 
         with c1:
             indenizacao_metric_card(
@@ -5206,14 +5222,25 @@ elif menu == "indenizacao":
 
         with c3:
             indenizacao_metric_card(
-                "Valor revertido",
+                "Débito revertido",
                 _money_br_ind(metrics_ind["valor_revertido"]),
-                "Casos marcados como revertidos",
+                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) revertido(s)",
                 "#0f766e",
                 "↩️",
             )
 
+        c4, c5, c6 = st.columns(3, gap="small")
+
         with c4:
+            indenizacao_metric_card(
+                "Status vazio",
+                fmt_int(metrics_ind["qtd_status_vazio"]),
+                f"Valor sem status: {_money_br_ind(metrics_ind['valor_status_vazio'])}",
+                "#64748b",
+                "∅",
+            )
+
+        with c5:
             indenizacao_metric_card(
                 "Falta análise supervisão",
                 fmt_int(metrics_ind["qtd_supervisao"]),
@@ -5222,20 +5249,30 @@ elif menu == "indenizacao":
                 "🔎",
             )
 
+        with c6:
+            indenizacao_metric_card(
+                "Total monitorado",
+                fmt_int(len(base_ind)),
+                f"Valor total: {_money_br_ind(float(base_ind['_VALOR_INDENIZACAO'].sum()))}",
+                "#08254e",
+                "Σ",
+            )
+
         render_indenizacao_evolucao()
 
         st.markdown("### Detalhamento da Indenização")
 
         aba = st.radio(
             "Selecionar visão",
-            ["CDSP2", "SAO12", "Revertido", "Falta análise supervisão", "Base completa"],
+            ["CDSP2", "SAO12", "Débito revertido", "Status vazio", "Falta análise supervisão", "Base completa"],
             horizontal=True,
         )
 
         mapa = {
             "CDSP2": "cdsp2",
             "SAO12": "sao12",
-            "Revertido": "revertido",
+            "Débito revertido": "revertido",
+            "Status vazio": "status_vazio",
             "Falta análise supervisão": "supervisao",
             "Base completa": "todos",
         }
