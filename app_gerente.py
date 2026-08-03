@@ -4400,31 +4400,43 @@ def _serie_vazia(s):
 
 def _indenizacao_ofensor_col(df):
     """
-    Coluna usada para identificar o ofensor da indenização.
-    Deve aceitar valores compostos como VCP/SAO12, VCP/CDSP2, CDSP2/CGH.
+    Coluna usada para identificar o OFENSOR da indenização.
+
+    Regra operacional:
+    sempre que a coluna OFENSOR contiver CDSP2 ou SAO12,
+    mesmo combinado com outra base, deve ser aceito.
     """
-    return first_col(df, [
+    col = first_col(df, [
         "OFENSOR",
         "BASE OFENSORA",
         "BASE_OFENSORA",
         "BASE OFENSOR",
-        "BASE",
-        "ORIGEM",
-        "ESTAÇÃO",
-        "ESTACAO",
-        "UNIDADE",
-        "FILIAL",
     ])
+    if col:
+        return col
+
+    # Busca normalizada por segurança, preservando a regra de OFENSOR.
+    try:
+        for c in df.columns:
+            n = normalize_text(c)
+            if "OFENSOR" in n:
+                return c
+    except Exception:
+        pass
+
+    return None
 
 
 def _mask_ofensor_cdsp2_sao12(df):
     """
     Retorna True quando a coluna OFENSOR contém CDSP2 ou SAO12 em qualquer parte do texto.
-    Exemplos válidos:
+    Aceita composições e variações como:
     - VCP/SAO12
+    - VCP / SAO12
     - VCP/CDSP2
     - CDSP2/CGH
-    - SAO12/VCP
+    - CD SP2
+    - SAO 12
     """
     if df is None or df.empty:
         return pd.Series(False, index=df.index if df is not None else None)
@@ -4433,8 +4445,16 @@ def _mask_ofensor_cdsp2_sao12(df):
     if not ofensor_col or ofensor_col not in df.columns:
         return pd.Series(False, index=df.index)
 
-    ofensor = df[ofensor_col].fillna("").astype(str).map(normalize_text)
-    return ofensor.str.contains("CDSP2|SAO12", regex=True, na=False)
+    ofensor_norm = df[ofensor_col].fillna("").astype(str).map(normalize_text)
+
+    # Regra: se OFENSOR contiver CDSP2 ou SAO12 em qualquer parte, aceita.
+    # Ex.: VCP/SAO12, VCP/CDSP2, CDSP2/CGH, SAO12/VCP.
+    ofensor_compacto = ofensor_norm.str.replace(r"[^A-Z0-9]", "", regex=True)
+
+    return (
+        ofensor_norm.str.contains("CDSP2|SAO12", regex=True, na=False)
+        | ofensor_compacto.str.contains("CDSP2|SAO12", regex=True, na=False)
+    )
 
 
 
@@ -4469,11 +4489,12 @@ def indenizacao_metrics():
 
     # Falta análise supervisora =
     # coluna M / STATUS ANALISE SUPERVISORA vazia
-    # + apenas ofensores CDSP2 ou SAO12.
+    # + apenas OFENSOR contendo CDSP2 ou SAO12.
+    # Não exclui débito revertido; a regra da supervisora depende somente da coluna M vazia.
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora & ~mask_revertido
+        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
@@ -4508,7 +4529,7 @@ def indenizacao_detail_rows(tipo):
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora & ~mask_revertido
+        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
