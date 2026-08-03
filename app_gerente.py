@@ -4397,6 +4397,47 @@ def _serie_vazia(s):
 
 
 
+
+def _indenizacao_ofensor_col(df):
+    """
+    Coluna usada para identificar o ofensor da indenização.
+    Deve aceitar valores compostos como VCP/SAO12, VCP/CDSP2, CDSP2/CGH.
+    """
+    return first_col(df, [
+        "OFENSOR",
+        "BASE OFENSORA",
+        "BASE_OFENSORA",
+        "BASE OFENSOR",
+        "BASE",
+        "ORIGEM",
+        "ESTAÇÃO",
+        "ESTACAO",
+        "UNIDADE",
+        "FILIAL",
+    ])
+
+
+def _mask_ofensor_cdsp2_sao12(df):
+    """
+    Retorna True quando a coluna OFENSOR contém CDSP2 ou SAO12 em qualquer parte do texto.
+    Exemplos válidos:
+    - VCP/SAO12
+    - VCP/CDSP2
+    - CDSP2/CGH
+    - SAO12/VCP
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    ofensor_col = _indenizacao_ofensor_col(df)
+    if not ofensor_col or ofensor_col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    ofensor = df[ofensor_col].fillna("").astype(str).map(normalize_text)
+    return ofensor.str.contains("CDSP2|SAO12", regex=True, na=False)
+
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4429,7 +4470,7 @@ def indenizacao_metrics():
     # Falta análise supervisora =
     # coluna M / STATUS ANALISE SUPERVISORA vazia
     # + apenas ofensores CDSP2 ou SAO12.
-    mask_bases_supervisora = mask_cdsp2 | mask_sao12
+    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
         mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora & ~mask_revertido
@@ -4464,7 +4505,7 @@ def indenizacao_detail_rows(tipo):
 
     mask_cdsp2 = base.str.contains("CDSP2", na=False)
     mask_sao12 = base.str.contains("SAO12", na=False)
-    mask_bases_supervisora = mask_cdsp2 | mask_sao12
+    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
         mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora & ~mask_revertido
@@ -5307,7 +5348,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Falta análise supervisora",
                 fmt_int(metrics_ind["qtd_supervisao"]),
-                f"CDSP2/SAO12 pendente: {_money_br_ind(metrics_ind['valor_supervisao'])}",
+                f"Ofensor CDSP2/SAO12: {_money_br_ind(metrics_ind['valor_supervisao'])}",
                 "#d97706",
                 "🔎",
             )
