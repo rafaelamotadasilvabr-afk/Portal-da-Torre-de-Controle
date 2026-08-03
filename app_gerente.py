@@ -4322,10 +4322,9 @@ def indenizacao_prepare(df):
     else:
         out["_VALOR_INDENIZACAO"] = 0.0
 
-    if data_col:
-        ano_ref = pd.to_datetime(out[data_col], errors="coerce").dt.year
-        out = out[ano_ref.eq(2026)].copy()
-
+    # Não filtrar por ano aqui.
+    # Métricas do painel precisam refletir a planilha completa sincronizada.
+    # A linha evolutiva mensal trata data separadamente.
     return out
 
 
@@ -4334,7 +4333,15 @@ def _indenizacao_supervisora_col(df):
     """
     Coluna M da planilha Passível a Débito:
     STATUS ANALISE SUPERVISORA.
+
+    Regra: usar a coluna M como prioridade, pois é a coluna operacional definida.
     """
+    try:
+        if df is not None and len(df.columns) > 12:
+            return df.columns[12]
+    except Exception:
+        pass
+
     col = first_col(df, [
         "STATUS ANALISE SUPERVISORA",
         "STATUS ANÁLISE SUPERVISORA",
@@ -4346,13 +4353,6 @@ def _indenizacao_supervisora_col(df):
     if col:
         return col
 
-    # Fallback pela posição da planilha: coluna M = índice 12.
-    try:
-        if df is not None and len(df.columns) > 12:
-            return df.columns[12]
-    except Exception:
-        pass
-
     return None
 
 
@@ -4360,7 +4360,15 @@ def _indenizacao_debito_revertido_col(df):
     """
     Coluna P da planilha Passível a Débito:
     DÉBITO REVERTIDO.
+
+    Regra: usar a coluna P como prioridade, pois é a coluna operacional definida.
     """
+    try:
+        if df is not None and len(df.columns) > 15:
+            return df.columns[15]
+    except Exception:
+        pass
+
     col = first_col(df, [
         "DÉBITO REVERTIDO",
         "DEBITO REVERTIDO",
@@ -4371,13 +4379,6 @@ def _indenizacao_debito_revertido_col(df):
     ])
     if col:
         return col
-
-    # Fallback pela posição da planilha: coluna P = índice 15.
-    try:
-        if df is not None and len(df.columns) > 15:
-            return df.columns[15]
-    except Exception:
-        pass
 
     return None
 
@@ -5369,7 +5370,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Falta análise supervisora",
                 fmt_int(metrics_ind["qtd_supervisao"]),
-                f"Ofensor CDSP2/SAO12: {_money_br_ind(metrics_ind['valor_supervisao'])}",
+                f"Coluna M vazia: {_money_br_ind(metrics_ind['valor_supervisao'])}",
                 "#d97706",
                 "🔎",
             )
