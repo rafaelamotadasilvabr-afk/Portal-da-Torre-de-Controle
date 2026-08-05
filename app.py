@@ -427,10 +427,24 @@ def read_eu_entrego(file_bytes, awb_filter_key=None):
     df = pd.read_excel(io.BytesIO(file_bytes))
     df = clean_columns(df)
 
-    if "Pedido" not in df.columns:
+    # Eu Entrego usa PEDIDO como identificador operacional.
+    # O app cria AWB internamente apenas para cruzar com AWBStatus/SK.
+    pedido_col = find_column(df, [
+        "Pedido",
+        "PEDIDO",
+        "pedido",
+        "N Pedido",
+        "Nº Pedido",
+        "Numero Pedido",
+        "Número Pedido",
+        "NUMERO PEDIDO",
+        "NÚMERO PEDIDO",
+    ])
+
+    if not pedido_col:
         raise ValueError("Eu Entrego: coluna 'Pedido' não encontrada.")
 
-    df["AWB"] = df["Pedido"].apply(normalize_awb)
+    df["AWB"] = df[pedido_col].apply(normalize_awb)
 
     # Otimização:
     # O Eu Entrego pode vir com dezenas de milhares de AWBs.
