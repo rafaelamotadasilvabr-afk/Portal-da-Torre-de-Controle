@@ -2782,6 +2782,16 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not motivo_negativo_eu
         )
 
+        em_carga_parcial = str(row.get("EM_CARGA_PARCIAL", "")).strip().lower() in {
+            "true", "1", "sim", "yes", "y", "verdadeiro"
+        }
+
+        # Carga Parcial prevalece sobre backlog, SLA do dia, desembarque
+        # e demais filas operacionais. Ela fica no card próprio.
+        if em_carga_parcial and not sk_baixado_ou_finalizado:
+            return 2, "ALTA", "CARGA PARCIAL", \
+                "Tratar exclusivamente pela fila de Carga Parcial"
+
         em_avaria_torre = str(row.get("EM_AVARIA_TORRE", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
@@ -3789,6 +3799,32 @@ try:
             reference_date,
             tower_history=tower_history,
         )
+
+        # Carga Parcial:
+        # Se uma AWB aparece como Pendente Entrega e Pendente Desembarque,
+        # ela sai das demais filas operacionais e fica apenas no card Carga Parcial.
+        try:
+            _carga_parcial_awbs = set(
+                carga_parcial_detalhe_gerente["AWB"]
+                .dropna()
+                .astype(str)
+                .str.replace(r"\D+", "", regex=True)
+                .str.strip()
+                .unique()
+            ) if not carga_parcial_detalhe_gerente.empty and "AWB" in carga_parcial_detalhe_gerente.columns else set()
+
+            if not master.empty and "AWB" in master.columns:
+                master["EM_CARGA_PARCIAL"] = (
+                    master["AWB"]
+                    .fillna("")
+                    .astype(str)
+                    .str.replace(r"\D+", "", regex=True)
+                    .str.strip()
+                    .isin(_carga_parcial_awbs)
+                )
+        except Exception:
+            if not master.empty:
+                master["EM_CARGA_PARCIAL"] = False
 
         # Avarias / Salvados:
         # Tudo que estiver na planilha de Avarias/Salvados sai das filas operacionais

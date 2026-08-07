@@ -3548,6 +3548,52 @@ def carga_parcial_count(df=None):
 
 
 
+
+def carga_parcial_awbs_set():
+    df = carga_parcial_rows() if "carga_parcial_rows" in globals() else pd.DataFrame()
+    if df is None or df.empty or "AWB" not in df.columns:
+        return set()
+
+    return set(
+        df["AWB"]
+        .dropna()
+        .astype(str)
+        .str.replace(r"\D+", "", regex=True)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .unique()
+    )
+
+
+def remove_carga_parcial_from_rows(df):
+    """
+    Remove Carga Parcial das demais filas operacionais.
+    A AWB permanece apenas no card Carga Parcial.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    awbs_cp = carga_parcial_awbs_set()
+    if not awbs_cp:
+        return df
+
+    awb_col = first_col(df, ["AWB", "awb", "Awb"])
+    if not awb_col:
+        return df
+
+    data = df.copy()
+    awb_norm = (
+        data[awb_col]
+        .fillna("")
+        .astype(str)
+        .str.replace(r"\D+", "", regex=True)
+        .str.strip()
+    )
+
+    return data[~awb_norm.isin(awbs_cp)].copy()
+
+
+
 def avaria_rows(df):
     # Prioriza a aba própria da planilha Pendências da Torre.
     sheet = avarias_detalhe if "avarias_detalhe" in globals() else pd.DataFrame()
@@ -3866,6 +3912,18 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     }
     if card_key in operational_keys_excluir_avaria:
         df = remove_avarias_from_rows(df)
+
+    operational_keys_excluir_carga_parcial = {
+        "atraso",
+        "sla_sem_rota",
+        "lastmile_desembarque",
+        "terceira",
+        "insucesso_sem_pendencia",
+        "backlog_eu_entregue",
+        "qualidade",
+    }
+    if card_key in operational_keys_excluir_carga_parcial:
+        df = remove_carga_parcial_from_rows(df)
 
     detail_df = detail_columns(df)
 
@@ -4909,16 +4967,16 @@ resumo_avarias_qtd = number(summary_value(resumo, "Avarias / Salvados", len(avar
 daily_df = daily_awb_counts(fila_filtrada)
 
 # Backlog precisa excluir casos que pertencem ao card Eu Entrego x SK.
-backlog_atraso_df = overdue_delivery_rows(fila_filtrada)
+backlog_atraso_df = remove_carga_parcial_from_rows(overdue_delivery_rows(fila_filtrada))
 resumo_entrega_atraso = len(backlog_atraso_df)
 resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entrego x Pendente SK", len(entregue_eu_entrego_pendente_sk_rows(fila_filtrada))))
 # Insucesso sem pendência precisa bater com o detalhe exibido.
-insucesso_sem_pendencia_df = insucesso_sem_pendencia_rows(fila_filtrada)
+insucesso_sem_pendencia_df = remove_carga_parcial_from_rows(insucesso_sem_pendencia_rows(fila_filtrada))
 resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
 
 # Qualidade precisa existir antes dos cards.
 # A quantidade do card usa o mesmo dataframe do detalhe.
-qualidade_df = aguardando_qualidade_rows(fila_filtrada)
+qualidade_df = remove_carga_parcial_from_rows(aguardando_qualidade_rows(fila_filtrada))
 resumo_qualidade_qtd = len(qualidade_df)
 
 # Carga Parcial: AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
@@ -4927,11 +4985,11 @@ resumo_carga_parcial = carga_parcial_count(carga_parcial_df)
 
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
-sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
+sla_sem_rota_df = remove_carga_parcial_from_rows(sla_sem_rota_rows(fila_filtrada))
 resumo_sla_sem_rota = len(sla_sem_rota_df)
-last_mile_desembarque_df = last_mile_desembarque_rows(fila_filtrada)
+last_mile_desembarque_df = remove_carga_parcial_from_rows(last_mile_desembarque_rows(fila_filtrada))
 resumo_lm_desembarque = len(last_mile_desembarque_df)
-terceira_tentativa_df = terceira_tentativa_rows(fila_filtrada)
+terceira_tentativa_df = remove_carga_parcial_from_rows(terceira_tentativa_rows(fila_filtrada))
 resumo_terceira_tentativa = len(terceira_tentativa_df)
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
