@@ -422,6 +422,87 @@ def read_last_mile(file_bytes):
     return df[keep].copy()
 
 
+
+
+def read_carga_parcial_last_mile(file_bytes):
+    """
+    Carga Parcial:
+    AWB aparece no AWBStatus com StatusDescription contendo Pendente Entrega
+    e também com StatusDescription contendo Pendente Desembarque.
+
+    Não altera a regra operacional existente. Apenas gera uma aba de apoio
+    para o painel do gerente.
+    """
+    try:
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        df = clean_columns(df)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    awb_col = find_column(df, ["AWBNumber", "AWB", "Nº AWB", "Numero AWB", "Número AWB"])
+    status_col = find_column(df, ["StatusDescription", "Status Description", "STATUSDESCRIPTION"])
+    status_en_col = find_column(df, ["StatusDescriptionEN", "Status Description EN", "STATUSDESCRIPTIONEN"])
+    flt_origin_col = find_column(df, ["FltOrigin", "Flt Origin", "FLTORIGIN"])
+    ops_col = find_column(df, ["OPSStation", "OPS Station", "OPSSTATION"])
+    flt_dest_col = find_column(df, ["FltDestination", "Flt Destination", "FLTDESTINATION"])
+    sla_col = find_column(df, ["ApproxSLA", "Approx SLA", "SLA"])
+
+    if not awb_col or not status_col:
+        return pd.DataFrame()
+
+    data = df.copy()
+    data["AWB"] = data[awb_col].apply(normalize_awb)
+    data["_STATUS_NORM"] = data[status_col].astype(str).map(normalize_text)
+
+    mask_entrega = data["_STATUS_NORM"].str.contains(
+        "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
+        regex=True,
+        na=False,
+    )
+    mask_desembarque = data["_STATUS_NORM"].str.contains(
+        "PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE",
+        regex=True,
+        na=False,
+    )
+
+    awbs_entrega = set(data.loc[mask_entrega, "AWB"].dropna().astype(str).str.strip())
+    awbs_desembarque = set(data.loc[mask_desembarque, "AWB"].dropna().astype(str).str.strip())
+    awbs_parciais = {x for x in (awbs_entrega & awbs_desembarque) if x}
+
+    if not awbs_parciais:
+        return pd.DataFrame(columns=[
+            "AWB", "ONDE ESTA PENDENTE", "STATUS", "STATUS EN",
+            "OPS STATION", "DESTINO", "SLA", "TIPO REGISTRO"
+        ])
+
+    out = data[data["AWB"].isin(awbs_parciais) & (mask_entrega | mask_desembarque)].copy()
+
+    def _safe_col(col):
+        return out[col] if col and col in out.columns else ""
+
+    result = pd.DataFrame({
+        "AWB": out["AWB"],
+        "ONDE ESTA PENDENTE": _safe_col(flt_origin_col),
+        "STATUS": out[status_col].astype(str).str.strip(),
+        "STATUS EN": _safe_col(status_en_col),
+        "OPS STATION": _safe_col(ops_col),
+        "DESTINO": _safe_col(flt_dest_col),
+        "SLA": _safe_col(sla_col),
+        "TIPO REGISTRO": out["_STATUS_NORM"].apply(
+            lambda x: "PENDENTE ENTREGA" if "PENDENTE ENTREGA" in x or "PENDENTE DE ENTREGA" in x else "PENDENTE DESEMBARQUE"
+        ),
+    })
+
+    return (
+        result
+        .sort_values(["AWB", "TIPO REGISTRO", "ONDE ESTA PENDENTE"], na_position="last")
+        .reset_index(drop=True)
+    )
+
+
 @st.cache_data(show_spinner=False)
 def read_eu_entrego(file_bytes, awb_filter_key=None):
     df = pd.read_excel(io.BytesIO(file_bytes))
@@ -3641,6 +3722,7 @@ if not (file_lm and file_eu):
 try:
     with st.spinner("Processando bases filtradas e aplicando regras da Torre..."):
         lm = read_last_mile(file_lm.getvalue())
+        carga_parcial_detalhe_gerente = read_carga_parcial_last_mile(file_lm.getvalue())
 
         _lm_awb_filter = (
             tuple(sorted(lm["AWB"].dropna().astype(str).str.strip().unique()))
@@ -4407,6 +4489,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
@@ -4438,6 +4521,7 @@ try:
                 int(len(acar_andamento)),
                 int(len(avarias_detalhe_gerente)),
                 int(len(qualidade_detalhe_gerente)),
+                int(len(carga_parcial_detalhe_gerente)),
                 int(len(passivel_debito_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
@@ -4458,6 +4542,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
@@ -4481,6 +4566,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,

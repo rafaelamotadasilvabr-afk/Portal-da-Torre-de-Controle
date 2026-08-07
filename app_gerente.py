@@ -30,6 +30,7 @@ SHEET_NAMES = [
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
     "QUALIDADE_DETALHE",
+    "CARGA_PARCIAL_DETALHE",
     "PASSIVEL_DEBITO_DETALHE",
     "BI_AZUL_RESUMO",
     "BI_AZUL_DETALHE",
@@ -3508,6 +3509,45 @@ def daily_awb_counts(df):
     return out.rename(columns={"_DATA_BASE": "DATA"}).sort_values("DATA")
 
 
+
+
+def carga_parcial_rows():
+    """
+    Detalhe de Carga Parcial sincronizado do app operacional.
+    AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
+    """
+    df = globals().get("carga_parcial_detalhe", pd.DataFrame())
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+    preferred = [
+        "AWB",
+        "ONDE ESTA PENDENTE",
+        "STATUS",
+        "STATUS EN",
+        "OPS STATION",
+        "DESTINO",
+        "SLA",
+        "TIPO REGISTRO",
+    ]
+    cols = [c for c in preferred if c in data.columns]
+    rest = [c for c in data.columns if c not in cols]
+    return data[cols + rest].copy() if cols else data
+
+
+def carga_parcial_count(df=None):
+    data = carga_parcial_rows() if df is None else df
+    if data is None or data.empty:
+        return 0
+    if "AWB" in data.columns:
+        awbs = data["AWB"].fillna("").astype(str).str.strip()
+        awbs = awbs[awbs.ne("")]
+        return int(awbs.nunique())
+    return int(len(data))
+
+
+
 def avaria_rows(df):
     # Prioriza a aba própria da planilha Pendências da Torre.
     sheet = avarias_detalhe if "avarias_detalhe" in globals() else pd.DataFrame()
@@ -3746,6 +3786,11 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         title = "Detalhe — Aguardando retorno da Qualidade"
         subtitle = "AWBs da planilha de Qualidade com RETORNO_QUALIDADE = PENDENTE. Não entram em Pendente de entrega nem no Backlog de atraso."
         df = qualidade_df.copy() if "qualidade_df" in globals() else aguardando_qualidade_rows(fila_filtrada)
+
+    elif card_key == "carga_parcial":
+        title = "Detalhe — Carga Parcial"
+        subtitle = "AWBs que aparecem no AWBStatus como Pendente Entrega e também Pendente Desembarque. Onde está pendente vem da coluna FltOrigin; status vem de StatusDescriptionEN."
+        df = carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -4724,6 +4769,7 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
+carga_parcial_detalhe = pack.get("CARGA_PARCIAL_DETALHE", pd.DataFrame())
 passivel_debito_detalhe = pack.get("PASSIVEL_DEBITO_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
 bi_azul_detalhe = pack.get("BI_AZUL_DETALHE", pd.DataFrame())
@@ -4769,7 +4815,7 @@ def resumo_carga_cabecalho():
 
     try:
         fontes = 0
-        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe"]:
+        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe", "carga_parcial_detalhe"]:
             _df = globals().get(_df_name)
             if _df is not None and hasattr(_df, "empty") and not _df.empty:
                 fontes += 1
@@ -4874,6 +4920,10 @@ resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
 # A quantidade do card usa o mesmo dataframe do detalhe.
 qualidade_df = aguardando_qualidade_rows(fila_filtrada)
 resumo_qualidade_qtd = len(qualidade_df)
+
+# Carga Parcial: AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
+carga_parcial_df = carga_parcial_rows()
+resumo_carga_parcial = carga_parcial_count(carga_parcial_df)
 
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
@@ -4993,6 +5043,7 @@ if menu == "visao":
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
+        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Pendente Entrega + Pendente Desembarque", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
@@ -5070,7 +5121,7 @@ if menu == "visao":
 
     # Linha 4 — outras frentes remanescentes.
     secondary_row_2 = secondary_cards[3:]
-    cols = st.columns(2)
+    cols = st.columns(3)
     for idx, item in enumerate(secondary_row_2):
         with cols[idx]:
             _render_card_item(item, idx)
