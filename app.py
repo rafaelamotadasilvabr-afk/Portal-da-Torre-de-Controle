@@ -4425,8 +4425,21 @@ try:
                     ])
                     _status_col = _find_acar_col(_acar_src, ["STATUS", "STATUS ACAREACAO", "STATUS_TRATATIVA"])
                     _tipo_col = _find_acar_col(_acar_src, ["TIPO", "TIPO ACAREACAO", "TIPO RESSALVA"])
+                    _prazo_col = _find_acar_col(_acar_src, [
+                        "PRAZO DE DEVOLUTIVA",
+                        "PRAZO DEVOLUTIVA",
+                        "PRAZO",
+                        "DATA PRAZO",
+                        "DATA DE PRAZO",
+                    ])
+                    _dentro_prazo_col = _find_acar_col(_acar_src, [
+                        "DENTRO DO PRAZO?",
+                        "DENTRO DO PRAZO",
+                        "STATUS PRAZO",
+                        "PRAZO STATUS",
+                    ])
                     _obs_col = _find_acar_col(_acar_src, ["OBSERVAÇÃO", "OBSERVACAO", "OBS", "MOTIVO"])
-                    _data_col = _find_acar_col(_acar_src, ["DATA", "DATA ABERTURA", "DATA DA TRATATIVA"])
+                    _data_col = _find_acar_col(_acar_src, ["DATA", "DATA ABERTURA", "DATA DA TRATATIVA", "DATA DA SOLICITAÇÃO", "DATA DA SOLICITACAO"])
                     _nf_col = _find_acar_col(_acar_src, ["NF", "NOTA FISCAL", "Nº NF"])
                     _pedido_col = _find_acar_col(_acar_src, ["PEDIDO", "ORDER", "Nº PEDIDO"])
             
@@ -4438,6 +4451,8 @@ try:
                     out_acar["VALOR_NUM"] = _panel_money_to_num(_acar_src[_valor_col]) if _valor_col else 0
                     out_acar["STATUS"] = _acar_src[_status_col] if _status_col else ""
                     out_acar["TIPO"] = _acar_src[_tipo_col] if _tipo_col else ""
+                    out_acar["PRAZO DE DEVOLUTIVA"] = parse_date(_acar_src[_prazo_col]) if _prazo_col else pd.NaT
+                    out_acar["DENTRO DO PRAZO"] = _acar_src[_dentro_prazo_col] if _dentro_prazo_col else ""
                     out_acar["OBSERVACAO"] = _acar_src[_obs_col] if _obs_col else ""
                     out_acar["DATA"] = parse_date(_acar_src[_data_col]) if _data_col else pd.NaT
                     out_acar["NF"] = _acar_src[_nf_col] if _nf_col else ""

@@ -3665,6 +3665,8 @@ def acareacao_rows_prefer_sheet(fila_df):
             "VALOR_NUM",
             "STATUS",
             "TIPO",
+            "PRAZO DE DEVOLUTIVA",
+            "DENTRO DO PRAZO",
             "OBSERVACAO",
             "DATA",
             "NF",
@@ -3682,6 +3684,44 @@ def acareacao_rows_prefer_sheet(fila_df):
         return out[non_empty_cols].copy() if non_empty_cols else out
 
     return acareacao_rows(fila_df)
+
+
+
+def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
+    """
+    Conta acareações cujo PRAZO DE DEVOLUTIVA vence na data de referência.
+    Usa a aba ACAREAÇÕES sincronizada; não altera a regra das demais filas.
+    """
+    if df is None or df.empty:
+        return 0
+
+    prazo_col = first_col(df, [
+        "PRAZO DE DEVOLUTIVA",
+        "PRAZO DEVOLUTIVA",
+        "PRAZO",
+        "DATA PRAZO",
+        "DATA DE PRAZO",
+        "ORIG_PRAZO DE DEVOLUTIVA",
+    ])
+    if not prazo_col:
+        return 0
+
+    ref = pd.to_datetime(reference_date, errors="coerce")
+    if pd.isna(ref):
+        ref = pd.Timestamp.today()
+    ref_date = ref.normalize()
+
+    prazo = pd.to_datetime(df[prazo_col], errors="coerce", dayfirst=True).dt.normalize()
+
+    status_col = first_col(df, ["STATUS", "SITUAÇÃO", "SITUACAO"])
+    if status_col:
+        status_norm = df[status_col].fillna("").astype(str).map(normalize_text)
+        mask_aberto = ~status_norm.str.contains("CONCLUID|FINALIZ|ENCERR|BAIXAD", regex=True, na=False)
+    else:
+        mask_aberto = pd.Series(True, index=df.index)
+
+    return int((prazo.eq(ref_date) & mask_aberto).sum())
+
 
 
 def acareacao_driver_summary_prefer_sheet(fila_df):
@@ -5090,8 +5130,13 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    # Sem nova regra: se a base ainda não trouxer prazo vencendo hoje, mostra 0.
-    acareacao_vencendo_hoje = number(summary_value(resumo, "Acareações vencendo hoje", 0))
+    # Vencem hoje: usa a coluna PRAZO DE DEVOLUTIVA da planilha de Acareação.
+    _ref_acareacao = None
+    if not isinstance(date_range, tuple):
+        _ref_acareacao = date_range
+    acareacao_vencendo_hoje = acareacao_vencem_hoje_por_prazo(acareacao_df, _ref_acareacao)
+    if acareacao_vencendo_hoje == 0:
+        acareacao_vencendo_hoje = number(summary_value(resumo, "Acareações vencendo hoje", 0))
 
     saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
 
