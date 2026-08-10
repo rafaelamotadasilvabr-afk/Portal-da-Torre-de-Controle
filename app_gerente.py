@@ -3539,7 +3539,100 @@ def carga_parcial_rows():
     ]
     cols = [c for c in preferred if c in data.columns]
     rest = [c for c in data.columns if c not in cols]
-    return data[cols + rest].copy() if cols else data
+    return enriquecer_carga_parcial_acoes(data[cols + rest].copy() if cols else data)
+
+
+
+def enriquecer_carga_parcial_acoes(df):
+    """
+    Garante que o detalhe de Carga Parcial tenha as colunas operacionais,
+    mesmo se a aba sincronizada ainda tiver vindo somente com AWB e SLA.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    out = df.copy()
+
+    # Garantir colunas base.
+    for col in [
+        "PRIORIDADE CARGA PARCIAL",
+        "ENCAMINHAR PARA PENDÊNCIA",
+        "PRECISA DAR MISSING",
+        "STATUS SLA",
+        "E-MAIL ENTREGA PARCIAL",
+        "AÇÃO OPERACIONAL",
+    ]:
+        if col not in out.columns:
+            out[col] = ""
+
+    sla_col = first_col(out, ["SLA", "ApproxSLA", "APPROX SLA", "DATA SLA"])
+    if sla_col:
+        try:
+            ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
+        except Exception:
+            ref_date = pd.Timestamp.today().normalize()
+
+        sla_dt = pd.to_datetime(out[sla_col], errors="coerce", dayfirst=True).dt.normalize()
+        mask_vencido = sla_dt.lt(ref_date)
+        mask_hoje = sla_dt.eq(ref_date)
+
+        out.loc[mask_vencido, "STATUS SLA"] = "SLA VENCIDO"
+        out.loc[mask_hoje, "STATUS SLA"] = "SLA HOJE"
+        out.loc[out["STATUS SLA"].astype(str).str.strip().eq(""), "STATUS SLA"] = "SEM SLA"
+
+        out.loc[mask_vencido, "ENCAMINHAR PARA PENDÊNCIA"] = "SIM"
+        out.loc[mask_vencido, "E-MAIL ENTREGA PARCIAL"] = (
+            "ENVIAR E-MAIL: confirmar se podemos seguir com entrega parcial"
+        )
+
+        # Não apagar ação de Missing/Rádio Busca se já existir.
+        acao_atual = out["AÇÃO OPERACIONAL"].fillna("").astype(str).str.strip()
+        out.loc[mask_vencido & acao_atual.eq(""), "AÇÃO OPERACIONAL"] = (
+            "ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+        )
+        out.loc[
+            mask_vencido & acao_atual.str.contains("MISSING|RÁDIO|RADIO", regex=True, na=False),
+            "AÇÃO OPERACIONAL",
+        ] = acao_atual + " + ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+
+        out.loc[mask_vencido, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
+        out.loc[~mask_vencido & out["PRIORIDADE CARGA PARCIAL"].astype(str).str.strip().eq(""), "PRIORIDADE CARGA PARCIAL"] = "ACOMPANHAR"
+
+    # Missing/Rádio Busca por status/origem, quando as colunas existirem.
+    tipo_col = first_col(out, ["TIPO REGISTRO", "STATUS", "StatusDescription", "STATUSDESCRIPTION"])
+    origem_col = first_col(out, ["ONDE ESTA PENDENTE", "FltOrigin", "FLT ORIGIN", "FLTORIGIN"])
+    if tipo_col and origem_col:
+        tipo = out[tipo_col].fillna("").astype(str).map(normalize_text)
+        origem = out[origem_col].fillna("").astype(str).map(normalize_text)
+        mask_missing = (
+            tipo.str.contains("PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE", regex=True, na=False)
+            & origem.str.contains("CDSP2|SAO12", regex=True, na=False)
+        )
+        out.loc[mask_missing, "PRECISA DAR MISSING"] = "SIM"
+        acao = out["AÇÃO OPERACIONAL"].fillna("").astype(str).str.strip()
+        out.loc[mask_missing & acao.eq(""), "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
+        out.loc[mask_missing, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
+
+    preferred = [
+        "AWB",
+        "PRIORIDADE CARGA PARCIAL",
+        "ENCAMINHAR PARA PENDÊNCIA",
+        "PRECISA DAR MISSING",
+        "STATUS SLA",
+        "E-MAIL ENTREGA PARCIAL",
+        "AÇÃO OPERACIONAL",
+        "ONDE ESTA PENDENTE",
+        "STATUS",
+        "STATUS EN",
+        "OPS STATION",
+        "DESTINO",
+        "SLA",
+        "TIPO REGISTRO",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols]
+    return out[cols + rest].copy() if cols else out
+
 
 
 def carga_parcial_count(df=None):
@@ -3689,18 +3782,12 @@ def acareacao_rows_prefer_sheet(fila_df):
 
 
 
-def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
-    """
-    Mini-indicador do card Acareações:
-    conta linhas abertas cujo PRAZO DE DEVOLUTIVA vence hoje.
 
-    Fonte esperada:
-    - coluna PRAZO DE DEVOLUTIVA, vinda da planilha de Acareação.
-    """
+def localizar_coluna_prazo_devolutiva(df):
     if df is None or df.empty:
-        return 0
+        return None
 
-    prazo_col = first_col(df, [
+    candidatos = [
         "PRAZO DE DEVOLUTIVA",
         "PRAZO DEVOLUTIVA",
         "PRAZO",
@@ -3708,30 +3795,48 @@ def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
         "DATA DE PRAZO",
         "ORIG_PRAZO DE DEVOLUTIVA",
         "ORIG_PRAZO DEVOLUTIVA",
-    ])
+    ]
 
-    # Se o app operacional ainda não sincronizou a coluna padronizada,
-    # procurar qualquer coluna que contenha PRAZO + DEVOLUTIVA.
-    if not prazo_col:
+    col = first_col(df, candidatos)
+    if col:
+        return col
+
+    for c in df.columns:
+        n = normalize_text(c)
+        if "PRAZO" in n and "DEVOLUTIVA" in n:
+            return c
+
+    # Na planilha original, PRAZO DE DEVOLUTIVA é a coluna F.
+    # Se a sincronização preservou as colunas ORIG_, procurar por posição lógica.
+    try:
         for c in df.columns:
             n = normalize_text(c)
-            if "PRAZO" in n and "DEVOLUTIVA" in n:
-                prazo_col = c
-                break
+            if n.startswith("ORIG_") and "PRAZO" in n:
+                return c
+    except Exception:
+        pass
 
+    return None
+
+
+def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
+    """
+    Conta acareações abertas cujo PRAZO DE DEVOLUTIVA vence hoje.
+    Usa a coluna PRAZO DE DEVOLUTIVA da planilha/aba ACareações.
+    """
+    if df is None or df.empty:
+        return 0
+
+    prazo_col = localizar_coluna_prazo_devolutiva(df)
     if not prazo_col:
         return 0
 
-    # Data de referência:
-    # - se filtro do painel for uma data única, usa essa data;
-    # - caso contrário, usa a data atual de Brasília.
     ref = pd.to_datetime(reference_date, errors="coerce")
     if pd.isna(ref):
         try:
             ref = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None)
         except Exception:
             ref = pd.Timestamp.today()
-
     ref_date = ref.normalize()
 
     prazo = pd.to_datetime(df[prazo_col], errors="coerce", dayfirst=True).dt.normalize()
@@ -3904,7 +4009,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "carga_parcial":
         title = "Detalhe — Carga Parcial"
         subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
-        df = carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()
+        df = enriquecer_carga_parcial_acoes(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows())
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -5153,7 +5258,7 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    # Vencem hoje: usa a coluna PRAZO DE DEVOLUTIVA da planilha de Acareação.
+    # Vencem hoje: usa exclusivamente a coluna PRAZO DE DEVOLUTIVA da planilha de Acareação.
     _ref_acareacao = None
     if not isinstance(date_range, tuple):
         _ref_acareacao = date_range
