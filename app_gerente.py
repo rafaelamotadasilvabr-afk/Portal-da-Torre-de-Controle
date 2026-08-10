@@ -2849,6 +2849,41 @@ def anexar_status_email_pendencia(df):
 
 
 
+
+def colunas_detalhe_carga_parcial(df):
+    """
+    Detalhe operacional do card Carga Parcial.
+    Mantém as colunas de ação no detalhe, sem depender do filtro geral de colunas.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    out = enriquecer_carga_parcial_acoes(df.copy())
+
+    preferred = [
+        "AWB",
+        "PRIORIDADE CARGA PARCIAL",
+        "ENCAMINHAR PARA PENDÊNCIA",
+        "PRECISA DAR MISSING",
+        "STATUS SLA",
+        "E-MAIL ENTREGA PARCIAL",
+        "AÇÃO OPERACIONAL",
+        "ONDE ESTA PENDENTE",
+        "STATUS",
+        "STATUS EN",
+        "OPS STATION",
+        "DESTINO",
+        "SLA",
+        "TIPO REGISTRO",
+    ]
+
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+
+    return out[cols + rest].copy() if cols else out
+
+
+
 def detail_columns(df):
     if df is None or df.empty:
         return df
@@ -4009,7 +4044,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "carga_parcial":
         title = "Detalhe — Carga Parcial"
         subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
-        df = enriquecer_carga_parcial_acoes(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows())
+        df = colunas_detalhe_carga_parcial(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows())
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -4098,7 +4133,10 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     if card_key in operational_keys_excluir_carga_parcial:
         df = remove_carga_parcial_from_rows(df)
 
-    detail_df = detail_columns(df)
+    if card_key == "carga_parcial":
+        detail_df = colunas_detalhe_carga_parcial(df)
+    else:
+        detail_df = detail_columns(df)
 
     st.markdown(
         f"""
