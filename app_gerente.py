@@ -3523,6 +3523,8 @@ def carga_parcial_rows():
     data = df.copy()
     preferred = [
         "AWB",
+        "PRIORIDADE CARGA PARCIAL",
+        "AÇÃO OPERACIONAL",
         "ONDE ESTA PENDENTE",
         "STATUS",
         "STATUS EN",
@@ -3835,7 +3837,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "carga_parcial":
         title = "Detalhe — Carga Parcial"
-        subtitle = "AWBs que aparecem no AWBStatus como Pendente Entrega e também Pendente Desembarque. Onde está pendente vem da coluna FltOrigin; status vem de StatusDescriptionEN."
+        subtitle = "AWBs que aparecem como Pendente Entrega e também Pendente Embarque ou Desembarque. Se Pendente Desembarque estiver em FltOrigin CDSP2/SAO12, a ação é abrir Missing e acionar Rádio Busca."
         df = carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()
 
     elif card_key == "insucesso_sem_pendencia":
@@ -5101,7 +5103,7 @@ if menu == "visao":
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
-        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Pendente Entrega + Pendente Desembarque", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
+        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),

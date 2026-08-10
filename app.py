@@ -462,15 +462,21 @@ def read_carga_parcial_last_mile(file_bytes):
         regex=True,
         na=False,
     )
+    mask_embarque = data["_STATUS_NORM"].str.contains(
+        "PENDENTE EMBARQUE|PENDENTE DE EMBARQUE",
+        regex=True,
+        na=False,
+    )
     mask_desembarque = data["_STATUS_NORM"].str.contains(
         "PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE",
         regex=True,
         na=False,
     )
+    mask_pendente_origem = mask_embarque | mask_desembarque
 
     awbs_entrega = set(data.loc[mask_entrega, "AWB"].dropna().astype(str).str.strip())
-    awbs_desembarque = set(data.loc[mask_desembarque, "AWB"].dropna().astype(str).str.strip())
-    awbs_parciais = {x for x in (awbs_entrega & awbs_desembarque) if x}
+    awbs_origem = set(data.loc[mask_pendente_origem, "AWB"].dropna().astype(str).str.strip())
+    awbs_parciais = {x for x in (awbs_entrega & awbs_origem) if x}
 
     if not awbs_parciais:
         return pd.DataFrame(columns=[
@@ -478,7 +484,7 @@ def read_carga_parcial_last_mile(file_bytes):
             "OPS STATION", "DESTINO", "SLA", "TIPO REGISTRO"
         ])
 
-    out = data[data["AWB"].isin(awbs_parciais) & (mask_entrega | mask_desembarque)].copy()
+    out = data[data["AWB"].isin(awbs_parciais) & (mask_entrega | mask_pendente_origem)].copy()
 
     def _safe_col(col):
         return out[col] if col and col in out.columns else ""
@@ -492,13 +498,38 @@ def read_carga_parcial_last_mile(file_bytes):
         "DESTINO": _safe_col(flt_dest_col),
         "SLA": _safe_col(sla_col),
         "TIPO REGISTRO": out["_STATUS_NORM"].apply(
-            lambda x: "PENDENTE ENTREGA" if "PENDENTE ENTREGA" in x or "PENDENTE DE ENTREGA" in x else "PENDENTE DESEMBARQUE"
+            lambda x:
+                "PENDENTE ENTREGA"
+                if "PENDENTE ENTREGA" in x or "PENDENTE DE ENTREGA" in x
+                else (
+                    "PENDENTE EMBARQUE"
+                    if "PENDENTE EMBARQUE" in x or "PENDENTE DE EMBARQUE" in x
+                    else "PENDENTE DESEMBARQUE"
+                )
         ),
     })
 
+    # Regra operacional de urgência:
+    # se a carga parcial tiver registro de Pendente Desembarque
+    # e o FltOrigin indicar CDSP2 ou SAO12, precisa tratar como Missing
+    # e acionar Rádio Busca.
+    _origem_norm = result["ONDE ESTA PENDENTE"].fillna("").astype(str).map(normalize_text)
+    _tipo_norm = result["TIPO REGISTRO"].fillna("").astype(str).map(normalize_text)
+
+    _mask_missing_radio = (
+        _tipo_norm.str.contains("PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE", regex=True, na=False)
+        & _origem_norm.str.contains("CDSP2|SAO12", regex=True, na=False)
+    )
+
+    result["AÇÃO OPERACIONAL"] = ""
+    result.loc[_mask_missing_radio, "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
+
+    result["PRIORIDADE CARGA PARCIAL"] = ""
+    result.loc[_mask_missing_radio, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
+
     return (
         result
-        .sort_values(["AWB", "TIPO REGISTRO", "ONDE ESTA PENDENTE"], na_position="last")
+        .sort_values(["AWB", "PRIORIDADE CARGA PARCIAL", "TIPO REGISTRO", "ONDE ESTA PENDENTE"], ascending=[True, False, True, True], na_position="last")
         .reset_index(drop=True)
     )
 
