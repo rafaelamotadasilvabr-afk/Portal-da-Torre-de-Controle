@@ -3524,6 +3524,7 @@ def carga_parcial_rows():
     preferred = [
         "AWB",
         "PRIORIDADE CARGA PARCIAL",
+        "ENCAMINHAR PARA PENDÊNCIA",
         "PRECISA DAR MISSING",
         "STATUS SLA",
         "E-MAIL ENTREGA PARCIAL",
@@ -3880,7 +3881,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "carga_parcial":
         title = "Detalhe — Carga Parcial"
-        subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. O detalhe informa se precisa abrir Missing, se o SLA venceu e se deve enviar e-mail perguntando se podemos seguir com entrega parcial."
+        subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
         df = carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()
 
     elif card_key == "insucesso_sem_pendencia":

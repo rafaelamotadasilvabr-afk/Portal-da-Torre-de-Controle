@@ -524,8 +524,12 @@ def read_carga_parcial_last_mile(file_bytes, reference_date=None):
     # SLA da carga parcial:
     # se já passou o SLA, precisa enviar e-mail perguntando se pode seguir
     # com entrega parcial.
-    ref_ts = pd.to_datetime(reference_date, errors="coerce")
-    ref_date = ref_ts.date() if pd.notna(ref_ts) else pd.Timestamp.today().date()
+    # Para Carga Parcial, o vencimento de SLA deve refletir o dia atual operacional,
+    # não apenas a data de filtro do painel. Isso evita esconder ação urgente.
+    try:
+        ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").date()
+    except Exception:
+        ref_date = pd.Timestamp.today().date()
 
     _sla_dt = pd.to_datetime(result["SLA"], errors="coerce").dt.date
     _mask_sla_vencido = _sla_dt.apply(lambda x: bool(pd.notna(x) and x < ref_date))
@@ -538,6 +542,9 @@ def read_carga_parcial_last_mile(file_bytes, reference_date=None):
     result.loc[_mask_sla_hoje, "STATUS SLA"] = "SLA HOJE"
     result.loc[_mask_sla_vencido, "STATUS SLA"] = "SLA VENCIDO"
 
+    result["ENCAMINHAR PARA PENDÊNCIA"] = ""
+    result.loc[_mask_sla_vencido, "ENCAMINHAR PARA PENDÊNCIA"] = "SIM"
+
     result["E-MAIL ENTREGA PARCIAL"] = ""
     result.loc[_mask_sla_vencido, "E-MAIL ENTREGA PARCIAL"] = (
         "ENVIAR E-MAIL: confirmar se podemos seguir com entrega parcial"
@@ -546,10 +553,10 @@ def read_carga_parcial_last_mile(file_bytes, reference_date=None):
     result["AÇÃO OPERACIONAL"] = ""
     result.loc[_mask_missing_radio, "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
     result.loc[_mask_sla_vencido & ~_mask_missing_radio, "AÇÃO OPERACIONAL"] = (
-        "ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+        "ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
     )
     result.loc[_mask_sla_vencido & _mask_missing_radio, "AÇÃO OPERACIONAL"] = (
-        "ABRIR MISSING + ACIONAR RÁDIO BUSCA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+        "ABRIR MISSING + ACIONAR RÁDIO BUSCA + ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
     )
 
     result["PRIORIDADE CARGA PARCIAL"] = ""
