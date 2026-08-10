@@ -424,7 +424,7 @@ def read_last_mile(file_bytes):
 
 
 
-def read_carga_parcial_last_mile(file_bytes):
+def read_carga_parcial_last_mile(file_bytes, reference_date=None):
     """
     Carga Parcial:
     AWB aparece no AWBStatus com StatusDescription contendo Pendente Entrega
@@ -521,15 +521,48 @@ def read_carga_parcial_last_mile(file_bytes):
         & _origem_norm.str.contains("CDSP2|SAO12", regex=True, na=False)
     )
 
+    # SLA da carga parcial:
+    # se já passou o SLA, precisa enviar e-mail perguntando se pode seguir
+    # com entrega parcial.
+    ref_ts = pd.to_datetime(reference_date, errors="coerce")
+    ref_date = ref_ts.date() if pd.notna(ref_ts) else pd.Timestamp.today().date()
+
+    _sla_dt = pd.to_datetime(result["SLA"], errors="coerce").dt.date
+    _mask_sla_vencido = _sla_dt.apply(lambda x: bool(pd.notna(x) and x < ref_date))
+    _mask_sla_hoje = _sla_dt.apply(lambda x: bool(pd.notna(x) and x == ref_date))
+
+    result["PRECISA DAR MISSING"] = ""
+    result.loc[_mask_missing_radio, "PRECISA DAR MISSING"] = "SIM"
+
+    result["STATUS SLA"] = "SEM SLA"
+    result.loc[_mask_sla_hoje, "STATUS SLA"] = "SLA HOJE"
+    result.loc[_mask_sla_vencido, "STATUS SLA"] = "SLA VENCIDO"
+
+    result["E-MAIL ENTREGA PARCIAL"] = ""
+    result.loc[_mask_sla_vencido, "E-MAIL ENTREGA PARCIAL"] = (
+        "ENVIAR E-MAIL: confirmar se podemos seguir com entrega parcial"
+    )
+
     result["AÇÃO OPERACIONAL"] = ""
     result.loc[_mask_missing_radio, "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
+    result.loc[_mask_sla_vencido & ~_mask_missing_radio, "AÇÃO OPERACIONAL"] = (
+        "ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+    )
+    result.loc[_mask_sla_vencido & _mask_missing_radio, "AÇÃO OPERACIONAL"] = (
+        "ABRIR MISSING + ACIONAR RÁDIO BUSCA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
+    )
 
     result["PRIORIDADE CARGA PARCIAL"] = ""
-    result.loc[_mask_missing_radio, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
+    result.loc[_mask_sla_vencido | _mask_missing_radio, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
+    result.loc[~(_mask_sla_vencido | _mask_missing_radio), "PRIORIDADE CARGA PARCIAL"] = "ACOMPANHAR"
 
     return (
         result
-        .sort_values(["AWB", "PRIORIDADE CARGA PARCIAL", "TIPO REGISTRO", "ONDE ESTA PENDENTE"], ascending=[True, False, True, True], na_position="last")
+        .sort_values(
+            ["AWB", "PRIORIDADE CARGA PARCIAL", "TIPO REGISTRO", "ONDE ESTA PENDENTE"],
+            ascending=[True, False, True, True],
+            na_position="last",
+        )
         .reset_index(drop=True)
     )
 
@@ -3763,7 +3796,7 @@ if not (file_lm and file_eu):
 try:
     with st.spinner("Processando bases filtradas e aplicando regras da Torre..."):
         lm = read_last_mile(file_lm.getvalue())
-        carga_parcial_detalhe_gerente = read_carga_parcial_last_mile(file_lm.getvalue())
+        carga_parcial_detalhe_gerente = read_carga_parcial_last_mile(file_lm.getvalue(), reference_date)
 
         _lm_awb_filter = (
             tuple(sorted(lm["AWB"].dropna().astype(str).str.strip().unique()))
