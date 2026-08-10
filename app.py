@@ -1776,8 +1776,10 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
     No gerente, chamaremos First Mile de EDI.
     """
     detail_rows = []
-    ref_ts = pd.to_datetime(reference_date, errors="coerce")
-    ref_date = ref_ts.date() if pd.notna(ref_ts) else pd.Timestamp.today().date()
+    try:
+        ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").date()
+    except Exception:
+        ref_date = pd.Timestamp.today().date()
 
     def pick(row, cols):
         for col in cols:

@@ -3688,10 +3688,14 @@ def acareacao_rows_prefer_sheet(fila_df):
 
 
 
+
 def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
     """
-    Conta acareações cujo PRAZO DE DEVOLUTIVA vence na data de referência.
-    Usa a aba ACAREAÇÕES sincronizada; não altera a regra das demais filas.
+    Mini-indicador do card Acareações:
+    conta linhas abertas cujo PRAZO DE DEVOLUTIVA vence hoje.
+
+    Fonte esperada:
+    - coluna PRAZO DE DEVOLUTIVA, vinda da planilha de Acareação.
     """
     if df is None or df.empty:
         return 0
@@ -3703,13 +3707,31 @@ def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
         "DATA PRAZO",
         "DATA DE PRAZO",
         "ORIG_PRAZO DE DEVOLUTIVA",
+        "ORIG_PRAZO DEVOLUTIVA",
     ])
+
+    # Se o app operacional ainda não sincronizou a coluna padronizada,
+    # procurar qualquer coluna que contenha PRAZO + DEVOLUTIVA.
+    if not prazo_col:
+        for c in df.columns:
+            n = normalize_text(c)
+            if "PRAZO" in n and "DEVOLUTIVA" in n:
+                prazo_col = c
+                break
+
     if not prazo_col:
         return 0
 
+    # Data de referência:
+    # - se filtro do painel for uma data única, usa essa data;
+    # - caso contrário, usa a data atual de Brasília.
     ref = pd.to_datetime(reference_date, errors="coerce")
     if pd.isna(ref):
-        ref = pd.Timestamp.today()
+        try:
+            ref = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None)
+        except Exception:
+            ref = pd.Timestamp.today()
+
     ref_date = ref.normalize()
 
     prazo = pd.to_datetime(df[prazo_col], errors="coerce", dayfirst=True).dt.normalize()
@@ -3717,7 +3739,7 @@ def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
     status_col = first_col(df, ["STATUS", "SITUAÇÃO", "SITUACAO"])
     if status_col:
         status_norm = df[status_col].fillna("").astype(str).map(normalize_text)
-        mask_aberto = ~status_norm.str.contains("CONCLUID|FINALIZ|ENCERR|BAIXAD", regex=True, na=False)
+        mask_aberto = ~status_norm.str.contains("CONCLUID|FINALIZ|ENCERR|BAIXAD|CANCEL", regex=True, na=False)
     else:
         mask_aberto = pd.Series(True, index=df.index)
 
@@ -5136,8 +5158,6 @@ if menu == "visao":
     if not isinstance(date_range, tuple):
         _ref_acareacao = date_range
     acareacao_vencendo_hoje = acareacao_vencem_hoje_por_prazo(acareacao_df, _ref_acareacao)
-    if acareacao_vencendo_hoje == 0:
-        acareacao_vencendo_hoje = number(summary_value(resumo, "Acareações vencendo hoje", 0))
 
     saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
 
