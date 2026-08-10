@@ -3819,6 +3819,7 @@ def acareacao_rows_prefer_sheet(fila_df):
 
 
 
+
 def localizar_coluna_prazo_devolutiva(df):
     if df is None or df.empty:
         return None
@@ -3849,25 +3850,18 @@ def localizar_coluna_prazo_devolutiva(df):
 def _parse_data_prazo_devolutiva(series):
     """
     Parser robusto para PRAZO DE DEVOLUTIVA.
-    Aceita:
-    - dd/mm/aaaa;
-    - datetime;
-    - serial Excel/Google Sheets;
-    - texto com hora.
+    Aceita dd/mm/aaaa, datetime, texto com hora e serial Excel/Sheets.
     """
     if series is None:
         return pd.Series(dtype="datetime64[ns]")
 
-    s = series.copy()
+    raw = series.copy()
+    parsed = pd.to_datetime(raw, errors="coerce", dayfirst=True)
 
-    # Primeiro tenta parser brasileiro.
-    parsed = pd.to_datetime(s, errors="coerce", dayfirst=True)
-
-    # Fallback para números seriais do Excel/Sheets.
     missing = parsed.isna()
     if missing.any():
         numeric = pd.to_numeric(
-            s.astype(str).str.replace(",", ".", regex=False),
+            raw.astype(str).str.replace(",", ".", regex=False),
             errors="coerce",
         )
         serial_mask = missing & numeric.notna() & numeric.between(20000, 80000)
@@ -3882,12 +3876,28 @@ def _parse_data_prazo_devolutiva(series):
     return parsed
 
 
+def _data_operacional_acareacao(reference_date=None):
+    """
+    Para o card Acareações:
+    - se o painel está filtrado em uma data única, usar essa data;
+    - se não estiver, usar a data atual de Brasília.
+    """
+    ref = pd.to_datetime(reference_date, errors="coerce")
+    if pd.notna(ref):
+        return ref.normalize()
+
+    try:
+        return pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
+    except Exception:
+        return pd.Timestamp.today().normalize()
+
+
 def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
     """
     Mini-indicador do card Acareações.
 
-    Regra solicitada:
-    Vencem hoje = tudo que tiver PRAZO DE DEVOLUTIVA igual à data de hoje.
+    Regra:
+    Vencem hoje = PRAZO DE DEVOLUTIVA igual à data operacional do painel.
     """
     if df is None or df.empty:
         return 0
@@ -3896,15 +3906,12 @@ def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
     if not prazo_col:
         return 0
 
-    # Hoje operacional em Brasília. Não usa o resumo e não depende do filtro do painel.
-    try:
-        hoje = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
-    except Exception:
-        hoje = pd.Timestamp.today().normalize()
-
+    data_operacional = _data_operacional_acareacao(reference_date)
     prazo = _parse_data_prazo_devolutiva(df[prazo_col]).dt.normalize()
 
-    return int(prazo.eq(hoje).sum())
+    return int(prazo.eq(data_operacional).sum())
+
+
 
 
 
@@ -5319,8 +5326,11 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    # Vencem hoje: conta tudo com PRAZO DE DEVOLUTIVA igual à data de hoje.
-    acareacao_vencendo_hoje = acareacao_vencem_hoje_por_prazo(acareacao_df)
+    # Vencem hoje: PRAZO DE DEVOLUTIVA igual à data operacional do painel.
+    _ref_acareacao = None
+    if not isinstance(date_range, tuple):
+        _ref_acareacao = date_range
+    acareacao_vencendo_hoje = acareacao_vencem_hoje_por_prazo(acareacao_df, _ref_acareacao)
 
     saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
 
