@@ -4287,14 +4287,9 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         ])
 
     elif card_key == "insucesso_sem_retorno":
-        title = "Detalhe — Insucesso sem retorno físico"
-        subtitle = "Cargas com insucesso em dias anteriores que não constam em Retornos físicos. Ação: cobrar o entregador."
+        title = "Detalhe — Retorno de carga com insucesso"
+        subtitle = "Cargas com insucesso em dias anteriores para cobrança de retorno/tratativa do entregador."
         df = enriquecer_insucesso_sem_retorno(insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada))
-
-    elif card_key == "rota_aberta_ontem":
-        title = "Detalhe — Rota aberta de ontem"
-        subtitle = "Rotas do dia anterior ainda sem finalização. Ação: cobrar fechamento da delivery route."
-        df = enriquecer_rota_aberta_ontem(rotas_abertas_ontem_df.copy() if "rotas_abertas_ontem_df" in globals() else rotas_abertas_ontem_rows(fila_filtrada))
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
@@ -5680,7 +5675,7 @@ def enriquecer_insucesso_sem_retorno(df):
     out["DATA INSUCESSO"] = pd.to_datetime(out[data_col], errors="coerce", dayfirst=True) if data_col else pd.NaT
     out["TIPO DE INSUCESSO"] = out[motivo_col] if motivo_col else ""
     out["STATUS ROTA"] = out[status_col] if status_col else ""
-    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR NO DIA SEGUINTE"
+    out["AÇÃO OPERACIONAL"] = "COBRAR RETORNO / TRATATIVA DO ENTREGADOR"
     out["CONTROLE"] = "INSUCESSO SEM RETORNO FÍSICO"
 
     preferred = [
@@ -5805,7 +5800,7 @@ def insucesso_sem_retorno_fisico_rows(df):
     if out.empty:
         return out
 
-    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR: insucesso anterior sem retorno físico"
+    out["AÇÃO OPERACIONAL"] = "COBRAR RETORNO / TRATATIVA DO ENTREGADOR"
     out["CONTROLE"] = "INSUCESSO SEM RETORNO FÍSICO"
 
     preferred = ["AWB", "AÇÃO OPERACIONAL", "CONTROLE", "MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "ULTIMA_ROTA", "EXECUTADA_DT", "SLA", "CLIENTE", "PROBLEMA"]
@@ -6152,19 +6147,16 @@ elif menu == "retornos":
 
 
 elif menu == "retorno_rotas":
-    st.title("Controle Retorno / Rotas")
-    st.caption("Controle operacional para cobrança no dia seguinte: retorno físico, entregador e fechamento de delivery route.")
+    st.title("Controle de Retornos")
+    st.caption("Controle operacional para cobrança de cargas com insucesso e necessidade de retorno/tratativa do entregador.")
 
     df_ret = insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada)
     df_ret = enriquecer_insucesso_sem_retorno(df_ret)
 
-    df_rota = rotas_abertas_ontem_df.copy() if "rotas_abertas_ontem_df" in globals() else rotas_abertas_ontem_rows(fila_filtrada)
-    df_rota = enriquecer_rota_aberta_ontem(df_rota)
-
     c1, c2 = st.columns(2, gap="small")
     with c1:
         indenizacao_metric_card(
-            "Insucesso sem retorno físico",
+            "Retorno de carga com insucesso",
             fmt_int(len(df_ret)),
             "AWBs, entregador, data e tipo de insucesso",
             "#dc2626",
@@ -6173,48 +6165,28 @@ elif menu == "retorno_rotas":
 
     with c2:
         indenizacao_metric_card(
-            "Rota aberta de ontem",
-            fmt_int(len(df_rota)),
-            "Número da rota, entregador, data e status",
+            "Ação operacional",
+            "Cobrança",
+            "Cobrar retorno / tratativa do entregador",
             "#b45309",
-            "⏳",
+            "📌",
         )
 
-    aba_retorno, aba_rota = st.tabs(["Insucesso sem retorno físico", "Rota aberta de ontem"])
+    st.subheader("Retorno de carga com insucesso")
+    st.caption("AWBs com insucesso em dias anteriores para cobrança de retorno/tratativa do entregador.")
 
-    with aba_retorno:
-        st.subheader("Insucesso sem retorno físico")
-        st.caption("AWBs com insucesso em dias anteriores e sem retorno físico. Usar para cobrar o entregador no dia seguinte.")
-
-        if df_ret.empty:
-            st.success("Nenhuma carga com insucesso anterior sem retorno físico.")
-        else:
-            st.info(f"{len(df_ret)} AWB(s) para cobrança.")
-            render_table(df_ret, height=520)
-            st.download_button(
-                "⬇ Exportar Excel — Insucesso sem retorno físico",
-                data=to_excel_bytes(df_ret, "Insucesso sem retorno"),
-                file_name="controle_insucesso_sem_retorno_fisico.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-    with aba_rota:
-        st.subheader("Rota aberta de ontem")
-        st.caption("Rotas do dia anterior ainda sem finalização. Usar para cobrar fechamento da delivery route.")
-
-        if df_rota.empty:
-            st.success("Nenhuma rota de ontem pendente de fechamento.")
-        else:
-            st.info(f"{len(df_rota)} rota(s)/registro(s) para cobrança.")
-            render_table(df_rota, height=520)
-            st.download_button(
-                "⬇ Exportar Excel — Rota aberta de ontem",
-                data=to_excel_bytes(df_rota, "Rota aberta ontem"),
-                file_name="controle_rota_aberta_ontem.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
+    if df_ret.empty:
+        st.success("Nenhuma carga com insucesso anterior pendente de cobrança.")
+    else:
+        st.info(f"{len(df_ret)} AWB(s) para cobrança.")
+        render_table(df_ret, height=560)
+        st.download_button(
+            "⬇ Exportar Excel — Retorno de carga com insucesso",
+            data=to_excel_bytes(df_ret, "Retorno com insucesso"),
+            file_name="controle_retorno_carga_com_insucesso.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
 
 
 elif menu == "edi":
