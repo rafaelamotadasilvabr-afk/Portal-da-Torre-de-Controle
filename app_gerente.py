@@ -4630,14 +4630,26 @@ def _indenizacao_status_col(df):
 
 
 def _indenizacao_valor_col(df):
+    """
+    Coluna usada para valor da indenização.
+    Regra operacional: usar a coluna VALOR.
+    """
+    if df is None or df.empty:
+        return None
+
+    # Prioridade: cabeçalho exatamente VALOR.
+    for c in df.columns:
+        if normalize_text(c) == "VALOR":
+            return c
+
     return first_col(df, [
+        "VALOR",
         "VALOR INDENIZAÇÃO",
         "VALOR INDENIZACAO",
         "VALOR DO CLAIM",
         "VALOR CLAIM",
         "VALOR DEBITO",
         "VALOR DÉBITO",
-        "VALOR",
         "VALOR TOTAL",
         "TOTAL",
         "PREJUIZO",
@@ -4784,9 +4796,19 @@ def _indenizacao_ofensor_col(df):
     Coluna usada para identificar o OFENSOR da indenização.
 
     Regra operacional:
-    sempre que a coluna OFENSOR contiver CDSP2 ou SAO12,
-    mesmo combinado com outra base, deve ser aceito.
+    coluna A / OFENSOR é a referência.
+    Sempre que OFENSOR contiver CDSP2 ou SAO12, mesmo combinado
+    com outra base, deve ser considerado.
     """
+    # Prioridade absoluta: coluna A = índice 0.
+    try:
+        if df is not None and len(df.columns) > 0:
+            col_a = df.columns[0]
+            if "OFENSOR" in normalize_text(col_a):
+                return col_a
+    except Exception:
+        pass
+
     col = first_col(df, [
         "OFENSOR",
         "BASE OFENSORA",
@@ -4796,12 +4818,18 @@ def _indenizacao_ofensor_col(df):
     if col:
         return col
 
-    # Busca normalizada por segurança, preservando a regra de OFENSOR.
     try:
         for c in df.columns:
             n = normalize_text(c)
             if "OFENSOR" in n:
                 return c
+    except Exception:
+        pass
+
+    # Fallback final: coluna A.
+    try:
+        if df is not None and len(df.columns) > 0:
+            return df.columns[0]
     except Exception:
         pass
 
@@ -4884,6 +4912,24 @@ def _indenizacao_mask_desconto(df):
 
 
 
+
+def _indenizacao_mask_debito_revertido_sim(df):
+    """
+    Débito revertido:
+    contar somente quando a coluna DÉBITO REVERTIDO estiver como SIM/sim.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    col = _indenizacao_debito_revertido_col(df)
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    status = df[col].fillna("").astype(str).map(normalize_text).str.strip()
+    return status.eq("SIM")
+
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4900,19 +4946,17 @@ def indenizacao_metrics():
             "valor_supervisao": 0.0,
         }
 
-    base = df["_BASE_INDENIZACAO"].astype(str)
     valor = df["_VALOR_INDENIZACAO"]
 
-    mask_cdsp2 = base.str.contains("CDSP2", na=False)
-    mask_sao12 = base.str.contains("SAO12", na=False)
+    # CDSP2 / SAO12 calculados pela coluna A / OFENSOR.
+    mask_cdsp2 = _mask_ofensor_cdsp2(df)
+    mask_sao12 = _mask_ofensor_sao12(df)
 
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    if col_debito_revertido and col_debito_revertido in df.columns:
-        mask_revertido = _serie_preenchida(df[col_debito_revertido])
-    else:
-        mask_revertido = pd.Series(False, index=df.index)
+    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
+    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
@@ -4941,20 +4985,17 @@ def indenizacao_detail_rows(tipo):
     if df.empty:
         return df
 
-    base = df["_BASE_INDENIZACAO"].astype(str)
-
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    if col_debito_revertido and col_debito_revertido in df.columns:
-        mask_revertido = _serie_preenchida(df[col_debito_revertido])
-    else:
-        mask_revertido = pd.Series(False, index=df.index)
+    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
+    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
-    mask_cdsp2 = base.str.contains("CDSP2", na=False)
-    mask_sao12 = base.str.contains("SAO12", na=False)
+    # CDSP2 / SAO12 calculados pela coluna A / OFENSOR.
+    mask_cdsp2 = _mask_ofensor_cdsp2(df)
+    mask_sao12 = _mask_ofensor_sao12(df)
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
@@ -5779,7 +5820,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Valor total CDSP2",
                 _money_br_ind(metrics_ind["valor_cdsp2"]),
-                "Total CDSP2 sem valores já descontados",
+                "OFENSOR contém CDSP2; descontos abatidos",
                 "#0b63ce",
                 "🏢",
             )
@@ -5788,7 +5829,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Valor total SAO12",
                 _money_br_ind(metrics_ind["valor_sao12"]),
-                "Total passível identificado para SAO12",
+                "OFENSOR contém SAO12",
                 "#7c3aed",
                 "🏬",
             )
@@ -5797,7 +5838,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Débito revertido",
                 _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com débito revertido",
+                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM",
                 "#0f766e",
                 "↩️",
             )
