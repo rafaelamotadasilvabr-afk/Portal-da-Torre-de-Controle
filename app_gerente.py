@@ -6043,12 +6043,13 @@ if menu == "visao":
 
     # Linha 2 — pendência e acareação. Cards mais largos.
     primary_row_2 = primary_cards[3:]
-    cols = st.columns(2)
-    for idx, item in enumerate(primary_row_2):
-        with cols[idx]:
-            _render_card_item(item, idx)
+    if primary_row_2:
+        cols = st.columns(len(primary_row_2))
+        for idx, item in enumerate(primary_row_2):
+            with cols[idx]:
+                _render_card_item(item, idx)
 
-    _render_detail_if_row([item[6] for item in primary_row_2])
+        _render_detail_if_row([item[6] for item in primary_row_2])
 
     st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
 
@@ -6065,12 +6066,15 @@ if menu == "visao":
 
     # Linha 4 — outras frentes remanescentes.
     secondary_row_2 = secondary_cards[3:]
-    cols = st.columns(3)
-    for idx, item in enumerate(secondary_row_2):
-        with cols[idx]:
-            _render_card_item(item, idx)
+    if secondary_row_2:
+        for _start in range(0, len(secondary_row_2), 3):
+            _row = secondary_row_2[_start:_start + 3]
+            cols = st.columns(len(_row))
+            for idx, item in enumerate(_row):
+                with cols[idx]:
+                    _render_card_item(item, idx)
 
-    _render_detail_if_row([item[6] for item in secondary_row_2])
+            _render_detail_if_row([item[6] for item in _row])
 
 
 
