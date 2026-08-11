@@ -4839,6 +4839,51 @@ def _mask_ofensor_cdsp2_sao12(df):
 
 
 
+
+def _indenizacao_desconto_col(df):
+    """
+    Coluna da planilha Passível a Débito que indica se houve desconto.
+    Regra: HOUVE DESCONTO? = SIM.
+    """
+    col = first_col(df, [
+        "HOUVE DESCONTO?",
+        "HOUVE DESCONTO",
+        "DESCONTO?",
+        "DESCONTO",
+        "DESCONTO APLICADO",
+        "HOUVE_DESCONTO",
+    ])
+    if col:
+        return col
+
+    try:
+        for c in df.columns:
+            n = normalize_text(c)
+            if "HOUVE" in n and "DESCONTO" in n:
+                return c
+    except Exception:
+        pass
+
+    return None
+
+
+def _indenizacao_mask_desconto(df):
+    """
+    True quando HOUVE DESCONTO? está preenchido como SIM.
+    Aceita variações: SIM, S, YES.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    col = _indenizacao_desconto_col(df)
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    desconto = df[col].fillna("").astype(str).map(normalize_text).str.strip()
+    return desconto.isin({"SIM", "S", "YES", "Y"})
+
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4849,6 +4894,8 @@ def indenizacao_metrics():
             "valor_sao12": 0.0,
             "qtd_revertido": 0,
             "valor_revertido": 0.0,
+            "qtd_desconto": 0,
+            "valor_desconto": 0.0,
             "qtd_supervisao": 0,
             "valor_supervisao": 0.0,
         }
@@ -4862,33 +4909,32 @@ def indenizacao_metrics():
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    # Débito revertido = coluna P / DÉBITO REVERTIDO preenchida.
     if col_debito_revertido and col_debito_revertido in df.columns:
         mask_revertido = _serie_preenchida(df[col_debito_revertido])
     else:
         mask_revertido = pd.Series(False, index=df.index)
 
-    # Falta análise supervisora =
-    # coluna M / STATUS ANALISE SUPERVISORA vazia
-    # + apenas OFENSOR contendo CDSP2 ou SAO12.
-    # Não exclui débito revertido; a regra da supervisora depende somente da coluna M vazia.
-    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
+    mask_desconto = _indenizacao_mask_desconto(df)
 
+    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
     if col_supervisora and col_supervisora in df.columns:
         mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
+    valor_cdsp2_liquido = float(valor[mask_cdsp2 & ~mask_desconto].sum())
+
     return {
         "base": df,
-        "valor_cdsp2": float(valor[mask_cdsp2].sum()),
+        "valor_cdsp2": valor_cdsp2_liquido,
         "valor_sao12": float(valor[mask_sao12].sum()),
         "qtd_revertido": int(mask_revertido.sum()),
         "valor_revertido": float(valor[mask_revertido].sum()),
+        "qtd_desconto": int(mask_desconto.sum()),
+        "valor_desconto": float(valor[mask_desconto].sum()),
         "qtd_supervisao": int(mask_supervisao.sum()),
         "valor_supervisao": float(valor[mask_supervisao].sum()),
     }
-
 
 def indenizacao_detail_rows(tipo):
     df = indenizacao_prepare(indenizacao_base_rows())
@@ -4905,6 +4951,8 @@ def indenizacao_detail_rows(tipo):
     else:
         mask_revertido = pd.Series(False, index=df.index)
 
+    mask_desconto = _indenizacao_mask_desconto(df)
+
     mask_cdsp2 = base.str.contains("CDSP2", na=False)
     mask_sao12 = base.str.contains("SAO12", na=False)
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
@@ -4915,18 +4963,19 @@ def indenizacao_detail_rows(tipo):
         mask_supervisao = pd.Series(False, index=df.index)
 
     if tipo == "cdsp2":
-        out = df[base.str.contains("CDSP2", na=False)].copy()
+        out = df[mask_cdsp2 & ~mask_desconto].copy()
     elif tipo == "sao12":
-        out = df[base.str.contains("SAO12", na=False)].copy()
+        out = df[mask_sao12].copy()
     elif tipo == "revertido":
         out = df[mask_revertido].copy()
+    elif tipo == "desconto":
+        out = df[mask_desconto].copy()
     elif tipo == "supervisao":
         out = df[mask_supervisao].copy()
     else:
         out = df.copy()
 
     return out.drop(columns=[c for c in out.columns if c.startswith("_")], errors="ignore")
-
 
 
 def indenizacao_evolucao_mensal():
@@ -5730,7 +5779,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Valor total CDSP2",
                 _money_br_ind(metrics_ind["valor_cdsp2"]),
-                "Total passível identificado para CDSP2",
+                "Total CDSP2 sem valores já descontados",
                 "#0b63ce",
                 "🏢",
             )
@@ -5753,9 +5802,18 @@ elif menu == "indenizacao":
                 "↩️",
             )
 
-        c4, c5 = st.columns(2, gap="small")
+        c4, c5, c6 = st.columns(3, gap="small")
 
         with c4:
+            indenizacao_metric_card(
+                "Desconto aplicado",
+                _money_br_ind(metrics_ind["valor_desconto"]),
+                f"{fmt_int(metrics_ind['qtd_desconto'])} AWB(s) com HOUVE DESCONTO? = SIM",
+                "#be123c",
+                "−",
+            )
+
+        with c5:
             indenizacao_metric_card(
                 "Falta análise supervisora",
                 fmt_int(metrics_ind["qtd_supervisao"]),
@@ -5764,7 +5822,7 @@ elif menu == "indenizacao":
                 "🔎",
             )
 
-        with c5:
+        with c6:
             indenizacao_metric_card(
                 "Total monitorado",
                 fmt_int(len(base_ind)),
@@ -5779,7 +5837,7 @@ elif menu == "indenizacao":
 
         aba = st.radio(
             "Selecionar visão",
-            ["CDSP2", "SAO12", "Débito revertido", "Falta análise supervisora", "Base completa"],
+            ["CDSP2", "SAO12", "Débito revertido", "Desconto aplicado", "Falta análise supervisora", "Base completa"],
             horizontal=True,
         )
 
@@ -5787,6 +5845,7 @@ elif menu == "indenizacao":
             "CDSP2": "cdsp2",
             "SAO12": "sao12",
             "Débito revertido": "revertido",
+            "Desconto aplicado": "desconto",
             "Falta análise supervisora": "supervisao",
             "Base completa": "todos",
         }
