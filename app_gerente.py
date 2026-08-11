@@ -4912,6 +4912,80 @@ def _indenizacao_mask_desconto(df):
 
 
 
+
+def _indenizacao_mask_debito_revertido_sim(df):
+    """
+    Débito revertido:
+    contar somente quando a coluna DÉBITO REVERTIDO estiver como SIM/sim.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    col = _indenizacao_debito_revertido_col(df)
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    status = df[col].fillna("").astype(str).map(normalize_text).str.strip()
+    return status.eq("SIM")
+
+
+
+
+def _indenizacao_ofensor_norm(df):
+    """
+    Normaliza a coluna OFENSOR da planilha Passível a Débito.
+    Regra: coluna A / OFENSOR é a referência operacional.
+    """
+    if df is None or df.empty:
+        return pd.Series("", index=df.index if df is not None else None)
+
+    col = None
+
+    try:
+        if len(df.columns) > 0:
+            col_a = df.columns[0]
+            if "OFENSOR" in normalize_text(col_a):
+                col = col_a
+    except Exception:
+        col = None
+
+    if not col:
+        try:
+            col = _indenizacao_ofensor_col(df)
+        except Exception:
+            col = None
+
+    if not col or col not in df.columns:
+        return pd.Series("", index=df.index)
+
+    raw = df[col].fillna("").astype(str).map(normalize_text)
+    compacto = raw.str.replace(r"[^A-Z0-9]", "", regex=True)
+    return raw + " " + compacto
+
+
+def _mask_ofensor_cdsp2(df):
+    """
+    CDSP2 = OFENSOR contém CDSP2 em qualquer parte do texto.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    ofensor = _indenizacao_ofensor_norm(df)
+    return ofensor.str.contains("CDSP2", regex=False, na=False)
+
+
+def _mask_ofensor_sao12(df):
+    """
+    SAO12 = OFENSOR contém SAO12 em qualquer parte do texto.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    ofensor = _indenizacao_ofensor_norm(df)
+    return ofensor.str.contains("SAO12", regex=False, na=False)
+
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4937,10 +5011,8 @@ def indenizacao_metrics():
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    if col_debito_revertido and col_debito_revertido in df.columns:
-        mask_revertido = _serie_preenchida(df[col_debito_revertido])
-    else:
-        mask_revertido = pd.Series(False, index=df.index)
+    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
+    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
@@ -4972,10 +5044,8 @@ def indenizacao_detail_rows(tipo):
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    if col_debito_revertido and col_debito_revertido in df.columns:
-        mask_revertido = _serie_preenchida(df[col_debito_revertido])
-    else:
-        mask_revertido = pd.Series(False, index=df.index)
+    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
+    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
@@ -5824,7 +5894,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Débito revertido",
                 _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com débito revertido",
+                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM",
                 "#0f766e",
                 "↩️",
             )
