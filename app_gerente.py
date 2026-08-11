@@ -4270,6 +4270,32 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         subtitle = "Cargas CDSP2 em pendência de desembarque com SLA vencido ou SLA do dia."
         df = last_mile_desembarque_df.copy() if "last_mile_desembarque_df" in globals() else last_mile_desembarque_rows(fila_filtrada)
 
+    elif card_key == "retorno_rotas":
+        title = "Detalhe — Retornos / Rotas pendentes"
+        subtitle = "Resumo do controle operacional. Para tratamento completo, acesse o menu Controle Retorno / Rotas."
+        df = pd.DataFrame([
+            {
+                "CONTROLE": "INSUCESSO SEM RETORNO FÍSICO",
+                "QUANTIDADE": resumo_insucesso_sem_retorno,
+                "AÇÃO": "Cobrar entregador",
+            },
+            {
+                "CONTROLE": "ROTA ABERTA DE ONTEM",
+                "QUANTIDADE": resumo_rotas_abertas_ontem,
+                "AÇÃO": "Cobrar fechamento da delivery route",
+            },
+        ])
+
+    elif card_key == "insucesso_sem_retorno":
+        title = "Detalhe — Insucesso sem retorno físico"
+        subtitle = "Cargas com insucesso em dias anteriores que não constam em Retornos físicos. Ação: cobrar o entregador."
+        df = enriquecer_insucesso_sem_retorno(insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada))
+
+    elif card_key == "rota_aberta_ontem":
+        title = "Detalhe — Rota aberta de ontem"
+        subtitle = "Rotas do dia anterior ainda sem finalização. Ação: cobrar fechamento da delivery route."
+        df = enriquecer_rota_aberta_ontem(rotas_abertas_ontem_df.copy() if "rotas_abertas_ontem_df" in globals() else rotas_abertas_ontem_rows(fila_filtrada))
+
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
         subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
@@ -5549,10 +5575,291 @@ resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entre
 insucesso_sem_pendencia_df = remove_carga_parcial_from_rows(insucesso_sem_pendencia_rows(fila_filtrada))
 resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
 
+
+def _data_operacional_ontem():
+    try:
+        hoje = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
+    except Exception:
+        hoje = pd.Timestamp.today().normalize()
+    return hoje - pd.Timedelta(days=1)
+
+
+def _col_data_norm(df, nomes):
+    col = first_col(df, nomes)
+    if not col or col not in df.columns:
+        return pd.Series(pd.NaT, index=df.index)
+    return pd.to_datetime(df[col], errors="coerce", dayfirst=True).dt.normalize()
+
+
+def _col_texto_norm(df, nomes):
+    col = first_col(df, nomes)
+    if not col or col not in df.columns:
+        return pd.Series("", index=df.index, dtype="object")
+    return df[col].fillna("").astype(str).map(normalize_text)
+
+
+def _col_tem_valor(df, nomes):
+    col = first_col(df, nomes)
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+    txt = df[col].fillna("").astype(str).str.strip()
+    norm = txt.map(normalize_text)
+    return txt.ne("") & ~norm.isin({"NAN", "NONE", "NULL", "NAT", "0", "-"})
+
+
+def _retornos_fisicos_awbs_set(df):
+    if df is None or df.empty:
+        return set()
+    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
+    if not awb_col:
+        return set()
+
+    mask = pd.Series(False, index=df.index)
+    for c in df.columns:
+        n = normalize_text(c)
+        if "RETORNO" in n:
+            val = df[c].fillna("").astype(str).map(normalize_text)
+            mask = mask | val.isin({"SIM", "S", "TRUE", "VERDADEIRO", "1", "RETORNOU", "CONFIRMADO"})
+
+    if not mask.any():
+        return set()
+
+    awbs = (
+        df.loc[mask, awb_col]
+        .fillna("")
+        .astype(str)
+        .str.replace(r"\D+", "", regex=True)
+        .str.strip()
+    )
+    return set(awbs[awbs.ne("")].unique().tolist())
+
+
+
+def enriquecer_insucesso_sem_retorno(df):
+    """
+    Padroniza colunas do controle Insucesso sem retorno físico.
+    Saída desejada: AWB, entregador, data e tipo de insucesso.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    out = df.copy()
+
+    entregador_col = first_col(out, [
+        "MOTORISTA / ENTREGADOR",
+        "ULTIMO_ENTREGADOR",
+        "ÚLTIMO ENTREGADOR",
+        "ENTREGADOR",
+        "MOTORISTA",
+    ])
+    data_col = first_col(out, [
+        "ULTIMA_ROTA",
+        "DATA_ROTA",
+        "DATA ROTA",
+        "EXECUTADA_DT",
+        "EXECUTADA",
+        "DATA ÚLTIMA ROTA",
+        "DATA ULTIMA ROTA",
+    ])
+    motivo_col = first_col(out, [
+        "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "MOTIVO",
+        "OCORRENCIA",
+        "OCORRÊNCIA",
+        "TIPO INSUCESSO",
+    ])
+    status_col = first_col(out, [
+        "STATUS ÚLTIMA ROTA",
+        "STATUS_ULTIMA_ROTA",
+        "STATUS ROTA",
+        "STATUS",
+    ])
+
+    out["ENTREGADOR COBRANÇA"] = out[entregador_col] if entregador_col else ""
+    out["DATA INSUCESSO"] = pd.to_datetime(out[data_col], errors="coerce", dayfirst=True) if data_col else pd.NaT
+    out["TIPO DE INSUCESSO"] = out[motivo_col] if motivo_col else ""
+    out["STATUS ROTA"] = out[status_col] if status_col else ""
+    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR NO DIA SEGUINTE"
+    out["CONTROLE"] = "INSUCESSO SEM RETORNO FÍSICO"
+
+    preferred = [
+        "AWB",
+        "ENTREGADOR COBRANÇA",
+        "DATA INSUCESSO",
+        "TIPO DE INSUCESSO",
+        "STATUS ROTA",
+        "AÇÃO OPERACIONAL",
+        "CLIENTE",
+        "SLA",
+        "PROBLEMA",
+        "CONTROLE",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return out[cols + rest].copy()
+
+
+def enriquecer_rota_aberta_ontem(df):
+    """
+    Padroniza colunas do controle Rota aberta de ontem.
+    Saída desejada: número da rota, entregador, data e status.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    out = df.copy()
+
+    rota_col = first_col(out, [
+        "ULTIMA_ROTA",
+        "ROTA",
+        "ID_ROTA",
+        "ID ROTA",
+        "ROUTE",
+        "DELIVERY ROUTE",
+        "DELIVERY_ROUTE",
+    ])
+    entregador_col = first_col(out, [
+        "MOTORISTA / ENTREGADOR",
+        "ULTIMO_ENTREGADOR",
+        "ÚLTIMO ENTREGADOR",
+        "ENTREGADOR",
+        "MOTORISTA",
+    ])
+    data_col = first_col(out, [
+        "ULTIMA_ROTA",
+        "DATA_ROTA",
+        "DATA ROTA",
+        "EXECUTADA_DT",
+        "EXECUTADA",
+        "DATA ÚLTIMA ROTA",
+        "DATA ULTIMA ROTA",
+    ])
+    status_col = first_col(out, [
+        "STATUS ÚLTIMA ROTA",
+        "STATUS_ULTIMA_ROTA",
+        "STATUS ROTA",
+        "STATUS",
+    ])
+
+    out["NÚMERO DA ROTA"] = out[rota_col] if rota_col else ""
+    out["ENTREGADOR COBRANÇA"] = out[entregador_col] if entregador_col else ""
+    out["DATA DA ROTA"] = pd.to_datetime(out[data_col], errors="coerce", dayfirst=True) if data_col else pd.NaT
+    out["STATUS DA ROTA"] = out[status_col] if status_col else ""
+    out["AÇÃO OPERACIONAL"] = "COBRAR FECHAMENTO DA DELIVERY ROUTE"
+    out["CONTROLE"] = "ROTA DE ONTEM ABERTA"
+
+    preferred = [
+        "NÚMERO DA ROTA",
+        "AWB",
+        "ENTREGADOR COBRANÇA",
+        "DATA DA ROTA",
+        "STATUS DA ROTA",
+        "AÇÃO OPERACIONAL",
+        "CLIENTE",
+        "SLA",
+        "PROBLEMA",
+        "CONTROLE",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return out[cols + rest].copy()
+
+
+
+def insucesso_sem_retorno_fisico_rows(df):
+    """
+    Insucesso em dias anteriores sem retorno físico registrado.
+    Ação: cobrar entregador.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+    awb_col = first_col(data, ["AWB", "awb", "Awb", "AWBNumber"])
+    if not awb_col:
+        return pd.DataFrame()
+
+    texto = (
+        _col_texto_norm(data, ["STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "STATUS ROTA", "STATUS"])
+        + " " + _col_texto_norm(data, ["MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "MOTIVO", "OCORRENCIA", "OCORRÊNCIA"])
+        + " " + _col_texto_norm(data, ["PROBLEMA", "TIPO INSUCESSO"])
+    )
+
+    mask_insucesso = texto.str.contains(
+        "DEVOLVIDO|INSUCESSO|AUSENTE|RESPONSAVEL AUSENTE|RESPONSÁVEL AUSENTE|"
+        "ESTABELECIMENTO FECHADO|DESTINATARIO|DESTINATÁRIO|RECUSADO|NAO LOCALIZADO|NÃO LOCALIZADO",
+        regex=True,
+        na=False,
+    )
+
+    data_rota = _col_data_norm(data, ["ULTIMA_ROTA", "DATA_ROTA", "DATA ROTA", "EXECUTADA_DT", "EXECUTADA", "DATA ÚLTIMA ROTA", "DATA ULTIMA ROTA"])
+    hoje = _data_operacional_ontem() + pd.Timedelta(days=1)
+    mask_dias_anteriores = data_rota.notna() & data_rota.lt(hoje)
+
+    retornos = _retornos_fisicos_awbs_set(data)
+    awb_norm = data[awb_col].fillna("").astype(str).str.replace(r"\D+", "", regex=True).str.strip()
+    mask_nao_retornou = ~awb_norm.isin(retornos)
+
+    out = data[mask_insucesso & mask_dias_anteriores & mask_nao_retornou].copy()
+    if out.empty:
+        return out
+
+    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR: insucesso anterior sem retorno físico"
+    out["CONTROLE"] = "INSUCESSO SEM RETORNO FÍSICO"
+
+    preferred = ["AWB", "AÇÃO OPERACIONAL", "CONTROLE", "MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "ULTIMA_ROTA", "EXECUTADA_DT", "SLA", "CLIENTE", "PROBLEMA"]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return enriquecer_insucesso_sem_retorno(out[cols + rest].copy() if cols else out)
+
+
+def rotas_abertas_ontem_rows(df):
+    """
+    Rota do dia anterior ainda sem finalização/fechamento.
+    Ação: cobrar fechamento da delivery route.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    data = df.copy()
+    ontem = _data_operacional_ontem()
+    data_rota = _col_data_norm(data, ["ULTIMA_ROTA", "DATA_ROTA", "DATA ROTA", "EXECUTADA_DT", "EXECUTADA", "DATA ÚLTIMA ROTA", "DATA ULTIMA ROTA"])
+    mask_ontem = data_rota.eq(ontem)
+
+    status_rota = _col_texto_norm(data, ["STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "STATUS ROTA", "STATUS"])
+    mask_finalizada = status_rota.str.contains("FINALIZ|FECHAD|CONCLUID|CONCLUÍD|ENTREGUE|BAIXAD", regex=True, na=False)
+
+    mask_tem_rota = (
+        _col_tem_valor(data, ["ULTIMA_ROTA", "DATA_ROTA", "DATA ROTA", "EXECUTADA_DT", "EXECUTADA"])
+        | _col_tem_valor(data, ["MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "ENTREGADOR"])
+    )
+
+    out = data[mask_ontem & mask_tem_rota & ~mask_finalizada].copy()
+    if out.empty:
+        return out
+
+    out["AÇÃO OPERACIONAL"] = "COBRAR FECHAMENTO DA DELIVERY ROUTE"
+    out["CONTROLE"] = "ROTA DE ONTEM ABERTA"
+
+    preferred = ["AWB", "AÇÃO OPERACIONAL", "CONTROLE", "MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "ULTIMA_ROTA", "EXECUTADA_DT", "SLA", "CLIENTE", "PROBLEMA"]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return enriquecer_rota_aberta_ontem(out[cols + rest].copy() if cols else out)
+
+
+
 # Qualidade precisa existir antes dos cards.
 # A quantidade do card usa o mesmo dataframe do detalhe.
 qualidade_df = remove_carga_parcial_from_rows(aguardando_qualidade_rows(fila_filtrada))
 resumo_qualidade_qtd = len(qualidade_df)
+
+# Controles operacionais de retorno/rota.
+insucesso_sem_retorno_df = insucesso_sem_retorno_fisico_rows(fila_filtrada)
+resumo_insucesso_sem_retorno = len(insucesso_sem_retorno_df)
+
+rotas_abertas_ontem_df = rotas_abertas_ontem_rows(fila_filtrada)
+resumo_rotas_abertas_ontem = len(rotas_abertas_ontem_df)
 
 # Carga Parcial: AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
 carga_parcial_df = carga_parcial_rows()
@@ -5681,6 +5988,7 @@ if menu == "visao":
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
+        ("Retornos / Rotas pendentes", fmt_int(resumo_insucesso_sem_retorno + resumo_rotas_abertas_ontem), "Cobrar entregador e fechamento de rota", "↩", "#dc2626", "#fee2e2", "retorno_rotas"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
     ]
@@ -5836,6 +6144,73 @@ elif menu == "retornos":
         mime="text/csv",
         use_container_width=True,
     )
+
+
+
+elif menu == "retorno_rotas":
+    st.title("Controle Retorno / Rotas")
+    st.caption("Controle operacional para cobrança no dia seguinte: retorno físico, entregador e fechamento de delivery route.")
+
+    df_ret = insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada)
+    df_ret = enriquecer_insucesso_sem_retorno(df_ret)
+
+    df_rota = rotas_abertas_ontem_df.copy() if "rotas_abertas_ontem_df" in globals() else rotas_abertas_ontem_rows(fila_filtrada)
+    df_rota = enriquecer_rota_aberta_ontem(df_rota)
+
+    c1, c2 = st.columns(2, gap="small")
+    with c1:
+        indenizacao_metric_card(
+            "Insucesso sem retorno físico",
+            fmt_int(len(df_ret)),
+            "AWBs, entregador, data e tipo de insucesso",
+            "#dc2626",
+            "↩",
+        )
+
+    with c2:
+        indenizacao_metric_card(
+            "Rota aberta de ontem",
+            fmt_int(len(df_rota)),
+            "Número da rota, entregador, data e status",
+            "#b45309",
+            "⏳",
+        )
+
+    aba_retorno, aba_rota = st.tabs(["Insucesso sem retorno físico", "Rota aberta de ontem"])
+
+    with aba_retorno:
+        st.subheader("Insucesso sem retorno físico")
+        st.caption("AWBs com insucesso em dias anteriores e sem retorno físico. Usar para cobrar o entregador no dia seguinte.")
+
+        if df_ret.empty:
+            st.success("Nenhuma carga com insucesso anterior sem retorno físico.")
+        else:
+            st.info(f"{len(df_ret)} AWB(s) para cobrança.")
+            render_table(df_ret, height=520)
+            st.download_button(
+                "⬇ Exportar Excel — Insucesso sem retorno físico",
+                data=to_excel_bytes(df_ret, "Insucesso sem retorno"),
+                file_name="controle_insucesso_sem_retorno_fisico.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+    with aba_rota:
+        st.subheader("Rota aberta de ontem")
+        st.caption("Rotas do dia anterior ainda sem finalização. Usar para cobrar fechamento da delivery route.")
+
+        if df_rota.empty:
+            st.success("Nenhuma rota de ontem pendente de fechamento.")
+        else:
+            st.info(f"{len(df_rota)} rota(s)/registro(s) para cobrança.")
+            render_table(df_rota, height=520)
+            st.download_button(
+                "⬇ Exportar Excel — Rota aberta de ontem",
+                data=to_excel_bytes(df_rota, "Rota aberta ontem"),
+                file_name="controle_rota_aberta_ontem.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
 
 elif menu == "edi":
