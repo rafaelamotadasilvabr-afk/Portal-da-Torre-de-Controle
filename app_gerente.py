@@ -3435,6 +3435,64 @@ def remove_pendencia_from_rows(df):
     return data
 
 
+
+def _mask_nunca_saiu_em_rota(df):
+    """
+    True = carga sem qualquer evidência de rota no Eu Entrego.
+    Uso exclusivo no card SLA do Dia.
+    """
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    data = df.copy()
+    mask_tem_rota = pd.Series(False, index=data.index)
+
+    route_cols = [
+        "ULTIMA_ROTA",
+        "DATA_ROTA",
+        "DATA ROTA",
+        "ROTA",
+        "ID_ROTA",
+        "ID ROTA",
+        "ROUTE",
+        "EXECUTADA_DT",
+        "EXECUTADA",
+        "Executada",
+        "MOTORISTA / ENTREGADOR",
+        "ULTIMO_ENTREGADOR",
+        "ENTREGADOR",
+        "STATUS ÚLTIMA ROTA",
+        "STATUS_ULTIMA_ROTA",
+    ]
+
+    for col in route_cols:
+        real_col = first_col(data, [col])
+        if real_col and real_col in data.columns:
+            serie = data[real_col].fillna("").astype(str).str.strip()
+            serie_norm = serie.map(normalize_text)
+            mask_col = serie.ne("") & ~serie_norm.isin({"NAN", "NONE", "NULL", "NAT", "0", "-"})
+            mask_tem_rota = mask_tem_rota | mask_col
+
+    tent_col = first_col(data, ["QT_TENTATIVAS_INSUCESSO", "TENTATIVAS", "QT TENTATIVAS"])
+    if tent_col and tent_col in data.columns:
+        tent = pd.to_numeric(data[tent_col], errors="coerce").fillna(0)
+        mask_tem_rota = mask_tem_rota | tent.gt(0)
+
+    return ~mask_tem_rota
+
+
+def filtrar_sla_dia_nunca_saiu_rota(df):
+    """
+    SLA do Dia: mantém somente cargas do SLA do dia que nunca saíram em rota.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    data = df.copy()
+    return data[_mask_nunca_saiu_em_rota(data)].copy()
+
+
+
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -4205,7 +4263,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "sla_sem_rota":
         title = "Detalhe — SLA do dia sem rota"
         subtitle = "Cargas com SLA no dia analisado, sem rota/saída no dia e sem insucesso que exija pendência."
-        df = sla_sem_rota_df.copy() if "sla_sem_rota_df" in globals() else sla_sem_rota_rows(fila_filtrada)
+        df = filtrar_sla_dia_nunca_saiu_rota(sla_sem_rota_df.copy() if "sla_sem_rota_df" in globals() else sla_sem_rota_rows(fila_filtrada))
 
     elif card_key == "lastmile_desembarque":
         title = "Detalhe — Pendente de desembarque CDSP2"
@@ -4290,6 +4348,9 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     if card_key == "carga_parcial":
         if card_key == "carga_parcial":
             df = remover_pendencia_torre_da_carga_parcial(df)
+
+        if card_key == "sla_sem_rota":
+            df = filtrar_sla_dia_nunca_saiu_rota(df)
 
         detail_df = colunas_detalhe_carga_parcial(df)
     else:
@@ -5499,7 +5560,7 @@ resumo_carga_parcial = carga_parcial_count(carga_parcial_df)
 
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
-sla_sem_rota_df = remove_carga_parcial_from_rows(sla_sem_rota_rows(fila_filtrada))
+sla_sem_rota_df = filtrar_sla_dia_nunca_saiu_rota(remove_carga_parcial_from_rows(sla_sem_rota_rows(fila_filtrada)))
 resumo_sla_sem_rota = len(sla_sem_rota_df)
 last_mile_desembarque_df = remove_carga_parcial_from_rows(last_mile_desembarque_rows(fila_filtrada))
 resumo_lm_desembarque = len(last_mile_desembarque_df)
