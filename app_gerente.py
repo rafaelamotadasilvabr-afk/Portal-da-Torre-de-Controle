@@ -4271,20 +4271,10 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         df = last_mile_desembarque_df.copy() if "last_mile_desembarque_df" in globals() else last_mile_desembarque_rows(fila_filtrada)
 
     elif card_key == "retorno_rotas":
-        title = "Detalhe — Retornos / Rotas pendentes"
-        subtitle = "Resumo do controle operacional. Para tratamento completo, acesse o menu Controle Retorno / Rotas."
-        df = pd.DataFrame([
-            {
-                "CONTROLE": "INSUCESSO SEM RETORNO FÍSICO",
-                "QUANTIDADE": resumo_insucesso_sem_retorno,
-                "AÇÃO": "Cobrar entregador",
-            },
-            {
-                "CONTROLE": "ROTA ABERTA DE ONTEM",
-                "QUANTIDADE": resumo_rotas_abertas_ontem,
-                "AÇÃO": "Cobrar fechamento da delivery route",
-            },
-        ])
+        title = "Detalhe — Retorno de carga com insucesso"
+        subtitle = "AWBs com insucesso em dias anteriores para cobrança de retorno/tratativa do entregador."
+        df = enriquecer_insucesso_sem_retorno(insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada))
+
 
     elif card_key == "insucesso_sem_retorno":
         title = "Detalhe — Retorno de carga com insucesso"
@@ -5983,7 +5973,7 @@ if menu == "visao":
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
-        ("Retornos / Rotas pendentes", fmt_int(resumo_insucesso_sem_retorno + resumo_rotas_abertas_ontem), "Cobrar entregador e fechamento de rota", "↩", "#dc2626", "#fee2e2", "retorno_rotas"),
+        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Cobrar retorno / tratativa do entregador", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
     ]
@@ -6151,7 +6141,7 @@ elif menu == "retorno_rotas":
     st.caption("Controle operacional para cobrança de cargas com insucesso e necessidade de retorno/tratativa do entregador.")
 
     df_ret = insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada)
-    df_ret = enriquecer_insucesso_sem_retorno(df_ret)
+    df_ret = enriquecer_insucesso_sem_retorno(df_ret) if "enriquecer_insucesso_sem_retorno" in globals() else df_ret
 
     c1, c2 = st.columns(2, gap="small")
     with c1:
