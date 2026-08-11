@@ -2858,6 +2858,7 @@ def colunas_detalhe_carga_parcial(df):
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df
 
+    df = remover_pendencia_torre_da_carga_parcial(df)
     out = enriquecer_carga_parcial_acoes(df.copy())
 
     preferred = [
@@ -3607,7 +3608,7 @@ def carga_parcial_rows():
     ]
     cols = [c for c in preferred if c in data.columns]
     rest = [c for c in data.columns if c not in cols]
-    return enriquecer_carga_parcial_acoes(data[cols + rest].copy() if cols else data)
+    return remover_pendencia_torre_da_carga_parcial(enriquecer_carga_parcial_acoes(data[cols + rest].copy() if cols else data))
 
 
 
@@ -3703,8 +3704,95 @@ def enriquecer_carga_parcial_acoes(df):
 
 
 
+
+def pendencia_torre_awbs_set():
+    """
+    AWBs atualmente na Pendência da Torre.
+    Usado para evitar duplicidade com Carga Parcial.
+    """
+    awbs = set()
+
+    fontes = []
+    try:
+        if "pendencia_movimentos" in globals() and pendencia_movimentos is not None and not pendencia_movimentos.empty:
+            fontes.append(("pendencia_movimentos", pendencia_movimentos))
+    except Exception:
+        pass
+
+    try:
+        if "fila_filtrada" in globals() and fila_filtrada is not None and not fila_filtrada.empty:
+            fontes.append(("fila_filtrada", fila_filtrada))
+    except Exception:
+        pass
+
+    try:
+        if "fila" in globals() and fila is not None and not fila.empty:
+            fontes.append(("fila", fila))
+    except Exception:
+        pass
+
+    for nome, df in fontes:
+        if df is None or df.empty:
+            continue
+
+        awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
+        if not awb_col:
+            continue
+
+        df_base = df.copy()
+
+        if nome != "pendencia_movimentos":
+            problema_col = first_col(df_base, ["PROBLEMA", "PENDÊNCIA", "PENDENCIA", "MOTIVO"])
+            if problema_col:
+                problema = df_base[problema_col].fillna("").astype(str).map(normalize_text)
+                mask_pend = problema.str.contains("PENDENCIA|PENDÊNCIA|PENDENCIA TORRE|PENDENCIA DA TORRE|PENDENCIA CORP", regex=True, na=False)
+                df_base = df_base[mask_pend].copy()
+
+        if df_base.empty:
+            continue
+
+        serie = (
+            df_base[awb_col]
+            .fillna("")
+            .astype(str)
+            .str.replace(r"\D+", "", regex=True)
+            .str.strip()
+        )
+        awbs.update(serie[serie.ne("")].unique().tolist())
+
+    return awbs
+
+
+def remover_pendencia_torre_da_carga_parcial(df):
+    """
+    Se a AWB já estiver na Pendência da Torre, remove do card/detalhe Carga Parcial.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    awbs_pend = pendencia_torre_awbs_set()
+    if not awbs_pend:
+        return df
+
+    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
+    if not awb_col:
+        return df
+
+    data = df.copy()
+    awb_norm = (
+        data[awb_col]
+        .fillna("")
+        .astype(str)
+        .str.replace(r"\D+", "", regex=True)
+        .str.strip()
+    )
+
+    return data[~awb_norm.isin(awbs_pend)].copy()
+
+
+
 def carga_parcial_count(df=None):
-    data = carga_parcial_rows() if df is None else df
+    data = remover_pendencia_torre_da_carga_parcial(carga_parcial_rows() if df is None else df)
     if data is None or data.empty:
         return 0
     if "AWB" in data.columns:
@@ -4107,7 +4195,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "carga_parcial":
         title = "Detalhe — Carga Parcial"
         subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
-        df = colunas_detalhe_carga_parcial(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows())
+        df = colunas_detalhe_carga_parcial(remover_pendencia_torre_da_carga_parcial(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()))
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -4200,6 +4288,9 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         df = remover_excecoes_terceira_tentativa(df)
 
     if card_key == "carga_parcial":
+        if card_key == "carga_parcial":
+            df = remover_pendencia_torre_da_carga_parcial(df)
+
         detail_df = colunas_detalhe_carga_parcial(df)
     else:
         detail_df = detail_columns(df)
