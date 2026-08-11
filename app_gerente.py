@@ -4912,24 +4912,6 @@ def _indenizacao_mask_desconto(df):
 
 
 
-
-def _indenizacao_mask_debito_revertido_sim(df):
-    """
-    Débito revertido:
-    contar somente quando a coluna DÉBITO REVERTIDO estiver como SIM/sim.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    col = _indenizacao_debito_revertido_col(df)
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    status = df[col].fillna("").astype(str).map(normalize_text).str.strip()
-    return status.eq("SIM")
-
-
-
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
@@ -4955,8 +4937,10 @@ def indenizacao_metrics():
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
-    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
+    if col_debito_revertido and col_debito_revertido in df.columns:
+        mask_revertido = _serie_preenchida(df[col_debito_revertido])
+    else:
+        mask_revertido = pd.Series(False, index=df.index)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
@@ -4988,8 +4972,10 @@ def indenizacao_detail_rows(tipo):
     col_debito_revertido = _indenizacao_debito_revertido_col(df)
     col_supervisora = _indenizacao_supervisora_col(df)
 
-    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
-    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
+    if col_debito_revertido and col_debito_revertido in df.columns:
+        mask_revertido = _serie_preenchida(df[col_debito_revertido])
+    else:
+        mask_revertido = pd.Series(False, index=df.index)
 
     mask_desconto = _indenizacao_mask_desconto(df)
 
@@ -5838,7 +5824,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Débito revertido",
                 _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM",
+                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com débito revertido",
                 "#0f766e",
                 "↩️",
             )
