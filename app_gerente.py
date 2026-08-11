@@ -3493,6 +3493,39 @@ def pendencia_movimento_rows(tipo):
     return out[cols].copy() if cols else out
 
 
+
+AWBS_EXCLUIR_TERCEIRA_TENTATIVA = {
+    "12601352",
+    "77361734",
+    "5029474",
+}
+
+
+def remover_excecoes_terceira_tentativa(df):
+    """
+    Remove AWBs específicas do card/detalhe 3ª tentativa de entrega.
+    Motivo: cargas entregues; erro sistêmico.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df
+
+    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
+    if not awb_col:
+        return df
+
+    data = df.copy()
+    awb_norm = (
+        data[awb_col]
+        .fillna("")
+        .astype(str)
+        .str.replace(r"\D+", "", regex=True)
+        .str.strip()
+    )
+
+    return data[~awb_norm.isin(AWBS_EXCLUIR_TERCEIRA_TENTATIVA)].copy()
+
+
+
 def terceira_tentativa_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -3502,9 +3535,9 @@ def terceira_tentativa_rows(df):
         tent = numeric_series(df[tent_col])
         tentativa_df = df[tent >= 3].copy()
         if not tentativa_df.empty:
-            return remove_avarias_from_rows(tentativa_df)
+            return remover_excecoes_terceira_tentativa(remove_avarias_from_rows(tentativa_df))
 
-    return remove_avarias_from_rows(filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"]))
+    return remover_excecoes_terceira_tentativa(remove_avarias_from_rows(filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])))
 
 
 def awb_col_name(df):
@@ -4094,7 +4127,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
         subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
-        df = terceira_tentativa_df.copy() if "terceira_tentativa_df" in globals() else terceira_tentativa_rows(fila_filtrada)
+        df = remover_excecoes_terceira_tentativa(terceira_tentativa_df.copy() if "terceira_tentativa_df" in globals() else terceira_tentativa_rows(fila_filtrada))
 
     elif card_key == "pend_total":
         title = "Detalhe — Total na pendência"
@@ -4162,6 +4195,9 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     }
     if card_key in operational_keys_excluir_carga_parcial:
         df = remove_carga_parcial_from_rows(df)
+
+    if card_key == "terceira":
+        df = remover_excecoes_terceira_tentativa(df)
 
     if card_key == "carga_parcial":
         detail_df = colunas_detalhe_carga_parcial(df)
@@ -5230,7 +5266,7 @@ sla_sem_rota_df = remove_carga_parcial_from_rows(sla_sem_rota_rows(fila_filtrada
 resumo_sla_sem_rota = len(sla_sem_rota_df)
 last_mile_desembarque_df = remove_carga_parcial_from_rows(last_mile_desembarque_rows(fila_filtrada))
 resumo_lm_desembarque = len(last_mile_desembarque_df)
-terceira_tentativa_df = remove_carga_parcial_from_rows(terceira_tentativa_rows(fila_filtrada))
+terceira_tentativa_df = remover_excecoes_terceira_tentativa(remove_carga_parcial_from_rows(terceira_tentativa_rows(fila_filtrada)))
 resumo_terceira_tentativa = len(terceira_tentativa_df)
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
