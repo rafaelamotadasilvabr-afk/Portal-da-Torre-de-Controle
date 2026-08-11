@@ -797,10 +797,27 @@ def read_eu_entrego_files(uploaded_files, awb_filter=None):
             .reset_index(drop=True)
         )
     else:
-        eu_latest = pd.DataFrame()
+        eu_latest = pd.DataFrame(columns=[
+            "AWB",
+            "ULTIMA_ROTA",
+            "STATUS_ULTIMA_ROTA",
+            "ULTIMO_ENTREGADOR",
+            "MOTIVO_ULTIMA_ROTA",
+            "ULTIMA_ALTERACAO",
+            "QT_TENTATIVAS_INSUCESSO",
+            "EXECUTADA_DT",
+            "EU_ENTREGO_STATUS_ANALISE",
+            "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
+            "EU_ENTREGO_BAIXADO_ENTREGUE",
+            "ARQUIVO_EU_ENTREGO",
+        ])
 
     if route_parts:
         route_dates = pd.concat(route_parts, ignore_index=True, sort=False)
+        if "AWB" not in route_dates.columns:
+            route_dates["AWB"] = pd.Series(dtype=str)
+        if "DATA_ROTA" not in route_dates.columns:
+            route_dates["DATA_ROTA"] = pd.NaT
         route_dates = route_dates.dropna(subset=["AWB", "DATA_ROTA"], how="any")
     else:
         route_dates = pd.DataFrame(columns=["AWB", "DATA_ROTA", "ARQUIVO_EU_ENTREGO"])
@@ -3823,6 +3840,14 @@ try:
             f"{len(_lm_awb_filter) if _lm_awb_filter else 0} AWB(s) da carteira CDSP2 usadas como filtro. "
             f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) encontradas no Eu Entrego após o filtro."
         )
+
+        # Proteção: se o filtro retornar 0 AWBs, preservar estrutura esperada.
+        if "AWB" not in eu_latest.columns:
+            eu_latest["AWB"] = pd.Series(dtype=str)
+        if "AWB" not in route_dates.columns:
+            route_dates["AWB"] = pd.Series(dtype=str)
+        if "DATA_ROTA" not in route_dates.columns:
+            route_dates["DATA_ROTA"] = pd.NaT
 
         # Índice de retorno do entregador:
         # WhatsApp prevalece; quando a AWB não estiver no WhatsApp,
