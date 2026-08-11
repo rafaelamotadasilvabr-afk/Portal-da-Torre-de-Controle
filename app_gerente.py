@@ -4215,6 +4215,24 @@ def acareacao_driver_summary(df):
     return grouped.sort_values("AWBS", ascending=False)
 
 
+
+def detalhe_retorno_carga_com_insucesso():
+    """
+    Detalhe seguro do card Retorno de carga com insucesso.
+    Recalcula pela função base e não depende de variável global.
+    """
+    try:
+        df_base = insucesso_sem_retorno_fisico_rows(fila_filtrada)
+    except Exception:
+        df_base = pd.DataFrame()
+
+    try:
+        return enriquecer_insucesso_sem_retorno(df_base)
+    except Exception:
+        return df_base
+
+
+
 def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df):
     title = ""
     subtitle = ""
@@ -4272,14 +4290,15 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "retorno_rotas":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "AWBs que tiveram insucesso e não constam em Retornos físicos. Se constar como devolvido, validar se foi devolvido fisicamente."
-        df = enriquecer_insucesso_sem_retorno(insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada))
+        subtitle = "AWBs que tiveram insucesso, não constam em Retornos físicos e não estão como devolvido."
+        df = detalhe_retorno_carga_com_insucesso()
 
 
     elif card_key == "insucesso_sem_retorno":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "Cargas com insucesso em dias anteriores para cobrança de retorno/tratativa do entregador."
-        df = enriquecer_insucesso_sem_retorno(insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada))
+        subtitle = "AWBs que tiveram insucesso, não constam em Retornos físicos e não estão como devolvido."
+        df = detalhe_retorno_carga_com_insucesso()
+
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
@@ -5649,7 +5668,8 @@ def insucesso_sem_retorno_fisico_rows(df):
 
     Regra operacional:
     - teve insucesso;
-    - não consta em Retornos físicos.
+    - não consta em Retornos físicos;
+    - não está como devolvido.
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -5677,8 +5697,11 @@ def insucesso_sem_retorno_fisico_rows(df):
 
     texto = status_rota + " " + motivo_rota + " " + problema
 
+    # DEVOLVIDO não entra neste controle.
+    mask_devolvido = texto.str.contains("DEVOLVIDO|DEVOLUCAO|DEVOLUÇÃO", regex=True, na=False)
+
     mask_insucesso = texto.str.contains(
-        "DEVOLVIDO|INSUCESSO|AUSENTE|RESPONSAVEL AUSENTE|RESPONSÁVEL AUSENTE|"
+        "INSUCESSO|AUSENTE|RESPONSAVEL AUSENTE|RESPONSÁVEL AUSENTE|"
         "ESTABELECIMENTO FECHADO|DESTINATARIO|DESTINATÁRIO|RECUSADO|NAO LOCALIZADO|NÃO LOCALIZADO|"
         "ENDERECO NAO LOCALIZADO|ENDEREÇO NÃO LOCALIZADO|MUDOU-SE|AREA DE RISCO|ÁREA DE RISCO",
         regex=True,
@@ -5695,32 +5718,17 @@ def insucesso_sem_retorno_fisico_rows(df):
     )
     mask_nao_esta_no_retorno = ~awb_norm.isin(retornos)
 
-    out = data[mask_insucesso & mask_nao_esta_no_retorno].copy()
+    out = data[mask_insucesso & mask_nao_esta_no_retorno & ~mask_devolvido].copy()
 
     if out.empty:
         return out
 
-    # Ação operacional:
-    # - se já aparece como DEVOLVIDO, validar fisicamente se a devolução ocorreu;
-    # - demais insucessos sem retorno: cobrar retorno/tratativa do entregador.
-    _texto_out = (
-        _col_texto_norm(out, ["STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "STATUS ROTA", "STATUS"])
-        + " "
-        + _col_texto_norm(out, ["MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "MOTIVO", "OCORRENCIA", "OCORRÊNCIA", "TIPO INSUCESSO"])
-        + " "
-        + _col_texto_norm(out, ["PROBLEMA", "TIPO INSUCESSO"])
-    )
-    _mask_devolvido = _texto_out.str.contains("DEVOLVIDO|DEVOLUCAO|DEVOLUÇÃO", regex=True, na=False)
-
     out["AÇÃO OPERACIONAL"] = "COBRAR RETORNO / TRATATIVA DO ENTREGADOR"
-    out.loc[_mask_devolvido, "AÇÃO OPERACIONAL"] = "VALIDAR SE FOI DEVOLVIDO FISICAMENTE"
-
     out["CONTROLE"] = "RETORNO DE CARGA COM INSUCESSO"
 
     out = enriquecer_insucesso_sem_retorno(out) if "enriquecer_insucesso_sem_retorno" in globals() else out
 
     return out
-
 
 
 
@@ -5766,7 +5774,7 @@ resumo_qualidade_qtd = len(qualidade_df)
 
 # Controles operacionais de retorno/rota.
 insucesso_sem_retorno_df = insucesso_sem_retorno_fisico_rows(fila_filtrada)
-resumo_insucesso_sem_retorno = len(insucesso_sem_retorno_df)
+resumo_insucesso_sem_retorno = len(insucesso_sem_retorno_df) if 'insucesso_sem_retorno_df' in globals() else len(insucesso_sem_retorno_fisico_rows(fila_filtrada))
 
 rotas_abertas_ontem_df = rotas_abertas_ontem_rows(fila_filtrada)
 resumo_rotas_abertas_ontem = len(rotas_abertas_ontem_df)
@@ -6065,8 +6073,7 @@ elif menu == "retorno_rotas":
     st.title("Controle de Retornos")
     st.caption("Controle operacional: teve insucesso e não está em Retornos físicos.")
 
-    df_ret = insucesso_sem_retorno_df.copy() if "insucesso_sem_retorno_df" in globals() else insucesso_sem_retorno_fisico_rows(fila_filtrada)
-    df_ret = enriquecer_insucesso_sem_retorno(df_ret) if "enriquecer_insucesso_sem_retorno" in globals() else df_ret
+    df_ret = detalhe_retorno_carga_com_insucesso()
 
     c1, c2 = st.columns(2, gap="small")
     with c1:
@@ -6088,7 +6095,7 @@ elif menu == "retorno_rotas":
         )
 
     st.subheader("Retorno de carga com insucesso")
-    st.caption("AWBs que tiveram insucesso e não constam em Retornos físicos. Se constar como devolvido, validar se foi devolvido fisicamente.")
+    st.caption("AWBs que tiveram insucesso, não constam em Retornos físicos e não estão como devolvido.")
 
     if df_ret.empty:
         st.success("Nenhuma carga com insucesso anterior pendente de cobrança.")
