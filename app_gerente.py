@@ -4290,13 +4290,13 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "retorno_rotas":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "AWBs dos últimos 2 dias com insucesso, sem retorno físico e não devolvidas."
+        subtitle = "AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão."
         df = detalhe_retorno_carga_com_insucesso()
 
 
     elif card_key == "insucesso_sem_retorno":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "AWBs dos últimos 2 dias com insucesso, sem retorno físico e não devolvidas."
+        subtitle = "AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão."
         df = detalhe_retorno_carga_com_insucesso()
 
 
@@ -5663,10 +5663,11 @@ def _retornos_fisicos_awbs_set(df):
 
 
 
-def _mask_ultimos_dois_dias_insucesso(df):
+
+def _mask_ontem_antes_ontem_rota_insucesso(df):
     """
-    Retorna True para registros com data de insucesso nos últimos 2 dias operacionais.
-    Exemplo: se hoje é 11/08, considera 10/08 e 11/08.
+    True para registros cuja data de rota/insucesso seja ontem ou antes de ontem.
+    Exemplo: hoje 12/08 -> entram 10/08 e 11/08. Não entra rota de hoje.
     """
     if df is None or df.empty:
         return pd.Series(False, index=df.index if df is not None else None)
@@ -5692,9 +5693,12 @@ def _mask_ultimos_dois_dias_insucesso(df):
     except Exception:
         hoje = pd.Timestamp.today().normalize()
 
-    inicio = hoje - pd.Timedelta(days=1)
+    ontem = hoje - pd.Timedelta(days=1)
+    antes_de_ontem = hoje - pd.Timedelta(days=2)
 
-    return datas.ge(inicio) & datas.le(hoje)
+    return datas.isin([antes_de_ontem, ontem])
+
+
 
 
 
@@ -5754,19 +5758,20 @@ def insucesso_sem_retorno_fisico_rows(df):
     )
     mask_nao_esta_no_retorno = ~awb_norm.isin(retornos)
 
-    mask_ultimos_2_dias = _mask_ultimos_dois_dias_insucesso(data)
+    # Precisa ter saído em rota ontem ou antes de ontem.
+    mask_rota_ontem_antes_ontem = _mask_ontem_antes_ontem_rota_insucesso(data)
 
     out = data[
         mask_insucesso
         & mask_nao_esta_no_retorno
         & ~mask_devolvido
-        & mask_ultimos_2_dias
+        & mask_rota_ontem_antes_ontem
     ].copy()
 
     if out.empty:
         return out
 
-    out["AÇÃO OPERACIONAL"] = "COBRAR RETORNO / TRATATIVA DO ENTREGADOR"
+    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR: CARGA COM INSUCESSO SEM RETORNO AO GALPÃO"
     out["CONTROLE"] = "RETORNO DE CARGA COM INSUCESSO"
 
     out = enriquecer_insucesso_sem_retorno(out) if "enriquecer_insucesso_sem_retorno" in globals() else out
@@ -5949,7 +5954,7 @@ if menu == "visao":
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
-        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Últimos 2 dias sem retorno físico", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
+        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Rota ontem/antes de ontem sem retorno", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
     ]
@@ -6114,7 +6119,7 @@ elif menu == "retornos":
 
 elif menu == "retorno_rotas":
     st.title("Controle de Retornos")
-    st.caption("Controle operacional: teve insucesso nos últimos 2 dias e não está em Retornos físicos.")
+    st.caption("Controle operacional: saiu em rota ontem/antes de ontem, teve insucesso e não está em Retornos físicos.")
 
     df_ret = detalhe_retorno_carga_com_insucesso()
 
@@ -6138,7 +6143,7 @@ elif menu == "retorno_rotas":
         )
 
     st.subheader("Retorno de carga com insucesso")
-    st.caption("AWBs dos últimos 2 dias com insucesso, sem retorno físico e não devolvidas.")
+    st.caption("AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão.")
 
     if df_ret.empty:
         st.success("Nenhuma carga com insucesso anterior pendente de cobrança.")
