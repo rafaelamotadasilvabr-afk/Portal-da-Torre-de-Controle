@@ -4290,13 +4290,13 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "retorno_rotas":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão."
+        subtitle = "Insucessos de ontem/antes de ontem sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota hoje."
         df = detalhe_retorno_carga_com_insucesso()
 
 
     elif card_key == "insucesso_sem_retorno":
         title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão."
+        subtitle = "Insucessos de ontem/antes de ontem sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota hoje."
         df = detalhe_retorno_carga_com_insucesso()
 
 
@@ -5611,6 +5611,25 @@ def _col_tem_valor(df, nomes):
     return txt.ne("") & ~norm.isin({"NAN", "NONE", "NULL", "NAT", "0", "-"})
 
 
+def _mask_rota_criada_hoje(df):
+    """True quando o Portal confirmou uma nova rota para a AWB no dia atual."""
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+
+    col = first_col(df, [
+        "ROTA CRIADA HOJE",
+        "TEVE ROTA HOJE",
+        "TEVE_ROTA_HOJE",
+        "TEM ROTA HOJE",
+        "TEM_ROTA_HOJE",
+    ])
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    valor = df[col].fillna("").astype(str).map(normalize_text).str.strip()
+    return valor.isin({"TRUE", "SIM", "S", "1", "YES", "VERDADEIRO"})
+
+
 
 def _retornos_fisicos_awbs_set(df):
     """
@@ -5679,6 +5698,8 @@ def _mask_ontem_antes_ontem_rota_insucesso(df):
         "DATA ROTA",
         "EXECUTADA_DT",
         "EXECUTADA",
+        "ÚLTIMA ROTA",
+        "ULTIMA ROTA",
         "DATA ÚLTIMA ROTA",
         "DATA ULTIMA ROTA",
     ])
@@ -5708,8 +5729,10 @@ def insucesso_sem_retorno_fisico_rows(df):
 
     Regra operacional:
     - teve insucesso;
-    - não consta em Retornos físicos;
-    - não está como devolvido.
+    - saiu em rota ontem ou antes de ontem;
+    - não consta nas mensagens de retorno do WhatsApp;
+    - não está como devolvido no Eu Entrego;
+    - não possui nova rota criada hoje.
     """
     if df is None or df.empty:
         return pd.DataFrame()
@@ -5734,8 +5757,14 @@ def insucesso_sem_retorno_fisico_rows(df):
         "TIPO INSUCESSO",
     ])
     problema = _col_texto_norm(data, ["PROBLEMA", "TIPO INSUCESSO"])
+    status_eu_entrego = _col_texto_norm(data, [
+        "STATUS ANALISE EU ENTREGO",
+        "STATUS ANÁLISE EU ENTREGO",
+        "STATUS ROTA EU ENTREGO NORMALIZADO",
+        "STATUS EU ENTREGO",
+    ])
 
-    texto = status_rota + " " + motivo_rota + " " + problema
+    texto = status_rota + " " + motivo_rota + " " + problema + " " + status_eu_entrego
 
     # DEVOLVIDO não entra neste controle.
     mask_devolvido = texto.str.contains("DEVOLVIDO|DEVOLUCAO|DEVOLUÇÃO", regex=True, na=False)
@@ -5760,12 +5789,16 @@ def insucesso_sem_retorno_fisico_rows(df):
 
     # Precisa ter saído em rota ontem ou antes de ontem.
     mask_rota_ontem_antes_ontem = _mask_ontem_antes_ontem_rota_insucesso(data)
+    # Se uma nova rota foi criada hoje, a carga já retornou ao galpão e não
+    # deve gerar cobrança do entregador.
+    mask_rota_criada_hoje = _mask_rota_criada_hoje(data)
 
     out = data[
         mask_insucesso
         & mask_nao_esta_no_retorno
         & ~mask_devolvido
         & mask_rota_ontem_antes_ontem
+        & ~mask_rota_criada_hoje
     ].copy()
 
     if out.empty:
@@ -5954,7 +5987,7 @@ if menu == "visao":
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
-        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Rota ontem/antes de ontem sem retorno", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
+        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Sem WhatsApp, devolução ou nova rota hoje", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
         ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
     ]
@@ -6119,7 +6152,7 @@ elif menu == "retornos":
 
 elif menu == "retorno_rotas":
     st.title("Controle de Retornos")
-    st.caption("Controle operacional: saiu em rota ontem/antes de ontem, teve insucesso e não está em Retornos físicos.")
+    st.caption("Controle operacional: saiu em rota ontem/antes de ontem, teve insucesso, não retornou pelo WhatsApp, não foi devolvido e não possui nova rota hoje.")
 
     df_ret = detalhe_retorno_carga_com_insucesso()
 
@@ -6143,7 +6176,7 @@ elif menu == "retorno_rotas":
         )
 
     st.subheader("Retorno de carga com insucesso")
-    st.caption("AWBs que saíram em rota ontem/antes de ontem, tiveram insucesso e ainda não retornaram ao galpão.")
+    st.caption("AWBs sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota criada hoje.")
 
     if df_ret.empty:
         st.success("Nenhuma carga com insucesso anterior pendente de cobrança.")

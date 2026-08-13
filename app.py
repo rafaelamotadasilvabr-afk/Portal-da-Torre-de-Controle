@@ -3066,6 +3066,10 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["EU ENTREGO BAIXADO ENTREGUE"] = df["EU_ENTREGO_BAIXADO_ENTREGUE"] if "EU_ENTREGO_BAIXADO_ENTREGUE" in df.columns else False
     queue["QT TENTATIVAS"] = df["QT_TENTATIVAS_INSUCESSO"] if "QT_TENTATIVAS_INSUCESSO" in df.columns else 0
     queue["RETORNO CONFIRMADO"] = df["RETORNO_CONFIRMADO"] if "RETORNO_CONFIRMADO" in df.columns else False
+    # Evidência adicional para o controle de retorno físico no app do gerente.
+    # Uma nova rota criada hoje comprova que a carga voltou ao galpão e não
+    # deve permanecer na cobrança do entregador.
+    queue["ROTA CRIADA HOJE"] = df["TEVE_ROTA_HOJE"] if "TEVE_ROTA_HOJE" in df.columns else False
     queue["EVENTO TORRE"] = df["EVENTO_TORRE"] if "EVENTO_TORRE" in df.columns else ""
     queue["ABA TORRE"] = df["ABA_ORIGEM"] if "ABA_ORIGEM" in df.columns else ""
     queue["STATUS TORRE"] = df["STATUS_TRATATIVA"] if "STATUS_TRATATIVA" in df.columns else ""
