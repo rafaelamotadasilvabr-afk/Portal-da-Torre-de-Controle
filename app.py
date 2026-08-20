@@ -2855,6 +2855,107 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
+def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
+    """
+    Auditoria isolada de possível falha de baixa no Eu Entrego.
+
+    Entra somente a AWB que:
+    - possui rota criada na data de análise;
+    - possui entregador atribuído;
+    - não está apenas como planejada;
+    - não possui baixa/finalização/entrega/devolução;
+    - não possui insucesso ou outro desfecho negativo registrado.
+
+    Não altera a classificação da fila nem qualquer outro indicador.
+    """
+    if master_df is None or master_df.empty:
+        return pd.DataFrame()
+
+    data = master_df.copy()
+
+    def _norm_col(col):
+        if col not in data.columns:
+            return pd.Series("", index=data.index, dtype="object")
+        return data[col].fillna("").astype(str).map(normalize_text)
+
+    def _bool_col(col):
+        if col not in data.columns:
+            return pd.Series(False, index=data.index)
+        return data[col].fillna("").astype(str).str.strip().str.lower().isin(
+            {"true", "1", "sim", "yes", "y", "verdadeiro"}
+        )
+
+    rota_hoje = _bool_col("TEVE_ROTA_HOJE")
+    status_sistema = _norm_col("STATUS_SISTEMA")
+    status_rota = _norm_col("STATUS_ULTIMA_ROTA")
+    motivo_rota = _norm_col("MOTIVO_ULTIMA_ROTA")
+    status_analise = _norm_col("EU_ENTREGO_STATUS_ANALISE")
+    status_rota_normalizado = _norm_col("EU_ENTREGO_STATUS_ROTA_NORMALIZADO")
+    entregador = _norm_col("ULTIMO_ENTREGADOR")
+
+    texto_desfecho = (
+        status_sistema + " " + status_rota + " " + motivo_rota + " "
+        + status_analise + " " + status_rota_normalizado
+    )
+
+    finalizado = (
+        _bool_col("EU_ENTREGO_BAIXADO_ENTREGUE")
+        | texto_desfecho.str.contains(
+            "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|"
+            "FECHAD|DEVOLVID|CANCELAD|ENCERRAD|DELIVERED|SUCESSO",
+            regex=True,
+            na=False,
+        )
+    )
+
+    insucesso = texto_desfecho.str.contains(
+        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DESTINATARIO|"
+        "DESTINATÁRIO|NAO LOCALIZ|NÃO LOCALIZ|ENDERECO|ENDEREÇO|"
+        "AREA DE RISCO|ÁREA DE RISCO|MUDOU-SE|EXTRAVI|SINISTRO",
+        regex=True,
+        na=False,
+    )
+
+    tem_entregador = ~entregador.isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
+    apenas_planejada = texto_desfecho.str.contains(
+        "PLANEJAD|PLANNED",
+        regex=True,
+        na=False,
+    )
+
+    out = data[
+        rota_hoje
+        & tem_entregador
+        & ~apenas_planejada
+        & ~finalizado
+        & ~insucesso
+    ].copy()
+    if out.empty:
+        return out
+
+    out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
+    out["CONTROLE"] = "ROTA ATRIBUÍDA HOJE SEM DESFECHO"
+
+    preferred = [
+        "AWB",
+        "AÇÃO OPERACIONAL",
+        "CONTROLE",
+        "ULTIMO_ENTREGADOR",
+        "ULTIMA_ROTA",
+        "STATUS_ULTIMA_ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "EU_ENTREGO_STATUS_ANALISE",
+        "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
+        "STATUS_SISTEMA",
+        "SLA_DATA",
+        "BillTo",
+        "CLIENTE",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return out[cols + rest].drop_duplicates(subset=["AWB"], keep="first")
+
+
 def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     """
     Fila operacional única do Last Mile.
@@ -4169,6 +4270,10 @@ try:
                 edi_loaded=edi_loaded_for_panel,
                 analysis_date=reference_date,
             )
+            rotas_sem_baixa_gerente = rotas_sem_baixa_hoje_rows(
+                master,
+                analysis_date=reference_date,
+            )
             fila_gerencial = fila_gerencial[
                 fila_gerencial["PRIORIDADE"].isin(["CRÍTICA", "ALTA", "MÉDIA"])
             ].copy()
@@ -4740,6 +4845,7 @@ try:
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
+                {"METRICA": "Rotas sem baixa hoje", "VALOR": int(len(rotas_sem_baixa_gerente))},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
@@ -4824,6 +4930,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
                         "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
@@ -4856,6 +4963,7 @@ try:
                 int(len(acar_andamento)),
                 int(len(avarias_detalhe_gerente)),
                 int(len(qualidade_detalhe_gerente)),
+                int(len(rotas_sem_baixa_gerente)),
                 int(len(carga_parcial_detalhe_gerente)),
                 int(len(passivel_debito_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
@@ -4877,6 +4985,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
                         "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
@@ -4901,6 +5010,7 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
+                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
                         "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
                         "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,

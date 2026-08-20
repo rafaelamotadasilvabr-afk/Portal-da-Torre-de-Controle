@@ -32,6 +32,7 @@ SHEET_NAMES = [
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
     "QUALIDADE_DETALHE",
+    "ROTAS_SEM_BAIXA_DETALHE",
     "CARGA_PARCIAL_DETALHE",
     "PASSIVEL_DEBITO_DETALHE",
     "BI_AZUL_RESUMO",
@@ -4428,6 +4429,11 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
         subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
         df = colunas_detalhe_carga_parcial(remover_pendencia_torre_da_carga_parcial(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()))
 
+    elif card_key == "rota_sem_baixa":
+        title = "Detalhe — Rota criada sem baixa"
+        subtitle = "Rotas de hoje atribuídas a um entregador, fora do status Planejada, sem entrega, finalização, devolução ou insucesso registrado."
+        df = rotas_sem_baixa_detalhe.copy()
+
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
         subtitle = "Cargas PENDENTE ENTREGA no SK, com insucesso no Eu Entrego, sem baixa/finalização no SK e fora da pendência da Torre."
@@ -5580,6 +5586,7 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
+rotas_sem_baixa_detalhe = pack.get("ROTAS_SEM_BAIXA_DETALHE", pd.DataFrame())
 carga_parcial_detalhe = pack.get("CARGA_PARCIAL_DETALHE", pd.DataFrame())
 passivel_debito_detalhe = pack.get("PASSIVEL_DEBITO_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
@@ -5626,7 +5633,7 @@ def resumo_carga_cabecalho():
 
     try:
         fontes = 0
-        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe", "carga_parcial_detalhe"]:
+        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe", "rotas_sem_baixa_detalhe", "carga_parcial_detalhe"]:
             _df = globals().get(_df_name)
             if _df is not None and hasattr(_df, "empty") and not _df.empty:
                 fontes += 1
@@ -6000,6 +6007,7 @@ def rotas_abertas_ontem_rows(df):
 # A quantidade do card usa o mesmo dataframe do detalhe.
 qualidade_df = remove_carga_parcial_from_rows(aguardando_qualidade_rows(fila_filtrada))
 resumo_qualidade_qtd = len(qualidade_df)
+resumo_rotas_sem_baixa = len(rotas_sem_baixa_detalhe)
 
 # Controles operacionais de retorno/rota.
 insucesso_sem_retorno_df = insucesso_sem_retorno_fisico_rows(fila_filtrada)
@@ -6049,6 +6057,7 @@ alert_distribution_df = pd.DataFrame(
         {"INDICADOR": "Backlog (atraso de entrega)", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "Entregue Eu Entrego x Pendente SK", "QTDE": resumo_entregue_eu_pendente_sk},
         {"INDICADOR": "Aguardando retorno da Qualidade", "QTDE": resumo_qualidade_qtd},
+        {"INDICADOR": "Rota criada sem baixa", "QTDE": resumo_rotas_sem_baixa},
         {"INDICADOR": "Insucesso sem pendência", "QTDE": resumo_insucesso_sem_pendencia},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
         {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
@@ -6132,6 +6141,7 @@ if menu == "visao":
 
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
+        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "Atribuída ao entregador e sem desfecho", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
