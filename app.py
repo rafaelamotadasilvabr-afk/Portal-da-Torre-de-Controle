@@ -4,6 +4,7 @@ import base64
 import re
 import unicodedata
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,185 @@ st.set_page_config(
     page_title="Portal da Torre de Controle - V0",
     page_icon="📊",
     layout="wide",
+)
+
+LOGO_PATH = Path(__file__).with_name("gds-logo.png")
+
+# =========================
+# IDENTIDADE VISUAL GDS
+# Somente apresentação: não altera componentes, dados ou regras.
+# =========================
+st.markdown(
+    """
+    <style>
+    :root {
+        --gds-orange: #ff7900;
+        --gds-orange-dark: #d95f00;
+        --gds-orange-soft: #fff1e5;
+        --gds-charcoal: #181818;
+        --gds-graphite: #262626;
+        --gds-text: #2b2b2b;
+        --gds-muted: #6f6b67;
+        --gds-bg: #f5f3f0;
+        --gds-surface: #ffffff;
+        --gds-border: #e3ddd6;
+        --gds-shadow: 0 8px 24px rgba(37, 29, 22, .07);
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at 96% 0%, rgba(255,121,0,.08), transparent 22rem),
+            var(--gds-bg);
+        color: var(--gds-text);
+    }
+
+    .block-container {
+        max-width: 1540px;
+        padding-top: 1.15rem;
+        padding-bottom: 2rem;
+    }
+
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stMarkdownContainer"] strong {
+        color: var(--gds-charcoal);
+    }
+
+    h1 {
+        letter-spacing: -.035em;
+        font-weight: 850 !important;
+    }
+
+    h2, h3 { letter-spacing: -.02em; }
+    a { color: var(--gds-orange-dark); }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #151515 0%, #202020 100%);
+        border-right: 1px solid #36322f;
+        box-shadow: 10px 0 28px rgba(0,0,0,.13);
+    }
+
+    [data-testid="stSidebar"] [data-testid="stImage"] {
+        background: #111111;
+        border: 1px solid rgba(255,121,0,.28);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin: 2px 0 16px;
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: #f7f4f1 !important;
+    }
+
+    [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.13); }
+
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea {
+        background: #292929 !important;
+        color: #ffffff !important;
+        border-color: #4a4541 !important;
+    }
+
+    [data-testid="stSidebar"] [data-baseweb="select"] > div {
+        background: #292929 !important;
+        color: #ffffff !important;
+        border-color: #4a4541 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
+        background: #292929 !important;
+        border-color: #4a4541 !important;
+        box-shadow: none;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
+        background: var(--gds-orange) !important;
+        border-color: var(--gds-orange) !important;
+        color: #171717 !important;
+    }
+
+    div[data-testid="stButton"] button,
+    div[data-testid="stDownloadButton"] button {
+        border-radius: 10px;
+        border: 1px solid #d8d0c8;
+        background: #ffffff;
+        color: var(--gds-charcoal);
+        font-weight: 720;
+        transition: all .16s ease;
+    }
+
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stDownloadButton"] button:hover {
+        border-color: var(--gds-orange);
+        color: var(--gds-orange-dark);
+        box-shadow: 0 5px 15px rgba(255,121,0,.14);
+    }
+
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stDownloadButton"] button[kind="primary"] {
+        background: var(--gds-orange);
+        border-color: var(--gds-orange);
+        color: #171717;
+    }
+
+    [data-testid="stFileUploaderDropzone"],
+    [data-testid="stExpander"],
+    [data-testid="stMetric"],
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        background: var(--gds-surface);
+        border: 1px solid var(--gds-border);
+        border-radius: 12px;
+        box-shadow: var(--gds-shadow);
+    }
+
+    [data-testid="stMetric"] {
+        border-top: 3px solid var(--gds-orange);
+        padding: .78rem .9rem;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: var(--gds-charcoal);
+        font-weight: 850;
+    }
+
+    [data-baseweb="tab-list"] {
+        gap: .35rem;
+        border-bottom: 1px solid var(--gds-border);
+    }
+
+    [data-baseweb="tab"] {
+        color: var(--gds-muted);
+        font-weight: 700;
+    }
+
+    [aria-selected="true"][data-baseweb="tab"] {
+        color: var(--gds-orange-dark) !important;
+        border-bottom-color: var(--gds-orange) !important;
+    }
+
+    input:focus, textarea:focus,
+    [data-baseweb="select"] > div:focus-within {
+        border-color: var(--gds-orange) !important;
+        box-shadow: 0 0 0 1px var(--gds-orange) !important;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 11px;
+        border-left-width: 4px;
+    }
+
+    header[data-testid="stHeader"] {
+        background: rgba(245,243,240,.86);
+        backdrop-filter: blur(10px);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -3584,6 +3764,8 @@ st.title("Portal de Gestão da Torre de Controle")
 st.caption("V1.4.0 — Operação + app do gerente separado")
 
 with st.sidebar:
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), use_container_width=True)
     st.header("Atualização das bases")
 
     file_lm = st.file_uploader(

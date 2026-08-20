@@ -2,6 +2,7 @@ import io
 import re
 import unicodedata
 from datetime import date, timedelta, datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -18,6 +19,7 @@ st.set_page_config(
 )
 
 DEFAULT_MANAGER_SOURCE_URL = ""
+LOGO_PATH = Path(__file__).with_name("gds-logo.png")
 
 SHEET_NAMES = [
     "RESUMO",
@@ -46,23 +48,23 @@ st.markdown(
     """
     <style>
     :root {
-        --op-blue-900: #08254e;
-        --op-blue-800: #0a346e;
-        --op-blue-700: #0b63ce;
-        --op-blue-100: #eaf3ff;
-        --op-slate-900: #10213d;
-        --op-slate-700: #3e5168;
-        --op-slate-500: #718198;
-        --op-border: #dbe5f0;
-        --op-bg: #f6f8fb;
+        --op-blue-900: #181818;
+        --op-blue-800: #252525;
+        --op-blue-700: #ff7900;
+        --op-blue-100: #fff1e5;
+        --op-slate-900: #292929;
+        --op-slate-700: #504b47;
+        --op-slate-500: #746e69;
+        --op-border: #e3ddd6;
+        --op-bg: #f5f3f0;
         --op-white: #ffffff;
         --op-red: #d92d20;
-        --op-orange: #d97706;
+        --op-orange: #ff7900;
         --op-yellow: #b7791f;
         --op-green: #0f766e;
         --op-purple: #7c3aed;
-        --op-shadow: 0 8px 22px rgba(8, 37, 78, .07);
-        --op-shadow-soft: 0 4px 14px rgba(8, 37, 78, .045);
+        --op-shadow: 0 8px 22px rgba(37, 29, 22, .08);
+        --op-shadow-soft: 0 4px 14px rgba(37, 29, 22, .055);
     }
 
     .stApp {
@@ -1651,6 +1653,159 @@ st.markdown(
     }
 
 </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =========================================================
+# IDENTIDADE VISUAL GDS — CAMADA FINAL DE TEMA
+# Somente apresentação: preserva estrutura, componentes e regras.
+# =========================================================
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background:
+            radial-gradient(circle at 96% 0%, rgba(255,121,0,.08), transparent 24rem),
+            linear-gradient(180deg, #f5f3f0 0%, #f8f7f5 100%) !important;
+        color: #292929 !important;
+    }
+
+    header[data-testid="stHeader"] {
+        background: rgba(245,243,240,.88) !important;
+        backdrop-filter: blur(10px);
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #151515 0%, #222222 100%) !important;
+        border-right: 1px solid #37322e !important;
+        box-shadow: 9px 0 25px rgba(0,0,0,.14) !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stImage"] {
+        background: #101010;
+        border: 1px solid rgba(255,121,0,.30);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin: 2px 0 14px;
+    }
+
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .side-note,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: #e9e5e1 !important;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button {
+        background: #242424 !important;
+        color: #f7f4f1 !important;
+        border-color: #403b37 !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        background: #30261e !important;
+        color: #ff9b45 !important;
+        border-color: #ff7900 !important;
+    }
+
+    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
+        background: #ff7900 !important;
+        color: #171717 !important;
+        border-color: #ff7900 !important;
+        box-shadow: 0 7px 18px rgba(255,121,0,.25) !important;
+    }
+
+    .side-note { border-top-color: rgba(255,255,255,.13) !important; }
+
+    .ops-header-shell,
+    .sync-card,
+    .hero,
+    .chart-card,
+    .card-detail-box,
+    .indenizacao-card {
+        border-color: #e3ddd6 !important;
+        box-shadow: 0 7px 22px rgba(37,29,22,.065) !important;
+    }
+
+    .ops-header-shell {
+        background: rgba(255,255,255,.94) !important;
+        border-top: 3px solid #ff7900 !important;
+    }
+
+    .ops-header-title,
+    .ops-header-subtitle,
+    .hero h1,
+    .section-title,
+    h1, h2, h3, h4 {
+        color: #1d1d1d !important;
+    }
+
+    .ops-info-icon {
+        background: #fff1e5 !important;
+        color: #d95f00 !important;
+    }
+
+    .sync-card {
+        background: linear-gradient(180deg, #ffffff 0%, #fffaf6 100%) !important;
+    }
+
+    .sync-card-value { color: #1d1d1d !important; }
+
+    .clickable-card-wrap .ops-card,
+    .indenizacao-card,
+    .kpi-card {
+        background: #ffffff !important;
+        border-color: #e3ddd6 !important;
+    }
+
+    .clickable-card-wrap .ops-card:hover,
+    .indenizacao-card:hover {
+        box-shadow: 0 12px 28px rgba(37,29,22,.10) !important;
+    }
+
+    .ops-label,
+    .kpi-label,
+    .indenizacao-label { color: #242424 !important; }
+
+    .card-footer-button div[data-testid="stButton"] button,
+    div[data-testid="stDownloadButton"] button,
+    .ops-header-shell div[data-testid="stButton"] button {
+        background: #ffffff !important;
+        color: #2a2725 !important;
+        border-color: #d8d0c8 !important;
+    }
+
+    .card-footer-button div[data-testid="stButton"] button:hover,
+    div[data-testid="stDownloadButton"] button:hover,
+    .ops-header-shell div[data-testid="stButton"] button:hover {
+        background: #fff5ec !important;
+        color: #d95f00 !important;
+        border-color: #ff7900 !important;
+    }
+
+    input:focus, textarea:focus,
+    [data-baseweb="select"] > div:focus-within {
+        border-color: #ff7900 !important;
+        box-shadow: 0 0 0 1px #ff7900 !important;
+    }
+
+    [data-baseweb="tab-list"] { border-bottom-color: #e3ddd6 !important; }
+
+    [aria-selected="true"][data-baseweb="tab"] {
+        color: #d95f00 !important;
+        border-bottom-color: #ff7900 !important;
+    }
+
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"],
+    [data-testid="stExpander"] {
+        border-color: #e3ddd6 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 5px 16px rgba(37,29,22,.05) !important;
+    }
+    </style>
     """,
     unsafe_allow_html=True,
 )
@@ -5351,15 +5506,8 @@ def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰
 # SIDEBAR FUNCIONAL
 # =========================================================
 with st.sidebar:
-    st.markdown(
-        """
-        <div class="brand-box">
-            <div class="brand-main">GDS</div>
-            <div class="brand-sub">LOGÍSTICA</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), use_container_width=True)
 
     if st.button("Atualizar dados do Google", key="refresh_google_data", use_container_width=True):
         st.cache_data.clear()
