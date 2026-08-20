@@ -2935,9 +2935,22 @@ def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
 
     out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
     out["CONTROLE"] = "ROTA ATRIBUÍDA HOJE SEM DESFECHO"
+    out["ENTREGADOR"] = out["ULTIMO_ENTREGADOR"].fillna("").astype(str).str.strip()
+
+    if "ULTIMA_ROTA" in out.columns:
+        data_hora_rota = pd.to_datetime(out["ULTIMA_ROTA"], errors="coerce", dayfirst=True)
+        data_hora_formatada = data_hora_rota.dt.strftime("%d/%m/%Y %H:%M")
+        out["DATA/HORA CRIAÇÃO DA ROTA"] = data_hora_formatada.where(
+            data_hora_rota.notna(),
+            out["ULTIMA_ROTA"].fillna("").astype(str),
+        )
+    else:
+        out["DATA/HORA CRIAÇÃO DA ROTA"] = ""
 
     preferred = [
         "AWB",
+        "ENTREGADOR",
+        "DATA/HORA CRIAÇÃO DA ROTA",
         "AÇÃO OPERACIONAL",
         "CONTROLE",
         "ULTIMO_ENTREGADOR",
