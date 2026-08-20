@@ -1672,9 +1672,22 @@ st.markdown(
         color: #292929 !important;
     }
 
+    /* Oculta somente a barra nativa do Streamlit e recupera seu espaço. */
     header[data-testid="stHeader"] {
-        background: rgba(245,243,240,.88) !important;
-        backdrop-filter: blur(10px);
+        height: 0 !important;
+        min-height: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"] {
+        display: none !important;
+    }
+
+    [data-testid="stAppViewBlockContainer"] {
+        padding-top: .55rem !important;
     }
 
     [data-testid="stSidebar"] {
@@ -1805,6 +1818,245 @@ st.markdown(
         border-color: #e3ddd6 !important;
         border-radius: 12px !important;
         box-shadow: 0 5px 16px rgba(37,29,22,.05) !important;
+    }
+
+    /* =====================================================
+       V2.9.0 — Densidade e hierarquia visual
+       Somente apresentação. Funções e regras preservadas.
+       ===================================================== */
+
+    /* Menu GDS: contraste real para itens ativos e inativos. */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #151515 0%, #222222 100%) !important;
+        border-right: 1px solid #37322e !important;
+        box-shadow: 9px 0 25px rgba(0,0,0,.14) !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stImage"] {
+        background: #101010 !important;
+        border: 1px solid rgba(255,121,0,.30) !important;
+        border-radius: 13px !important;
+        padding: 9px 12px !important;
+        margin: 0 0 10px !important;
+    }
+
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .side-note,
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+        color: #e9e5e1 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
+        min-height: 40px !important;
+        background: #242424 !important;
+        color: #f7f4f1 !important;
+        border: 1px solid #403b37 !important;
+        box-shadow: none !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button p {
+        color: inherit !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        background: #30261e !important;
+        color: #ffad66 !important;
+        border-color: #ff7900 !important;
+    }
+
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
+        background: #ff7900 !important;
+        color: #171717 !important;
+        border-color: #ff7900 !important;
+        box-shadow: 0 6px 16px rgba(255,121,0,.22) !important;
+    }
+
+    /* Cabeçalho com os mesmos controles, ocupando menos altura. */
+    .ops-header-shell {
+        padding: 10px 13px !important;
+        margin-bottom: 8px !important;
+        border-radius: 14px !important;
+    }
+
+    .ops-header-title {
+        width: 100% !important;
+        margin-top: 0 !important;
+        text-align: center !important;
+        font-size: clamp(1.18rem, 1.08rem + .34vw, 1.42rem) !important;
+    }
+
+    .ops-header-subtitle {
+        margin-top: 4px !important;
+        justify-content: center !important;
+        text-align: center !important;
+        font-size: .74rem !important;
+    }
+
+    .sync-card {
+        min-height: 48px !important;
+        padding: 6px 10px !important;
+        border-radius: 11px !important;
+    }
+
+    .sync-card-value { font-size: .80rem !important; }
+    .sync-card-detail { font-size: .61rem !important; margin-top: 2px !important; }
+    .ops-header-button-spacer { height: 8px !important; }
+
+    .sync-success-strip {
+        margin-top: 4px !important;
+        padding: 4px 8px !important;
+        font-size: .68rem !important;
+    }
+
+    /* Cards comuns: aproximadamente 25% mais baixos. */
+    .clickable-card-wrap .ops-card {
+        min-height: 154px !important;
+        height: 154px !important;
+        padding: 11px 14px 10px !important;
+        border-radius: 14px 14px 0 0 !important;
+        justify-content: space-between !important;
+    }
+
+    .ops-card header {
+        min-height: 32px !important;
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 9px !important;
+    }
+
+    .ops-icon {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        border-radius: 10px !important;
+        font-family: "Segoe UI Symbol", "Arial", sans-serif !important;
+        font-size: 1rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0 !important;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.62) !important;
+    }
+
+    .ops-label {
+        margin: 0 !important;
+        font-size: .68rem !important;
+        line-height: 1.16 !important;
+        letter-spacing: .022em !important;
+    }
+
+    .ops-card-main {
+        min-height: 72px !important;
+        flex: 1 1 auto !important;
+        justify-content: flex-end !important;
+        gap: 4px !important;
+    }
+
+    .ops-value {
+        font-size: clamp(2.30rem, 2.02rem + .80vw, 2.78rem) !important;
+        line-height: .90 !important;
+        margin: 0 !important;
+    }
+
+    .ops-sub {
+        font-size: .70rem !important;
+        line-height: 1.22 !important;
+        font-weight: 650 !important;
+        margin: 0 !important;
+    }
+
+    /* Os dois cards com resumo mantêm espaço apenas para os mini-indicadores. */
+    .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+        min-height: 184px !important;
+        height: 184px !important;
+    }
+
+    .clickable-card-wrap .ops-card:has(.ops-mini-grid) .ops-card-main {
+        min-height: 126px !important;
+    }
+
+    .ops-mini-grid {
+        margin-top: 6px !important;
+        gap: 6px !important;
+    }
+
+    .ops-mini {
+        padding: 5px 6px !important;
+        border-radius: 9px !important;
+    }
+
+    .ops-mini-title { font-size: .52rem !important; }
+    .ops-mini-value { font-size: .76rem !important; margin-top: 2px !important; }
+
+    /* Cola o botão Streamlit ao card usando a coluna real que contém ambos. */
+    div[data-testid="stColumn"]:has(.clickable-card-wrap)
+    div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+    }
+
+    div[data-testid="stElementContainer"]:has(.card-footer-button),
+    .element-container:has(.card-footer-button),
+    .card-footer-button {
+        height: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }
+
+    div[data-testid="stColumn"]:has(.clickable-card-wrap)
+    div[data-testid="stButton"] {
+        margin: 0 0 12px !important;
+    }
+
+    div[data-testid="stColumn"]:has(.clickable-card-wrap)
+    div[data-testid="stButton"] button {
+        width: 100% !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        border-radius: 0 0 14px 14px !important;
+        border: 1px solid #e3ddd6 !important;
+        border-top: 1px solid #eee8e2 !important;
+        background: #ffffff !important;
+        color: #5f5954 !important;
+        box-shadow: 0 7px 18px rgba(37,29,22,.055) !important;
+        padding: 0 13px !important;
+        font-size: .70rem !important;
+        font-weight: 820 !important;
+        justify-content: flex-end !important;
+        transform: none !important;
+    }
+
+    div[data-testid="stColumn"]:has(.clickable-card-wrap)
+    div[data-testid="stButton"] button p {
+        width: 100% !important;
+        color: inherit !important;
+        text-align: right !important;
+    }
+
+    div[data-testid="stColumn"]:has(.clickable-card-wrap)
+    div[data-testid="stButton"] button:hover {
+        background: #fff5ec !important;
+        color: #d95f00 !important;
+        border-color: #ff7900 !important;
+    }
+
+    @media (max-width: 1100px) {
+        .clickable-card-wrap .ops-card,
+        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+            height: auto !important;
+        }
+    }
+
+    @media (max-width: 760px) {
+        .clickable-card-wrap .ops-card {
+            min-height: 164px !important;
+        }
+
+        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
+            min-height: 216px !important;
+        }
     }
     </style>
     """,
@@ -2196,7 +2448,7 @@ def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
         f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
                     <header>
-                        <div class="ops-icon">📋</div>
+                        <div class="ops-icon">≡</div>
                         <div class="ops-label">Pendências da Torre</div>
                     </header>
                     <main class="ops-card-main">
@@ -2230,7 +2482,7 @@ def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
         f"""            <div class="clickable-card-wrap">
                 <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
                     <header>
-                        <div class="ops-icon">🧾</div>
+                        <div class="ops-icon">▤</div>
                         <div class="ops-label">Acareações</div>
                     </header>
                     <main class="ops-card-main">
@@ -5584,11 +5836,11 @@ with st.sidebar:
         ("backlog", "▣  Backlog"),
         ("pendencias", "Σ  Pendências"),
         ("sla_dia", "◷  SLA do Dia"),
-        ("edi", "✈  EDI / First Mile"),
-        ("indenizacao", "💰  Indenização"),
+        ("edi", "⇢  EDI / First Mile"),
+        ("indenizacao", "$  Indenização"),
         ("acareacao", "▤  Acareações"),
         ("relatorio", "▤  Relatórios"),
-        ("config", "⚙  Configurações"),
+        ("config", "⚙︎  Configurações"),
     ]
 
     if "menu_gerente" not in st.session_state:
@@ -6192,8 +6444,8 @@ if menu == "visao":
     saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
 
     primary_cards = [
-        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "🚨", "#d92d20", "#fff0ef", "atraso", "normal"),
-        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "⏱️", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
+        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "!", "#d92d20", "#fff0ef", "atraso", "normal"),
+        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
         ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Cargas aguardando desembarque até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque", "normal"),
         ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "📋", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
         ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "🧾", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
@@ -6203,11 +6455,11 @@ if menu == "visao":
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
         ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "Atribuída ao entregador e sem desfecho", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
-        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "🧩", "#7c3aed", "#f5f3ff", "carga_parcial"),
-        ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
+        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
+        ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
         ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Sem WhatsApp, devolução ou nova rota hoje", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
-        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
-        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "🚨", "#d92d20", "#fff0ef", "avaria"),
+        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3×", "#c2410c", "#fff7ed", "terceira"),
+        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "◇", "#d92d20", "#fff0ef", "avaria"),
     ]
 
     def _render_card_item(item, idx=None):
