@@ -3077,6 +3077,64 @@ def detail_columns(df):
     return df[cols].copy() if cols else df.copy()
 
 
+def rota_sem_baixa_detail_columns(df):
+    """Prioriza os campos de auditoria exclusivos do card Rota criada sem baixa."""
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    entregador_col = first_col(out, [
+        "ENTREGADOR",
+        "ULTIMO_ENTREGADOR",
+        "ÚLTIMO ENTREGADOR",
+        "MOTORISTA / ENTREGADOR",
+        "NOME ENTREGADOR",
+    ])
+    if entregador_col:
+        out["ENTREGADOR"] = out[entregador_col].fillna("").astype(str).str.strip()
+    elif "ENTREGADOR" not in out.columns:
+        out["ENTREGADOR"] = ""
+
+    data_rota_col = first_col(out, [
+        "DATA/HORA CRIAÇÃO DA ROTA",
+        "DATA HORA CRIAÇÃO DA ROTA",
+        "ULTIMA_ROTA",
+        "ÚLTIMA ROTA",
+        "DATA_ROTA",
+        "DATA ROTA",
+    ])
+    if data_rota_col:
+        data_hora = pd.to_datetime(out[data_rota_col], errors="coerce", dayfirst=True)
+        formatada = data_hora.dt.strftime("%d/%m/%Y %H:%M")
+        out["DATA/HORA CRIAÇÃO DA ROTA"] = formatada.where(
+            data_hora.notna(),
+            out[data_rota_col].fillna("").astype(str),
+        )
+    elif "DATA/HORA CRIAÇÃO DA ROTA" not in out.columns:
+        out["DATA/HORA CRIAÇÃO DA ROTA"] = ""
+
+    preferred = [
+        "AWB",
+        "ENTREGADOR",
+        "DATA/HORA CRIAÇÃO DA ROTA",
+        "STATUS_ULTIMA_ROTA",
+        "STATUS ÚLTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "MOTIVO ÚLTIMA ROTA",
+        "AÇÃO OPERACIONAL",
+        "PRÓXIMA AÇÃO",
+        "CLIENTE",
+        "BillTo",
+        "STATUS_SISTEMA",
+        "STATUS SK",
+        "PRIORIDADE",
+    ]
+    cols = [c for c in preferred if c in out.columns]
+    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
+    return out[cols + rest].copy()
+
+
 def truthy_series(series, index=None):
     if series is None:
         return pd.Series(False, index=index)
@@ -4536,7 +4594,9 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     if card_key == "terceira":
         df = remover_excecoes_terceira_tentativa(df)
 
-    if card_key == "carga_parcial":
+    if card_key == "rota_sem_baixa":
+        detail_df = rota_sem_baixa_detail_columns(df)
+    elif card_key == "carga_parcial":
         if card_key == "carga_parcial":
             df = remover_pendencia_torre_da_carga_parcial(df)
 
