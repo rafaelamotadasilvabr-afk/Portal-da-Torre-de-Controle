@@ -3389,7 +3389,7 @@ def rota_sem_baixa_detail_columns(df):
 
 
 def filtrar_rotas_sem_baixa_d1_d2(df, reference_date=None):
-    """Mantém somente D-1/D-2 com status EM ROTA ou ACEITA e entregador."""
+    """Mantém D-1/D-2 abertos no Eu Entrego e PENDENTE ENTREGA no SK."""
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df.copy()
 
@@ -3418,7 +3418,12 @@ def filtrar_rotas_sem_baixa_d1_d2(df, reference_date=None):
         "MOTORISTA / ENTREGADOR",
         "NOME ENTREGADOR",
     ])
-    if not status_rota_col or not entregador_col:
+    status_sk_col = first_col(data, [
+        "STATUS SK",
+        "STATUS_SISTEMA",
+        "STATUS SISTEMA",
+    ])
+    if not status_rota_col or not entregador_col or not status_sk_col:
         return data.iloc[0:0].copy()
 
     if reference_date is None:
@@ -3457,7 +3462,19 @@ def filtrar_rotas_sem_baixa_d1_d2(df, reference_date=None):
         .map(normalize_text)
         .isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
     )
-    return data[mask_d1_d2 & status_em_aberto & tem_entregador].copy()
+    status_sk_pendente = (
+        data[status_sk_col]
+        .fillna("")
+        .astype(str)
+        .map(normalize_text)
+        .isin({"PENDENTE ENTREGA", "PENDENTE DE ENTREGA"})
+    )
+    return data[
+        mask_d1_d2
+        & status_em_aberto
+        & tem_entregador
+        & status_sk_pendente
+    ].copy()
 
 
 def truthy_series(series, index=None):
@@ -4804,7 +4821,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "rota_sem_baixa":
         title = "Detalhe — Rota criada sem baixa"
-        subtitle = "Rotas de ontem e antes de ontem com entregador e status Em rota ou Aceita, ainda sem baixa."
+        subtitle = "Rotas de ontem e antes de ontem com entregador, Em rota ou Aceita no Eu Entrego e Pendente Entrega no Smart Kargo."
         df = rotas_sem_baixa_detalhe.copy()
 
     elif card_key == "insucesso_sem_pendencia":
@@ -6518,7 +6535,7 @@ if menu == "visao":
 
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
-        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "D-1/D-2 com status Em rota ou Aceita", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
+        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "D-1/D-2, Em rota/Aceita e Pendente Entrega no SK", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),

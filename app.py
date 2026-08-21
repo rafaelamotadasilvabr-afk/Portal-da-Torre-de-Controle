@@ -2868,14 +2868,15 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
-def rotas_sem_baixa_d1_d2_rows(master_df, analysis_date=None):
+def rotas_sem_baixa_d1_d2_rows(master_df, sk_df=None, analysis_date=None):
     """
     Auditoria isolada de possível falha de baixa no Eu Entrego.
 
     Entra somente a AWB que:
     - possui rota criada em D-1 ou D-2;
     - possui entregador atribuído;
-    - está com status exatamente EM ROTA ou ACEITA.
+    - está com status exatamente EM ROTA ou ACEITA no Eu Entrego;
+    - continua exatamente PENDENTE ENTREGA no Smart Kargo.
 
     Não altera a classificação da fila nem qualquer outro indicador.
     """
@@ -2912,8 +2913,36 @@ def rotas_sem_baixa_d1_d2_rows(master_df, analysis_date=None):
     if out.empty:
         return out
 
+    # A validação do Smart Kargo é obrigatória. A ausência dessa evidência
+    # fecha o filtro para evitar exibir como sem baixa uma carga já entregue.
+    if (
+        sk_df is None
+        or sk_df.empty
+        or "AWB" not in sk_df.columns
+        or "STATUS_SISTEMA" not in sk_df.columns
+    ):
+        return out.iloc[0:0].copy()
+
+    sk = sk_df.copy()
+    sk["AWB"] = sk["AWB"].apply(normalize_awb)
+    status_sk = sk["STATUS_SISTEMA"].fillna("").astype(str).map(normalize_text)
+    sk = sk[status_sk.isin({"PENDENTE ENTREGA", "PENDENTE DE ENTREGA"})].copy()
+    if sk.empty:
+        return out.iloc[0:0].copy()
+
+    sk_cols = ["AWB", "STATUS_SISTEMA"]
+    if "SLA_DATA" in sk.columns:
+        sk_cols.append("SLA_DATA")
+    sk = sk[sk_cols].drop_duplicates(subset=["AWB"], keep="last")
+    sk = sk.rename(columns={"STATUS_SISTEMA": "STATUS SK", "SLA_DATA": "SLA"})
+
+    out["AWB"] = out["AWB"].apply(normalize_awb)
+    out = out.merge(sk, on="AWB", how="inner")
+    if out.empty:
+        return out
+
     out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
-    out["CONTROLE"] = "ROTA D-1/D-2 EM ROTA OU ACEITA SEM BAIXA"
+    out["CONTROLE"] = "ROTA D-1/D-2 EM ROTA OU ACEITA E PENDENTE ENTREGA NO SK"
     out["ENTREGADOR"] = out["ULTIMO_ENTREGADOR"].fillna("").astype(str).str.strip()
 
     if "ULTIMA_ROTA" in out.columns:
@@ -2938,6 +2967,8 @@ def rotas_sem_baixa_d1_d2_rows(master_df, analysis_date=None):
         "MOTIVO_ULTIMA_ROTA",
         "EU_ENTREGO_STATUS_ANALISE",
         "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
+        "STATUS SK",
+        "SLA",
         "STATUS_SISTEMA",
         "SLA_DATA",
         "BillTo",
@@ -4297,6 +4328,7 @@ try:
             )
             rotas_sem_baixa_gerente = rotas_sem_baixa_d1_d2_rows(
                 eu_latest_completo,
+                sk_df=lm,
                 analysis_date=reference_date,
             )
             fila_gerencial = fila_gerencial[
@@ -4882,7 +4914,7 @@ try:
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
-                {"METRICA": "Rotas Em rota/Aceita D-1 e D-2", "VALOR": int(len(rotas_sem_baixa_gerente))},
+                {"METRICA": "Rotas D-1/D-2 abertas no Eu Entrego e pendentes no SK", "VALOR": int(len(rotas_sem_baixa_gerente))},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
