@@ -3306,6 +3306,7 @@ def detail_columns(df):
         "AWB",
         "CLIENTE",
         "PROBLEMA",
+        "PROCESSO QUALIDADE",
         "SLA",
         "DIAS EM ATRASO",
         "MOTORISTA / ENTREGADOR",
@@ -3387,8 +3388,8 @@ def rota_sem_baixa_detail_columns(df):
     return out[cols + rest].copy()
 
 
-def filtrar_rotas_sem_baixa_dias_anteriores(df, reference_date=None):
-    """Mantém somente rotas criadas antes de hoje; datas vazias não entram."""
+def filtrar_rotas_sem_baixa_d1_d2(df, reference_date=None):
+    """Mantém somente D-1/D-2 com status EM ROTA ou ACEITA e entregador."""
     if df is None or df.empty:
         return pd.DataFrame() if df is None else df.copy()
 
@@ -3404,6 +3405,22 @@ def filtrar_rotas_sem_baixa_dias_anteriores(df, reference_date=None):
     if not data_rota_col:
         return data.iloc[0:0].copy()
 
+    status_rota_col = first_col(data, [
+        "STATUS_ULTIMA_ROTA",
+        "STATUS ÚLTIMA ROTA",
+        "STATUS ROTA",
+        "STATUS",
+    ])
+    entregador_col = first_col(data, [
+        "ENTREGADOR",
+        "ULTIMO_ENTREGADOR",
+        "ÚLTIMO ENTREGADOR",
+        "MOTORISTA / ENTREGADOR",
+        "NOME ENTREGADOR",
+    ])
+    if not status_rota_col or not entregador_col:
+        return data.iloc[0:0].copy()
+
     if reference_date is None:
         try:
             reference_date = datetime.now(timezone.utc).astimezone(
@@ -3413,16 +3430,34 @@ def filtrar_rotas_sem_baixa_dias_anteriores(df, reference_date=None):
             reference_date = date.today()
 
     data_referencia = pd.Timestamp(reference_date).normalize()
+    datas_alvo = {
+        data_referencia - pd.Timedelta(days=1),
+        data_referencia - pd.Timedelta(days=2),
+    }
     data_hora_rota = pd.to_datetime(
         data[data_rota_col],
         errors="coerce",
         dayfirst=True,
     )
-    mask_dias_anteriores = (
+    mask_d1_d2 = (
         data_hora_rota.notna()
-        & data_hora_rota.dt.normalize().lt(data_referencia)
+        & data_hora_rota.dt.normalize().isin(datas_alvo)
     )
-    return data[mask_dias_anteriores].copy()
+    status_em_aberto = (
+        data[status_rota_col]
+        .fillna("")
+        .astype(str)
+        .map(normalize_text)
+        .isin({"EM ROTA", "ACEITA"})
+    )
+    tem_entregador = ~(
+        data[entregador_col]
+        .fillna("")
+        .astype(str)
+        .map(normalize_text)
+        .isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
+    )
+    return data[mask_d1_d2 & status_em_aberto & tem_entregador].copy()
 
 
 def truthy_series(series, index=None):
@@ -3818,18 +3853,8 @@ def overdue_delivery_rows(df):
         )
         data = data[~data_awb_norm.isin(avaria_awbs)].copy()
 
-    # Regra de não sobreposição com Qualidade:
-    # Se está aguardando retorno da Qualidade, não compõe backlog.
-    qualidade_awbs = qualidade_awbs_set() if "qualidade_awbs_set" in globals() else set()
-    if qualidade_awbs and "AWB" in data.columns:
-        data_awb_norm = (
-            data["AWB"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .map(lambda x: re.sub(r"\D+", "", x))
-        )
-        data = data[~data_awb_norm.isin(qualidade_awbs)].copy()
+    # Qualidade não exclui a carga do backlog. O processo em andamento é
+    # apresentado no detalhe pela coluna PROCESSO QUALIDADE.
 
     return remove_avarias_from_rows(data)
 
@@ -4759,7 +4784,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "atraso":
         title = "Detalhe — Backlog (atraso de entrega)"
-        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK, Avarias / Salvados e Qualidade."
+        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK e Avarias / Salvados. Cargas em Qualidade permanecem no backlog e são identificadas no detalhe."
         df = backlog_atraso_df.copy() if "backlog_atraso_df" in globals() else overdue_delivery_rows(fila_filtrada)
 
     elif card_key == "backlog_eu_entregue":
@@ -4769,7 +4794,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "qualidade":
         title = "Detalhe — Aguardando retorno da Qualidade"
-        subtitle = "AWBs da planilha de Qualidade com RETORNO_QUALIDADE = PENDENTE. Não entram em Pendente de entrega nem no Backlog de atraso."
+        subtitle = "AWBs da planilha de Qualidade com RETORNO_QUALIDADE = PENDENTE. Se o SLA estiver vencido, também entram no Backlog de Entrega."
         df = qualidade_df.copy() if "qualidade_df" in globals() else aguardando_qualidade_rows(fila_filtrada)
 
     elif card_key == "carga_parcial":
@@ -4779,7 +4804,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "rota_sem_baixa":
         title = "Detalhe — Rota criada sem baixa"
-        subtitle = "Rotas de dias anteriores atribuídas a um entregador, fora do status Planejada, sem entrega, finalização, devolução ou insucesso registrado."
+        subtitle = "Rotas de ontem e antes de ontem com entregador e status Em rota ou Aceita, ainda sem baixa."
         df = rotas_sem_baixa_detalhe.copy()
 
     elif card_key == "insucesso_sem_pendencia":
@@ -5936,7 +5961,7 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
-rotas_sem_baixa_detalhe = filtrar_rotas_sem_baixa_dias_anteriores(
+rotas_sem_baixa_detalhe = filtrar_rotas_sem_baixa_d1_d2(
     pack.get("ROTAS_SEM_BAIXA_DETALHE", pd.DataFrame())
 )
 carga_parcial_detalhe = pack.get("CARGA_PARCIAL_DETALHE", pd.DataFrame())
@@ -6493,7 +6518,7 @@ if menu == "visao":
 
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
-        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "Criada antes de hoje, atribuída e sem desfecho", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
+        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "D-1/D-2 com status Em rota ou Aceita", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),

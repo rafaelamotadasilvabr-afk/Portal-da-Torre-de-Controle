@@ -2868,16 +2868,14 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
-def rotas_sem_baixa_dias_anteriores_rows(master_df, analysis_date=None):
+def rotas_sem_baixa_d1_d2_rows(master_df, analysis_date=None):
     """
     Auditoria isolada de possível falha de baixa no Eu Entrego.
 
     Entra somente a AWB que:
-    - possui rota criada antes da data de análise;
+    - possui rota criada em D-1 ou D-2;
     - possui entregador atribuído;
-    - não está apenas como planejada;
-    - não possui baixa/finalização/entrega/devolução;
-    - não possui insucesso ou outro desfecho negativo registrado.
+    - está com status exatamente EM ROTA ou ACEITA.
 
     Não altera a classificação da fila nem qualquer outro indicador.
     """
@@ -2891,68 +2889,31 @@ def rotas_sem_baixa_dias_anteriores_rows(master_df, analysis_date=None):
             return pd.Series("", index=data.index, dtype="object")
         return data[col].fillna("").astype(str).map(normalize_text)
 
-    def _bool_col(col):
-        if col not in data.columns:
-            return pd.Series(False, index=data.index)
-        return data[col].fillna("").astype(str).str.strip().str.lower().isin(
-            {"true", "1", "sim", "yes", "y", "verdadeiro"}
-        )
-
     data_analise = pd.Timestamp(analysis_date or date.today()).normalize()
     if "ULTIMA_ROTA" not in data.columns:
         return data.iloc[0:0].copy()
 
     data_hora_rota = pd.to_datetime(data["ULTIMA_ROTA"], errors="coerce", dayfirst=True)
-    rota_dia_anterior = data_hora_rota.dt.normalize().lt(data_analise)
-    status_sistema = _norm_col("STATUS_SISTEMA")
+    datas_alvo = {
+        data_analise - pd.Timedelta(days=1),
+        data_analise - pd.Timedelta(days=2),
+    }
+    rota_d1_d2 = data_hora_rota.notna() & data_hora_rota.dt.normalize().isin(datas_alvo)
     status_rota = _norm_col("STATUS_ULTIMA_ROTA")
-    motivo_rota = _norm_col("MOTIVO_ULTIMA_ROTA")
-    status_analise = _norm_col("EU_ENTREGO_STATUS_ANALISE")
-    status_rota_normalizado = _norm_col("EU_ENTREGO_STATUS_ROTA_NORMALIZADO")
     entregador = _norm_col("ULTIMO_ENTREGADOR")
-
-    texto_desfecho = (
-        status_sistema + " " + status_rota + " " + motivo_rota + " "
-        + status_analise + " " + status_rota_normalizado
-    )
-
-    finalizado = (
-        _bool_col("EU_ENTREGO_BAIXADO_ENTREGUE")
-        | texto_desfecho.str.contains(
-            "ENTREGUE|ENTREGA REALIZADA|BAIXAD|FINALIZAD|CONCLUID|"
-            "FECHAD|DEVOLVID|CANCELAD|ENCERRAD|DELIVERED|SUCESSO",
-            regex=True,
-            na=False,
-        )
-    )
-
-    insucesso = texto_desfecho.str.contains(
-        "INSUCESS|NAO ENTREG|NÃO ENTREG|AUSENTE|RECUS|DESTINATARIO|"
-        "DESTINATÁRIO|NAO LOCALIZ|NÃO LOCALIZ|ENDERECO|ENDEREÇO|"
-        "AREA DE RISCO|ÁREA DE RISCO|MUDOU-SE|EXTRAVI|SINISTRO",
-        regex=True,
-        na=False,
-    )
-
     tem_entregador = ~entregador.isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
-    apenas_planejada = texto_desfecho.str.contains(
-        "PLANEJAD|PLANNED",
-        regex=True,
-        na=False,
-    )
+    status_em_aberto = status_rota.isin({"EM ROTA", "ACEITA"})
 
     out = data[
-        rota_dia_anterior
+        rota_d1_d2
         & tem_entregador
-        & ~apenas_planejada
-        & ~finalizado
-        & ~insucesso
+        & status_em_aberto
     ].copy()
     if out.empty:
         return out
 
     out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
-    out["CONTROLE"] = "ROTA ATRIBUÍDA EM DIA ANTERIOR SEM DESFECHO"
+    out["CONTROLE"] = "ROTA D-1/D-2 EM ROTA OU ACEITA SEM BAIXA"
     out["ENTREGADOR"] = out["ULTIMO_ENTREGADOR"].fillna("").astype(str).str.strip()
 
     if "ULTIMA_ROTA" in out.columns:
@@ -3204,15 +3165,8 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 2, "ALTA", "AVARIAS / SALVADOS", \
                 "Tratar exclusivamente pela fila de Avarias / Salvados"
 
-        em_qualidade_torre = str(row.get("EM_QUALIDADE_TORRE", "")).strip().lower() in {
-            "true", "1", "sim", "yes", "y", "verdadeiro"
-        }
-
-        # Qualidade prevalece sobre pendente de entrega/backlog.
-        # Tudo que estiver na planilha de Qualidade vai para o card próprio.
-        if em_qualidade_torre and not sk_baixado_ou_finalizado:
-            return 2, "ALTA", "AGUARDANDO RETORNO DA QUALIDADE", \
-                "Aguardar retorno da Qualidade antes de seguir tratativa de entrega"
+        # Qualidade é uma informação complementar e não exclui a carga do backlog.
+        # O vínculo com a Qualidade será exibido no detalhe da carga.
 
         insucesso_exige_pendencia = (
             tem_insucesso_rota
@@ -3289,7 +3243,18 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 7, prioridade, "3ª TENTATIVA DE ENTREGA", \
                 "Validar direcionamento para a Torre após a terceira tentativa"
 
-        if atraso > 0 and "ENTREGA" in situacao:
+        # Retorno físico confirmado não encerra a pendência operacional no SK.
+        # Se o Eu Entrego estiver DEVOLVIDO, mas o SK continuar PENDENTE ENTREGA
+        # com SLA vencido, a carga também deve permanecer no backlog.
+        retorno_confirmado_pendente_sk = (
+            situacao == "RETORNO CONFIRMADO"
+            and sk_pendente_entrega
+        )
+
+        if atraso > 0 and (
+            "ENTREGA" in situacao
+            or retorno_confirmado_pendente_sk
+        ):
             return 8, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
@@ -3389,6 +3354,19 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["NA PENDENCIA TORRE LINK"] = df["NA_PENDENCIA_TORRE_LINK"] if "NA_PENDENCIA_TORRE_LINK" in df.columns else False
     queue["EM TORRE ATIVA"] = df["EM_TORRE_ATIVA"] if "EM_TORRE_ATIVA" in df.columns else False
     queue["EM QUALIDADE TORRE"] = df["EM_QUALIDADE_TORRE"] if "EM_QUALIDADE_TORRE" in df.columns else False
+    if "EM_QUALIDADE_TORRE" in df.columns:
+        _qualidade_flag_fila = (
+            df["EM_QUALIDADE_TORRE"]
+            .fillna(False)
+            .astype(str)
+            .str.lower()
+            .isin(["true", "1", "sim", "yes", "y", "verdadeiro"])
+        )
+        queue["PROCESSO QUALIDADE"] = _qualidade_flag_fila.map(
+            {True: "EM PROCESSO DE QUALIDADE", False: ""}
+        )
+    else:
+        queue["PROCESSO QUALIDADE"] = ""
     queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
     queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
 
@@ -4284,8 +4262,8 @@ try:
 
 
         # Qualidade:
-        # Tudo que estiver na planilha de Qualidade deve sair de pendente/backlog
-        # e entrar em AGUARDANDO RETORNO DA QUALIDADE.
+        # A planilha identifica o processo em andamento, mas não retira cargas
+        # com SLA vencido do backlog de entrega.
         try:
             _qualidade_awbs = qualidade_awbs_from_df(qualidade_detalhe_gerente)
             if not master.empty and "AWB" in master.columns:
@@ -4317,7 +4295,7 @@ try:
                 edi_loaded=edi_loaded_for_panel,
                 analysis_date=reference_date,
             )
-            rotas_sem_baixa_gerente = rotas_sem_baixa_dias_anteriores_rows(
+            rotas_sem_baixa_gerente = rotas_sem_baixa_d1_d2_rows(
                 eu_latest_completo,
                 analysis_date=reference_date,
             )
@@ -4339,7 +4317,19 @@ try:
                     ]["AWB"].nunique()
                 )
             insucesso_sem_pendencia = int((fila_gerencial["PROBLEMA"] == "INSUCESSO SEM PENDÊNCIA").sum()) if not fila_gerencial.empty else 0
-            aguardando_retorno_qualidade = int((fila_gerencial["PROBLEMA"] == "AGUARDANDO RETORNO DA QUALIDADE").sum()) if not fila_gerencial.empty else 0
+            if not fila_gerencial.empty and "EM QUALIDADE TORRE" in fila_gerencial.columns:
+                _qualidade_flag_resumo = (
+                    fila_gerencial["EM QUALIDADE TORRE"]
+                    .fillna(False)
+                    .astype(str)
+                    .str.lower()
+                    .isin(["true", "1", "sim", "yes", "y", "verdadeiro"])
+                )
+                aguardando_retorno_qualidade = int(
+                    fila_gerencial.loc[_qualidade_flag_resumo, "AWB"].nunique()
+                )
+            else:
+                aguardando_retorno_qualidade = 0
 
             if not fila_gerencial.empty:
                 _eu_flag = (
@@ -4892,7 +4882,7 @@ try:
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
-                {"METRICA": "Rotas sem baixa de dias anteriores", "VALOR": int(len(rotas_sem_baixa_gerente))},
+                {"METRICA": "Rotas Em rota/Aceita D-1 e D-2", "VALOR": int(len(rotas_sem_baixa_gerente))},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
