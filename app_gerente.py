@@ -3387,6 +3387,44 @@ def rota_sem_baixa_detail_columns(df):
     return out[cols + rest].copy()
 
 
+def filtrar_rotas_sem_baixa_dias_anteriores(df, reference_date=None):
+    """Mantém somente rotas criadas antes de hoje; datas vazias não entram."""
+    if df is None or df.empty:
+        return pd.DataFrame() if df is None else df.copy()
+
+    data = df.copy()
+    data_rota_col = first_col(data, [
+        "DATA/HORA CRIAÇÃO DA ROTA",
+        "DATA HORA CRIAÇÃO DA ROTA",
+        "ULTIMA_ROTA",
+        "ÚLTIMA ROTA",
+        "DATA_ROTA",
+        "DATA ROTA",
+    ])
+    if not data_rota_col:
+        return data.iloc[0:0].copy()
+
+    if reference_date is None:
+        try:
+            reference_date = datetime.now(timezone.utc).astimezone(
+                ZoneInfo("America/Sao_Paulo")
+            ).date()
+        except Exception:
+            reference_date = date.today()
+
+    data_referencia = pd.Timestamp(reference_date).normalize()
+    data_hora_rota = pd.to_datetime(
+        data[data_rota_col],
+        errors="coerce",
+        dayfirst=True,
+    )
+    mask_dias_anteriores = (
+        data_hora_rota.notna()
+        & data_hora_rota.dt.normalize().lt(data_referencia)
+    )
+    return data[mask_dias_anteriores].copy()
+
+
 def truthy_series(series, index=None):
     if series is None:
         return pd.Series(False, index=index)
@@ -4741,7 +4779,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "rota_sem_baixa":
         title = "Detalhe — Rota criada sem baixa"
-        subtitle = "Rotas de hoje atribuídas a um entregador, fora do status Planejada, sem entrega, finalização, devolução ou insucesso registrado."
+        subtitle = "Rotas de dias anteriores atribuídas a um entregador, fora do status Planejada, sem entrega, finalização, devolução ou insucesso registrado."
         df = rotas_sem_baixa_detalhe.copy()
 
     elif card_key == "insucesso_sem_pendencia":
@@ -5898,7 +5936,9 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
-rotas_sem_baixa_detalhe = pack.get("ROTAS_SEM_BAIXA_DETALHE", pd.DataFrame())
+rotas_sem_baixa_detalhe = filtrar_rotas_sem_baixa_dias_anteriores(
+    pack.get("ROTAS_SEM_BAIXA_DETALHE", pd.DataFrame())
+)
 carga_parcial_detalhe = pack.get("CARGA_PARCIAL_DETALHE", pd.DataFrame())
 passivel_debito_detalhe = pack.get("PASSIVEL_DEBITO_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
@@ -6453,7 +6493,7 @@ if menu == "visao":
 
     secondary_cards = [
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
-        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "Atribuída ao entregador e sem desfecho", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
+        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "Criada antes de hoje, atribuída e sem desfecho", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),

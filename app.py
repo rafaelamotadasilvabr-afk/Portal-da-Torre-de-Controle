@@ -191,9 +191,22 @@ st.markdown(
         border-left-width: 4px;
     }
 
+    /* Oculta somente a barra nativa do Streamlit e recupera seu espaço. */
     header[data-testid="stHeader"] {
-        background: rgba(245,243,240,.86);
-        backdrop-filter: blur(10px);
+        height: 0 !important;
+        min-height: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"] {
+        display: none !important;
+    }
+
+    [data-testid="stAppViewBlockContainer"] {
+        padding-top: .55rem !important;
     }
     </style>
     """,
@@ -2855,12 +2868,12 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
-def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
+def rotas_sem_baixa_dias_anteriores_rows(master_df, analysis_date=None):
     """
     Auditoria isolada de possível falha de baixa no Eu Entrego.
 
     Entra somente a AWB que:
-    - possui rota criada na data de análise;
+    - possui rota criada antes da data de análise;
     - possui entregador atribuído;
     - não está apenas como planejada;
     - não possui baixa/finalização/entrega/devolução;
@@ -2885,7 +2898,12 @@ def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
             {"true", "1", "sim", "yes", "y", "verdadeiro"}
         )
 
-    rota_hoje = _bool_col("TEVE_ROTA_HOJE")
+    data_analise = pd.Timestamp(analysis_date or date.today()).normalize()
+    if "ULTIMA_ROTA" not in data.columns:
+        return data.iloc[0:0].copy()
+
+    data_hora_rota = pd.to_datetime(data["ULTIMA_ROTA"], errors="coerce", dayfirst=True)
+    rota_dia_anterior = data_hora_rota.dt.normalize().lt(data_analise)
     status_sistema = _norm_col("STATUS_SISTEMA")
     status_rota = _norm_col("STATUS_ULTIMA_ROTA")
     motivo_rota = _norm_col("MOTIVO_ULTIMA_ROTA")
@@ -2924,7 +2942,7 @@ def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
     )
 
     out = data[
-        rota_hoje
+        rota_dia_anterior
         & tem_entregador
         & ~apenas_planejada
         & ~finalizado
@@ -2934,7 +2952,7 @@ def rotas_sem_baixa_hoje_rows(master_df, analysis_date=None):
         return out
 
     out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
-    out["CONTROLE"] = "ROTA ATRIBUÍDA HOJE SEM DESFECHO"
+    out["CONTROLE"] = "ROTA ATRIBUÍDA EM DIA ANTERIOR SEM DESFECHO"
     out["ENTREGADOR"] = out["ULTIMO_ENTREGADOR"].fillna("").astype(str).str.strip()
 
     if "ULTIMA_ROTA" in out.columns:
@@ -4283,7 +4301,7 @@ try:
                 edi_loaded=edi_loaded_for_panel,
                 analysis_date=reference_date,
             )
-            rotas_sem_baixa_gerente = rotas_sem_baixa_hoje_rows(
+            rotas_sem_baixa_gerente = rotas_sem_baixa_dias_anteriores_rows(
                 master,
                 analysis_date=reference_date,
             )
@@ -4858,7 +4876,7 @@ try:
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
-                {"METRICA": "Rotas sem baixa hoje", "VALOR": int(len(rotas_sem_baixa_gerente))},
+                {"METRICA": "Rotas sem baixa de dias anteriores", "VALOR": int(len(rotas_sem_baixa_gerente))},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
