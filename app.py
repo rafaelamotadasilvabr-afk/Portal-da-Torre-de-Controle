@@ -4148,13 +4148,29 @@ try:
             else None
         )
 
-        eu_latest, route_dates = read_eu_entrego_files(
+        # O arquivo completo do Eu Entrego é preservado exclusivamente para a
+        # auditoria de rotas antigas sem baixa. Os demais indicadores continuam
+        # usando somente a interseção com a carteira AWBStatus/CDSP2.
+        eu_latest_completo, route_dates_completo = read_eu_entrego_files(
             file_eu,
-            awb_filter=_lm_awb_filter,
+            awb_filter=None,
         )
+
+        if _lm_awb_filter:
+            _lm_awb_set = set(_lm_awb_filter)
+            eu_latest = eu_latest_completo[
+                eu_latest_completo["AWB"].astype(str).str.strip().isin(_lm_awb_set)
+            ].copy()
+            route_dates = route_dates_completo[
+                route_dates_completo["AWB"].astype(str).str.strip().isin(_lm_awb_set)
+            ].copy()
+        else:
+            eu_latest = eu_latest_completo.copy()
+            route_dates = route_dates_completo.copy()
 
         st.caption(
             f"Eu Entrego: {len(file_eu) if isinstance(file_eu, list) else 1} arquivo(s) processado(s). "
+            f"{eu_latest_completo['AWB'].nunique() if not eu_latest_completo.empty and 'AWB' in eu_latest_completo.columns else 0} AWB(s) lidas no arquivo completo. "
             f"{len(_lm_awb_filter) if _lm_awb_filter else 0} AWB(s) da carteira CDSP2 usadas como filtro. "
             f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) encontradas no Eu Entrego após o filtro."
         )
@@ -4302,7 +4318,7 @@ try:
                 analysis_date=reference_date,
             )
             rotas_sem_baixa_gerente = rotas_sem_baixa_dias_anteriores_rows(
-                master,
+                eu_latest_completo,
                 analysis_date=reference_date,
             )
             fila_gerencial = fila_gerencial[
