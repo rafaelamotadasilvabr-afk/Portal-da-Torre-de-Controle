@@ -4158,7 +4158,16 @@ def terceira_tentativa_rows(df):
     if not tent_col or not motivo_col or not status_sk_col:
         return data.iloc[0:0].copy()
 
-    tentativas = numeric_series(data[tent_col])
+    # Quantidade de tentativas não é valor monetário: preserve o decimal.
+    # O conversor genérico removia o ponto e transformava 2.0 em 20.
+    tentativas = pd.to_numeric(
+        data[tent_col]
+        .fillna(0)
+        .astype(str)
+        .str.strip()
+        .str.replace(",", ".", regex=False),
+        errors="coerce",
+    ).fillna(0)
     motivo = data[motivo_col].fillna("").astype(str).map(normalize_text)
     status_sk = data[status_sk_col].fillna("").astype(str).map(normalize_text)
 
