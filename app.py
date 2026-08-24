@@ -899,12 +899,14 @@ def read_eu_entrego(file_bytes, awb_filter_key=None):
         "Status": "STATUS_ULTIMA_ROTA",
         "Nome Entregador": "ULTIMO_ENTREGADOR",
         "Motivo": "MOTIVO_ULTIMA_ROTA",
+        "Motivo 3": "MOTIVO_TERCEIRA_TENTATIVA",
         "Última alteração": "ULTIMA_ALTERACAO"
     })
 
     keep = [
         "AWB", "ULTIMA_ROTA", "STATUS_ULTIMA_ROTA",
         "ULTIMO_ENTREGADOR", "MOTIVO_ULTIMA_ROTA",
+        "MOTIVO_TERCEIRA_TENTATIVA",
         "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO",
         "EXECUTADA_DT", "EU_ENTREGO_STATUS_ANALISE",
         "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
@@ -3103,6 +3105,20 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "FECHADO" in motivo_rota_norm
         )
 
+        motivo_terceira_norm = normalize_text(
+            value(row, "MOTIVO_TERCEIRA_TENTATIVA")
+        )
+        motivo_regra_terceira = motivo_terceira_norm or motivo_rota_norm
+        terceira_por_ausente_ou_fechado = (
+            "AUSENTE" in motivo_regra_terceira
+            or "FECHADO" in motivo_regra_terceira
+            or "FECHADA" in motivo_regra_terceira
+        )
+        motivo_ausente_ou_fechado = (
+            motivo_ausente_ou_fechado
+            or terceira_por_ausente_ou_fechado
+        )
+
         evento_torre_norm = normalize_text(value(row, "EVENTO_TORRE"))
         na_pendencia_torre_link = str(row.get("NA_PENDENCIA_TORRE_LINK", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
@@ -3234,22 +3250,23 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 4, prioridade, "INSUCESSO SEM PENDÊNCIA", \
                 "Direcionar para pendência para tratativa do motivo de insucesso"
 
-        # Regra gerencial: ausente/fechado com 3 ou mais tentativas fica em 3ª tentativa.
-        # Outros motivos já foram direcionados para Insucesso sem pendência acima.
+        # Regra fechada do card 3ª tentativa:
+        # - três ou mais tentativas registradas;
+        # - motivo da terceira tentativa (ou motivo atual como fallback) Ausente/Fechado;
+        # - ainda Pendente Entrega no SK;
+        # - ainda fora da Pendência da Torre;
+        # - sem entrega/finalização no Eu Entrego.
         if (
             tentativas >= 3
-            and tem_insucesso_rota
-            and motivo_ausente_ou_fechado
-            and (
-                "ENTREGA" in situacao
-                or "PENDENTE" in situacao
-                or "INSUCESSO" in situacao
-                or "RETORNO" in situacao
-            )
+            and terceira_por_ausente_ou_fechado
+            and sk_pendente_entrega
+            and not sk_baixado_ou_finalizado
+            and not esta_na_pendencia
+            and not entregue_eu_pendente_sk
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
             return 5, prioridade, "3ª TENTATIVA DE ENTREGA", \
-                "Validar direcionamento para a Torre após 3 tentativas por ausente/fechado"
+                "Encaminhar para a Pendência após 3 tentativas por Ausente/Fechado"
 
         # SLA do dia sem rota:
         # Só é sem rota quando não houve rota/saída no dia do SLA e também não existe
@@ -3264,15 +3281,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
         ):
             return 6, "ALTA", "SLA DO DIA SEM ROTA", \
                 "Criar rota no Eu Entrego ou justificar carga no piso sem saída no dia do SLA"
-
-        # Regra residual de 3ª tentativa para status já classificados assim no SK.
-        if tentativas >= 3 and (
-            "3A TENTATIVA" in situacao
-            or "3ª TENTATIVA" in situacao
-        ):
-            prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
-            return 7, prioridade, "3ª TENTATIVA DE ENTREGA", \
-                "Validar direcionamento para a Torre após a terceira tentativa"
 
         # Retorno físico confirmado não encerra a pendência operacional no SK.
         # Se o Eu Entrego estiver DEVOLVIDO, mas o SK continuar PENDENTE ENTREGA
@@ -3292,10 +3300,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
             return 9, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
-
-        if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
-            return 10, "ALTA", "3ª TENTATIVA DE ENTREGA", \
-                "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
             return 11, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
@@ -3361,6 +3365,7 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["MOTORISTA / ENTREGADOR"] = df["ULTIMO_ENTREGADOR"] if "ULTIMO_ENTREGADOR" in df.columns else ""
     queue["STATUS ÚLTIMA ROTA"] = df["STATUS_ULTIMA_ROTA"] if "STATUS_ULTIMA_ROTA" in df.columns else ""
     queue["MOTIVO ÚLTIMA ROTA"] = df["MOTIVO_ULTIMA_ROTA"] if "MOTIVO_ULTIMA_ROTA" in df.columns else ""
+    queue["MOTIVO 3ª TENTATIVA"] = df["MOTIVO_TERCEIRA_TENTATIVA"] if "MOTIVO_TERCEIRA_TENTATIVA" in df.columns else ""
     queue["TIPO INSUCESSO"] = (
         df["MOTIVO_ULTIMA_ROTA"].astype(str).map(normalize_text)
         if "MOTIVO_ULTIMA_ROTA" in df.columns
@@ -4598,12 +4603,11 @@ try:
             sla_dia_piso_sem_rota = int(_piso_sem_rota_mask.sum())
 
             terceira_tentativa_entrega = int(
-                (
-                    _tentativas_panel.ge(3)
-                    & _status_norm_panel.eq("PENDENTE ENTREGA")
-                    & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
-                ).sum()
-            )
+                fila_gerencial.loc[
+                    fila_gerencial["PROBLEMA"].astype(str).eq("3ª TENTATIVA DE ENTREGA"),
+                    "AWB",
+                ].nunique()
+            ) if not fila_gerencial.empty else 0
 
             last_mile_pendente_desembarque = int(
                 (

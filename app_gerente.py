@@ -3312,9 +3312,11 @@ def detail_columns(df):
         "MOTORISTA / ENTREGADOR",
         "STATUS ÚLTIMA ROTA",
         "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO 3ª TENTATIVA",
         "ÚLTIMA ROTA",
         "DIAS DESDE ÚLTIMA ROTA",
         "QT TENTATIVAS",
+        "AÇÃO APÓS 3ª TENTATIVA",
         "LOCALIZAÇÃO / RESPONSÁVEL",
         "PRÓXIMA AÇÃO",
         "MOTIVO PENDÊNCIA",
@@ -4135,14 +4137,79 @@ def terceira_tentativa_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    tent_col = first_col(df, ["QT TENTATIVAS", "QT_TENTATIVAS_INSUCESSO"])
-    if tent_col:
-        tent = numeric_series(df[tent_col])
-        tentativa_df = df[tent >= 3].copy()
-        if not tentativa_df.empty:
-            return remover_excecoes_terceira_tentativa(remove_avarias_from_rows(tentativa_df))
+    data = df.copy()
+    tent_col = first_col(data, ["QT TENTATIVAS", "QT_TENTATIVAS_INSUCESSO"])
+    motivo_col = first_col(data, [
+        "MOTIVO 3ª TENTATIVA",
+        "MOTIVO TERCEIRA TENTATIVA",
+        "MOTIVO_TERCEIRA_TENTATIVA",
+        "MOTIVO ÚLTIMA ROTA",
+        "MOTIVO_ULTIMA_ROTA",
+        "TIPO INSUCESSO",
+    ])
+    status_sk_col = first_col(data, [
+        "STATUS SK",
+        "STATUS_SISTEMA",
+        "STATUS SISTEMA",
+    ])
 
-    return remover_excecoes_terceira_tentativa(remove_avarias_from_rows(filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])))
+    # Sem a quantidade, o motivo e o status do SK, a linha não possui evidência
+    # suficiente para entrar neste card.
+    if not tent_col or not motivo_col or not status_sk_col:
+        return data.iloc[0:0].copy()
+
+    tentativas = numeric_series(data[tent_col])
+    motivo = data[motivo_col].fillna("").astype(str).map(normalize_text)
+    status_sk = data[status_sk_col].fillna("").astype(str).map(normalize_text)
+
+    motivo_ausente_fechado = motivo.str.contains(
+        "AUSENTE|FECHADO|FECHADA",
+        regex=True,
+        na=False,
+    )
+    sk_pendente_entrega = status_sk.isin({
+        "PENDENTE ENTREGA",
+        "PENDENTE DE ENTREGA",
+    })
+
+    entregue_eu = pd.Series(False, index=data.index)
+    flag_entregue_col = first_col(data, [
+        "EU ENTREGO BAIXADO ENTREGUE",
+        "EU_ENTREGO_BAIXADO_ENTREGUE",
+    ])
+    if flag_entregue_col:
+        entregue_eu = entregue_eu | truthy_series(
+            data[flag_entregue_col],
+            index=data.index,
+        )
+
+    status_eu_col = first_col(data, [
+        "STATUS ÚLTIMA ROTA",
+        "STATUS_ULTIMA_ROTA",
+    ])
+    if status_eu_col:
+        status_eu = data[status_eu_col].fillna("").astype(str).map(normalize_text)
+        entregue_eu = entregue_eu | status_eu.str.fullmatch(
+            r"FECHAD[AO]?|ENTREGUE|FINALIZAD[AO]?|CONCLUID[AO]?|BAIXAD[AO]?",
+            na=False,
+        )
+
+    tentativa_df = data[
+        tentativas.ge(3)
+        & motivo_ausente_fechado
+        & sk_pendente_entrega
+        & ~entregue_eu
+    ].copy()
+
+    if tentativa_df.empty:
+        return tentativa_df
+
+    # Após entrar na Pendência da Torre, deixa de compor este card.
+    tentativa_df = remove_pendencia_from_rows(tentativa_df)
+    tentativa_df = remove_avarias_from_rows(tentativa_df)
+    tentativa_df = remover_excecoes_terceira_tentativa(tentativa_df)
+    tentativa_df["AÇÃO APÓS 3ª TENTATIVA"] = "ENCAMINHAR PARA PENDÊNCIA"
+    return tentativa_df
 
 
 def awb_col_name(df):
@@ -4853,7 +4920,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
-        subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
+        subtitle = "Somente cargas com 3 ou mais tentativas, motivo Ausente/Fechado, Pendente Entrega no SK e ainda fora da Pendência da Torre."
         df = remover_excecoes_terceira_tentativa(terceira_tentativa_df.copy() if "terceira_tentativa_df" in globals() else terceira_tentativa_rows(fila_filtrada))
 
     elif card_key == "pend_total":
@@ -6540,7 +6607,7 @@ if menu == "visao":
         ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
         ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
         ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Sem WhatsApp, devolução ou nova rota hoje", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
-        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3×", "#c2410c", "#fff7ed", "terceira"),
+        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "3+ tentativas por Ausente/Fechado; encaminhar à Pendência", "3×", "#c2410c", "#fff7ed", "terceira"),
         ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "◇", "#d92d20", "#fff0ef", "avaria"),
     ]
 
