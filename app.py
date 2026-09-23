@@ -4,7 +4,6 @@ import base64
 import re
 import unicodedata
 from datetime import date
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -19,198 +18,6 @@ st.set_page_config(
     page_title="Portal da Torre de Controle - V0",
     page_icon="📊",
     layout="wide",
-)
-
-LOGO_PATH = Path(__file__).with_name("gds-logo.png")
-
-# =========================
-# IDENTIDADE VISUAL GDS
-# Somente apresentação: não altera componentes, dados ou regras.
-# =========================
-st.markdown(
-    """
-    <style>
-    :root {
-        --gds-orange: #ff7900;
-        --gds-orange-dark: #d95f00;
-        --gds-orange-soft: #fff1e5;
-        --gds-charcoal: #181818;
-        --gds-graphite: #262626;
-        --gds-text: #2b2b2b;
-        --gds-muted: #6f6b67;
-        --gds-bg: #f5f3f0;
-        --gds-surface: #ffffff;
-        --gds-border: #e3ddd6;
-        --gds-shadow: 0 8px 24px rgba(37, 29, 22, .07);
-    }
-
-    .stApp {
-        background:
-            radial-gradient(circle at 96% 0%, rgba(255,121,0,.08), transparent 22rem),
-            var(--gds-bg);
-        color: var(--gds-text);
-    }
-
-    .block-container {
-        max-width: 1540px;
-        padding-top: 1.15rem;
-        padding-bottom: 2rem;
-    }
-
-    h1, h2, h3, h4, h5, h6,
-    [data-testid="stMarkdownContainer"] strong {
-        color: var(--gds-charcoal);
-    }
-
-    h1 {
-        letter-spacing: -.035em;
-        font-weight: 850 !important;
-    }
-
-    h2, h3 { letter-spacing: -.02em; }
-    a { color: var(--gds-orange-dark); }
-
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #151515 0%, #202020 100%);
-        border-right: 1px solid #36322f;
-        box-shadow: 10px 0 28px rgba(0,0,0,.13);
-    }
-
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        background: #111111;
-        border: 1px solid rgba(255,121,0,.28);
-        border-radius: 14px;
-        padding: 12px 14px;
-        margin: 2px 0 16px;
-    }
-
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: #f7f4f1 !important;
-    }
-
-    [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.13); }
-
-    [data-testid="stSidebar"] input,
-    [data-testid="stSidebar"] textarea {
-        background: #292929 !important;
-        color: #ffffff !important;
-        border-color: #4a4541 !important;
-    }
-
-    [data-testid="stSidebar"] [data-baseweb="select"] > div {
-        background: #292929 !important;
-        color: #ffffff !important;
-        border-color: #4a4541 !important;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
-        background: #292929 !important;
-        border-color: #4a4541 !important;
-        box-shadow: none;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] button {
-        background: var(--gds-orange) !important;
-        border-color: var(--gds-orange) !important;
-        color: #171717 !important;
-    }
-
-    div[data-testid="stButton"] button,
-    div[data-testid="stDownloadButton"] button {
-        border-radius: 10px;
-        border: 1px solid #d8d0c8;
-        background: #ffffff;
-        color: var(--gds-charcoal);
-        font-weight: 720;
-        transition: all .16s ease;
-    }
-
-    div[data-testid="stButton"] button:hover,
-    div[data-testid="stDownloadButton"] button:hover {
-        border-color: var(--gds-orange);
-        color: var(--gds-orange-dark);
-        box-shadow: 0 5px 15px rgba(255,121,0,.14);
-    }
-
-    div[data-testid="stButton"] button[kind="primary"],
-    div[data-testid="stDownloadButton"] button[kind="primary"] {
-        background: var(--gds-orange);
-        border-color: var(--gds-orange);
-        color: #171717;
-    }
-
-    [data-testid="stFileUploaderDropzone"],
-    [data-testid="stExpander"],
-    [data-testid="stMetric"],
-    [data-testid="stDataFrame"],
-    [data-testid="stTable"] {
-        background: var(--gds-surface);
-        border: 1px solid var(--gds-border);
-        border-radius: 12px;
-        box-shadow: var(--gds-shadow);
-    }
-
-    [data-testid="stMetric"] {
-        border-top: 3px solid var(--gds-orange);
-        padding: .78rem .9rem;
-    }
-
-    [data-testid="stMetricValue"] {
-        color: var(--gds-charcoal);
-        font-weight: 850;
-    }
-
-    [data-baseweb="tab-list"] {
-        gap: .35rem;
-        border-bottom: 1px solid var(--gds-border);
-    }
-
-    [data-baseweb="tab"] {
-        color: var(--gds-muted);
-        font-weight: 700;
-    }
-
-    [aria-selected="true"][data-baseweb="tab"] {
-        color: var(--gds-orange-dark) !important;
-        border-bottom-color: var(--gds-orange) !important;
-    }
-
-    input:focus, textarea:focus,
-    [data-baseweb="select"] > div:focus-within {
-        border-color: var(--gds-orange) !important;
-        box-shadow: 0 0 0 1px var(--gds-orange) !important;
-    }
-
-    [data-testid="stAlert"] {
-        border-radius: 11px;
-        border-left-width: 4px;
-    }
-
-    /* Oculta somente a barra nativa do Streamlit e recupera seu espaço. */
-    header[data-testid="stHeader"] {
-        height: 0 !important;
-        min-height: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-    }
-
-    [data-testid="stToolbar"],
-    [data-testid="stDecoration"],
-    [data-testid="stStatusWidget"] {
-        display: none !important;
-    }
-
-    [data-testid="stAppViewBlockContainer"] {
-        padding-top: .55rem !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
 )
 
 
@@ -615,181 +422,15 @@ def read_last_mile(file_bytes):
     return df[keep].copy()
 
 
-
-
-def read_carga_parcial_last_mile(file_bytes, reference_date=None):
-    """
-    Carga Parcial:
-    AWB aparece no AWBStatus com StatusDescription contendo Pendente Entrega
-    e também com StatusDescription contendo Pendente Desembarque.
-
-    Não altera a regra operacional existente. Apenas gera uma aba de apoio
-    para o painel do gerente.
-    """
-    try:
-        df = pd.read_excel(io.BytesIO(file_bytes))
-        df = clean_columns(df)
-    except Exception:
-        return pd.DataFrame()
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    awb_col = find_column(df, ["AWBNumber", "AWB", "Nº AWB", "Numero AWB", "Número AWB"])
-    status_col = find_column(df, ["StatusDescription", "Status Description", "STATUSDESCRIPTION"])
-    status_en_col = find_column(df, ["StatusDescriptionEN", "Status Description EN", "STATUSDESCRIPTIONEN"])
-    flt_origin_col = find_column(df, ["FltOrigin", "Flt Origin", "FLTORIGIN"])
-    ops_col = find_column(df, ["OPSStation", "OPS Station", "OPSSTATION"])
-    flt_dest_col = find_column(df, ["FltDestination", "Flt Destination", "FLTDESTINATION"])
-    sla_col = find_column(df, ["ApproxSLA", "Approx SLA", "SLA"])
-
-    if not awb_col or not status_col:
-        return pd.DataFrame()
-
-    data = df.copy()
-    data["AWB"] = data[awb_col].apply(normalize_awb)
-    data["_STATUS_NORM"] = data[status_col].astype(str).map(normalize_text)
-
-    mask_entrega = data["_STATUS_NORM"].str.contains(
-        "PENDENTE ENTREGA|PENDENTE DE ENTREGA",
-        regex=True,
-        na=False,
-    )
-    mask_embarque = data["_STATUS_NORM"].str.contains(
-        "PENDENTE EMBARQUE|PENDENTE DE EMBARQUE",
-        regex=True,
-        na=False,
-    )
-    mask_desembarque = data["_STATUS_NORM"].str.contains(
-        "PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE",
-        regex=True,
-        na=False,
-    )
-    mask_pendente_origem = mask_embarque | mask_desembarque
-
-    awbs_entrega = set(data.loc[mask_entrega, "AWB"].dropna().astype(str).str.strip())
-    awbs_origem = set(data.loc[mask_pendente_origem, "AWB"].dropna().astype(str).str.strip())
-    awbs_parciais = {x for x in (awbs_entrega & awbs_origem) if x}
-
-    if not awbs_parciais:
-        return pd.DataFrame(columns=[
-            "AWB", "ONDE ESTA PENDENTE", "STATUS", "STATUS EN",
-            "OPS STATION", "DESTINO", "SLA", "TIPO REGISTRO"
-        ])
-
-    out = data[data["AWB"].isin(awbs_parciais) & (mask_entrega | mask_pendente_origem)].copy()
-
-    def _safe_col(col):
-        return out[col] if col and col in out.columns else ""
-
-    result = pd.DataFrame({
-        "AWB": out["AWB"],
-        "ONDE ESTA PENDENTE": _safe_col(flt_origin_col),
-        "STATUS": out[status_col].astype(str).str.strip(),
-        "STATUS EN": _safe_col(status_en_col),
-        "OPS STATION": _safe_col(ops_col),
-        "DESTINO": _safe_col(flt_dest_col),
-        "SLA": _safe_col(sla_col),
-        "TIPO REGISTRO": out["_STATUS_NORM"].apply(
-            lambda x:
-                "PENDENTE ENTREGA"
-                if "PENDENTE ENTREGA" in x or "PENDENTE DE ENTREGA" in x
-                else (
-                    "PENDENTE EMBARQUE"
-                    if "PENDENTE EMBARQUE" in x or "PENDENTE DE EMBARQUE" in x
-                    else "PENDENTE DESEMBARQUE"
-                )
-        ),
-    })
-
-    # Regra operacional de urgência:
-    # se a carga parcial tiver registro de Pendente Desembarque
-    # e o FltOrigin indicar CDSP2 ou SAO12, precisa tratar como Missing
-    # e acionar Rádio Busca.
-    _origem_norm = result["ONDE ESTA PENDENTE"].fillna("").astype(str).map(normalize_text)
-    _tipo_norm = result["TIPO REGISTRO"].fillna("").astype(str).map(normalize_text)
-
-    _mask_missing_radio = (
-        _tipo_norm.str.contains("PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE", regex=True, na=False)
-        & _origem_norm.str.contains("CDSP2|SAO12", regex=True, na=False)
-    )
-
-    # SLA da carga parcial:
-    # se já passou o SLA, precisa enviar e-mail perguntando se pode seguir
-    # com entrega parcial.
-    # Para Carga Parcial, o vencimento de SLA deve refletir o dia atual operacional,
-    # não apenas a data de filtro do painel. Isso evita esconder ação urgente.
-    try:
-        ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").date()
-    except Exception:
-        ref_date = pd.Timestamp.today().date()
-
-    _sla_dt = pd.to_datetime(result["SLA"], errors="coerce").dt.date
-    _mask_sla_vencido = _sla_dt.apply(lambda x: bool(pd.notna(x) and x < ref_date))
-    _mask_sla_hoje = _sla_dt.apply(lambda x: bool(pd.notna(x) and x == ref_date))
-
-    result["PRECISA DAR MISSING"] = ""
-    result.loc[_mask_missing_radio, "PRECISA DAR MISSING"] = "SIM"
-
-    result["STATUS SLA"] = "SEM SLA"
-    result.loc[_mask_sla_hoje, "STATUS SLA"] = "SLA HOJE"
-    result.loc[_mask_sla_vencido, "STATUS SLA"] = "SLA VENCIDO"
-
-    result["ENCAMINHAR PARA PENDÊNCIA"] = ""
-    result.loc[_mask_sla_vencido, "ENCAMINHAR PARA PENDÊNCIA"] = "SIM"
-
-    result["E-MAIL ENTREGA PARCIAL"] = ""
-    result.loc[_mask_sla_vencido, "E-MAIL ENTREGA PARCIAL"] = (
-        "ENVIAR E-MAIL: confirmar se podemos seguir com entrega parcial"
-    )
-
-    result["AÇÃO OPERACIONAL"] = ""
-    result.loc[_mask_missing_radio, "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
-    result.loc[_mask_sla_vencido & ~_mask_missing_radio, "AÇÃO OPERACIONAL"] = (
-        "ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
-    )
-    result.loc[_mask_sla_vencido & _mask_missing_radio, "AÇÃO OPERACIONAL"] = (
-        "ABRIR MISSING + ACIONAR RÁDIO BUSCA + ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
-    )
-
-    result["PRIORIDADE CARGA PARCIAL"] = ""
-    result.loc[_mask_sla_vencido | _mask_missing_radio, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
-    result.loc[~(_mask_sla_vencido | _mask_missing_radio), "PRIORIDADE CARGA PARCIAL"] = "ACOMPANHAR"
-
-    return (
-        result
-        .sort_values(
-            ["AWB", "PRIORIDADE CARGA PARCIAL", "TIPO REGISTRO", "ONDE ESTA PENDENTE"],
-            ascending=[True, False, True, True],
-            na_position="last",
-        )
-        .reset_index(drop=True)
-    )
-
-
 @st.cache_data(show_spinner=False)
 def read_eu_entrego(file_bytes, awb_filter_key=None):
     df = pd.read_excel(io.BytesIO(file_bytes))
     df = clean_columns(df)
 
-    # Eu Entrego usa PEDIDO como identificador operacional.
-    # O app cria AWB internamente apenas para cruzar com AWBStatus/SK.
-    pedido_col = find_column(df, [
-        "Pedido",
-        "PEDIDO",
-        "pedido",
-        "N Pedido",
-        "Nº Pedido",
-        "Numero Pedido",
-        "Número Pedido",
-        "NUMERO PEDIDO",
-        "NÚMERO PEDIDO",
-    ])
-
-    if not pedido_col:
+    if "Pedido" not in df.columns:
         raise ValueError("Eu Entrego: coluna 'Pedido' não encontrada.")
 
-    df["AWB"] = df[pedido_col].apply(normalize_awb)
+    df["AWB"] = df["Pedido"].apply(normalize_awb)
 
     # Otimização:
     # O Eu Entrego pode vir com dezenas de milhares de AWBs.
@@ -899,14 +540,12 @@ def read_eu_entrego(file_bytes, awb_filter_key=None):
         "Status": "STATUS_ULTIMA_ROTA",
         "Nome Entregador": "ULTIMO_ENTREGADOR",
         "Motivo": "MOTIVO_ULTIMA_ROTA",
-        "Motivo 3": "MOTIVO_TERCEIRA_TENTATIVA",
         "Última alteração": "ULTIMA_ALTERACAO"
     })
 
     keep = [
         "AWB", "ULTIMA_ROTA", "STATUS_ULTIMA_ROTA",
         "ULTIMO_ENTREGADOR", "MOTIVO_ULTIMA_ROTA",
-        "MOTIVO_TERCEIRA_TENTATIVA",
         "ULTIMA_ALTERACAO", "QT_TENTATIVAS_INSUCESSO",
         "EXECUTADA_DT", "EU_ENTREGO_STATUS_ANALISE",
         "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
@@ -992,27 +631,10 @@ def read_eu_entrego_files(uploaded_files, awb_filter=None):
             .reset_index(drop=True)
         )
     else:
-        eu_latest = pd.DataFrame(columns=[
-            "AWB",
-            "ULTIMA_ROTA",
-            "STATUS_ULTIMA_ROTA",
-            "ULTIMO_ENTREGADOR",
-            "MOTIVO_ULTIMA_ROTA",
-            "ULTIMA_ALTERACAO",
-            "QT_TENTATIVAS_INSUCESSO",
-            "EXECUTADA_DT",
-            "EU_ENTREGO_STATUS_ANALISE",
-            "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
-            "EU_ENTREGO_BAIXADO_ENTREGUE",
-            "ARQUIVO_EU_ENTREGO",
-        ])
+        eu_latest = pd.DataFrame()
 
     if route_parts:
         route_dates = pd.concat(route_parts, ignore_index=True, sort=False)
-        if "AWB" not in route_dates.columns:
-            route_dates["AWB"] = pd.Series(dtype=str)
-        if "DATA_ROTA" not in route_dates.columns:
-            route_dates["DATA_ROTA"] = pd.NaT
         route_dates = route_dates.dropna(subset=["AWB", "DATA_ROTA"], how="any")
     else:
         route_dates = pd.DataFrame(columns=["AWB", "DATA_ROTA", "ARQUIVO_EU_ENTREGO"])
@@ -1630,7 +1252,6 @@ def read_torre(file_bytes):
             status_col = "STATUS_FALLBACK"
             origin_col = "ORIGEM_FALLBACK"
             reason_col = None
-            email_col = None
             date_col = "DATA_EVENTO_FALLBACK"
         else:
             if df is None or df.empty:
@@ -1667,14 +1288,6 @@ def read_torre(file_bytes):
                 "OBS",
                 "OBSERVAÇÃO",
                 "OBSERVACAO",
-            ])
-            email_col = _find_col_fuzzy(df, [
-                "STATUS EMAIL",
-                "STATUS_EMAIL",
-                "STATUS DO EMAIL",
-                "STATUS E-MAIL",
-                "E-MAIL",
-                "EMAIL",
             ])
             date_col = _best_date_col(df, event_type)
 
@@ -1741,13 +1354,11 @@ def read_torre(file_bytes):
                     data_evento.loc[_finalizado_mask]
                 )
 
-        _email_col_local = locals().get("email_col", None)
         part = pd.DataFrame({
             "AWB": df["AWB"],
             "EVENTO_TORRE": evento_series,
             "DATA_EVENTO_TORRE": data_evento,
             "STATUS_TRATATIVA": df[status_col] if status_col else "",
-            "STATUS_EMAIL": df[_email_col_local] if _email_col_local else "",
             "ORIGEM_TORRE": df[origin_col] if origin_col else "",
             "MOTIVO_PENDENCIA": df[reason_col] if reason_col else "",
             "ABA_ORIGEM": sheet,
@@ -1988,10 +1599,8 @@ def build_edi_manager_views(first_mile_df, edi_base_df, reference_date):
     No gerente, chamaremos First Mile de EDI.
     """
     detail_rows = []
-    try:
-        ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").date()
-    except Exception:
-        ref_date = pd.Timestamp.today().date()
+    ref_ts = pd.to_datetime(reference_date, errors="coerce")
+    ref_date = ref_ts.date() if pd.notna(ref_ts) else pd.Timestamp.today().date()
 
     def pick(row, cols):
         for col in cols:
@@ -2870,117 +2479,6 @@ def add_live_control_flags(master_df, pendencias_df, acareacao_df, indenizacao_d
     return result
 
 
-def rotas_sem_baixa_d1_d2_rows(master_df, sk_df=None, analysis_date=None):
-    """
-    Auditoria isolada de possível falha de baixa no Eu Entrego.
-
-    Entra somente a AWB que:
-    - possui rota criada em D-1 ou D-2;
-    - possui entregador atribuído;
-    - está com status exatamente EM ROTA ou ACEITA no Eu Entrego;
-    - continua exatamente PENDENTE ENTREGA no Smart Kargo.
-
-    Não altera a classificação da fila nem qualquer outro indicador.
-    """
-    if master_df is None or master_df.empty:
-        return pd.DataFrame()
-
-    data = master_df.copy()
-
-    def _norm_col(col):
-        if col not in data.columns:
-            return pd.Series("", index=data.index, dtype="object")
-        return data[col].fillna("").astype(str).map(normalize_text)
-
-    data_analise = pd.Timestamp(analysis_date or date.today()).normalize()
-    if "ULTIMA_ROTA" not in data.columns:
-        return data.iloc[0:0].copy()
-
-    data_hora_rota = pd.to_datetime(data["ULTIMA_ROTA"], errors="coerce", dayfirst=True)
-    datas_alvo = {
-        data_analise - pd.Timedelta(days=1),
-        data_analise - pd.Timedelta(days=2),
-    }
-    rota_d1_d2 = data_hora_rota.notna() & data_hora_rota.dt.normalize().isin(datas_alvo)
-    status_rota = _norm_col("STATUS_ULTIMA_ROTA")
-    entregador = _norm_col("ULTIMO_ENTREGADOR")
-    tem_entregador = ~entregador.isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
-    status_em_aberto = status_rota.isin({"EM ROTA", "ACEITA"})
-
-    out = data[
-        rota_d1_d2
-        & tem_entregador
-        & status_em_aberto
-    ].copy()
-    if out.empty:
-        return out
-
-    # A validação do Smart Kargo é obrigatória. A ausência dessa evidência
-    # fecha o filtro para evitar exibir como sem baixa uma carga já entregue.
-    if (
-        sk_df is None
-        or sk_df.empty
-        or "AWB" not in sk_df.columns
-        or "STATUS_SISTEMA" not in sk_df.columns
-    ):
-        return out.iloc[0:0].copy()
-
-    sk = sk_df.copy()
-    sk["AWB"] = sk["AWB"].apply(normalize_awb)
-    status_sk = sk["STATUS_SISTEMA"].fillna("").astype(str).map(normalize_text)
-    sk = sk[status_sk.isin({"PENDENTE ENTREGA", "PENDENTE DE ENTREGA"})].copy()
-    if sk.empty:
-        return out.iloc[0:0].copy()
-
-    sk_cols = ["AWB", "STATUS_SISTEMA"]
-    if "SLA_DATA" in sk.columns:
-        sk_cols.append("SLA_DATA")
-    sk = sk[sk_cols].drop_duplicates(subset=["AWB"], keep="last")
-    sk = sk.rename(columns={"STATUS_SISTEMA": "STATUS SK", "SLA_DATA": "SLA"})
-
-    out["AWB"] = out["AWB"].apply(normalize_awb)
-    out = out.merge(sk, on="AWB", how="inner")
-    if out.empty:
-        return out
-
-    out["AÇÃO OPERACIONAL"] = "VERIFICAR POSSÍVEL BAIXA NÃO RECEBIDA NO EU ENTREGO"
-    out["CONTROLE"] = "ROTA D-1/D-2 EM ROTA OU ACEITA E PENDENTE ENTREGA NO SK"
-    out["ENTREGADOR"] = out["ULTIMO_ENTREGADOR"].fillna("").astype(str).str.strip()
-
-    if "ULTIMA_ROTA" in out.columns:
-        data_hora_rota = pd.to_datetime(out["ULTIMA_ROTA"], errors="coerce", dayfirst=True)
-        data_hora_formatada = data_hora_rota.dt.strftime("%d/%m/%Y %H:%M")
-        out["DATA/HORA CRIAÇÃO DA ROTA"] = data_hora_formatada.where(
-            data_hora_rota.notna(),
-            out["ULTIMA_ROTA"].fillna("").astype(str),
-        )
-    else:
-        out["DATA/HORA CRIAÇÃO DA ROTA"] = ""
-
-    preferred = [
-        "AWB",
-        "ENTREGADOR",
-        "DATA/HORA CRIAÇÃO DA ROTA",
-        "AÇÃO OPERACIONAL",
-        "CONTROLE",
-        "ULTIMO_ENTREGADOR",
-        "ULTIMA_ROTA",
-        "STATUS_ULTIMA_ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "EU_ENTREGO_STATUS_ANALISE",
-        "EU_ENTREGO_STATUS_ROTA_NORMALIZADO",
-        "STATUS SK",
-        "SLA",
-        "STATUS_SISTEMA",
-        "SLA_DATA",
-        "BillTo",
-        "CLIENTE",
-    ]
-    cols = [c for c in preferred if c in out.columns]
-    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
-    return out[cols + rest].drop_duplicates(subset=["AWB"], keep="first")
-
-
 def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     """
     Fila operacional única do Last Mile.
@@ -3105,20 +2603,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             or "FECHADO" in motivo_rota_norm
         )
 
-        motivo_terceira_norm = normalize_text(
-            value(row, "MOTIVO_TERCEIRA_TENTATIVA")
-        )
-        motivo_regra_terceira = motivo_terceira_norm or motivo_rota_norm
-        terceira_por_ausente_ou_fechado = (
-            "AUSENTE" in motivo_regra_terceira
-            or "FECHADO" in motivo_regra_terceira
-            or "FECHADA" in motivo_regra_terceira
-        )
-        motivo_ausente_ou_fechado = (
-            motivo_ausente_ou_fechado
-            or terceira_por_ausente_ou_fechado
-        )
-
         evento_torre_norm = normalize_text(value(row, "EVENTO_TORRE"))
         na_pendencia_torre_link = str(row.get("NA_PENDENCIA_TORRE_LINK", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
@@ -3192,28 +2676,15 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             and not motivo_negativo_eu
         )
 
-        em_carga_parcial = str(row.get("EM_CARGA_PARCIAL", "")).strip().lower() in {
+        em_qualidade_torre = str(row.get("EM_QUALIDADE_TORRE", "")).strip().lower() in {
             "true", "1", "sim", "yes", "y", "verdadeiro"
         }
 
-        # Carga Parcial prevalece sobre backlog, SLA do dia, desembarque
-        # e demais filas operacionais. Ela fica no card próprio.
-        if em_carga_parcial and not sk_baixado_ou_finalizado:
-            return 2, "ALTA", "CARGA PARCIAL", \
-                "Tratar exclusivamente pela fila de Carga Parcial"
-
-        em_avaria_torre = str(row.get("EM_AVARIA_TORRE", "")).strip().lower() in {
-            "true", "1", "sim", "yes", "y", "verdadeiro"
-        }
-
-        # Avaria / Salvado prevalece sobre backlog, SLA do dia, desembarque,
-        # insucesso e demais filas operacionais de entrega.
-        if em_avaria_torre and not sk_baixado_ou_finalizado:
-            return 2, "ALTA", "AVARIAS / SALVADOS", \
-                "Tratar exclusivamente pela fila de Avarias / Salvados"
-
-        # Qualidade é uma informação complementar e não exclui a carga do backlog.
-        # O vínculo com a Qualidade será exibido no detalhe da carga.
+        # Qualidade prevalece sobre pendente de entrega/backlog.
+        # Tudo que estiver na planilha de Qualidade vai para o card próprio.
+        if em_qualidade_torre and not sk_baixado_ou_finalizado:
+            return 2, "ALTA", "AGUARDANDO RETORNO DA QUALIDADE", \
+                "Aguardar retorno da Qualidade antes de seguir tratativa de entrega"
 
         insucesso_exige_pendencia = (
             tem_insucesso_rota
@@ -3250,23 +2721,22 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 4, prioridade, "INSUCESSO SEM PENDÊNCIA", \
                 "Direcionar para pendência para tratativa do motivo de insucesso"
 
-        # Regra fechada do card 3ª tentativa:
-        # - três ou mais tentativas registradas;
-        # - motivo da terceira tentativa (ou motivo atual como fallback) Ausente/Fechado;
-        # - ainda Pendente Entrega no SK;
-        # - ainda fora da Pendência da Torre;
-        # - sem entrega/finalização no Eu Entrego.
+        # Regra gerencial: ausente/fechado com 3 ou mais tentativas fica em 3ª tentativa.
+        # Outros motivos já foram direcionados para Insucesso sem pendência acima.
         if (
             tentativas >= 3
-            and terceira_por_ausente_ou_fechado
-            and sk_pendente_entrega
-            and not sk_baixado_ou_finalizado
-            and not esta_na_pendencia
-            and not entregue_eu_pendente_sk
+            and tem_insucesso_rota
+            and motivo_ausente_ou_fechado
+            and (
+                "ENTREGA" in situacao
+                or "PENDENTE" in situacao
+                or "INSUCESSO" in situacao
+                or "RETORNO" in situacao
+            )
         ):
             prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
             return 5, prioridade, "3ª TENTATIVA DE ENTREGA", \
-                "Encaminhar para a Pendência após 3 tentativas por Ausente/Fechado"
+                "Validar direcionamento para a Torre após 3 tentativas por ausente/fechado"
 
         # SLA do dia sem rota:
         # Só é sem rota quando não houve rota/saída no dia do SLA e também não existe
@@ -3282,24 +2752,26 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 6, "ALTA", "SLA DO DIA SEM ROTA", \
                 "Criar rota no Eu Entrego ou justificar carga no piso sem saída no dia do SLA"
 
-        # Retorno físico confirmado não encerra a pendência operacional no SK.
-        # Se o Eu Entrego estiver DEVOLVIDO, mas o SK continuar PENDENTE ENTREGA
-        # com SLA vencido, a carga também deve permanecer no backlog.
-        retorno_confirmado_pendente_sk = (
-            situacao == "RETORNO CONFIRMADO"
-            and sk_pendente_entrega
-        )
-
-        if atraso > 0 and (
-            "ENTREGA" in situacao
-            or retorno_confirmado_pendente_sk
+        # Regra residual de 3ª tentativa para status já classificados assim no SK.
+        if tentativas >= 3 and (
+            "3A TENTATIVA" in situacao
+            or "3ª TENTATIVA" in situacao
         ):
+            prioridade = "CRÍTICA" if atraso > 0 else "ALTA"
+            return 7, prioridade, "3ª TENTATIVA DE ENTREGA", \
+                "Validar direcionamento para a Torre após a terceira tentativa"
+
+        if atraso > 0 and "ENTREGA" in situacao:
             return 8, "CRÍTICA", "ENTREGA EM ATRASO", \
                 "Cobrar regularização da entrega e registrar a causa do atraso"
 
         if "PENDENTE ENTREGA" in situacao or "PENDENTE DE ENTREGA" in situacao:
             return 9, "ALTA", "PENDENTE DE ENTREGA", \
                 "Validar SLA, última tentativa e próxima ação operacional"
+
+        if "3A TENTATIVA" in situacao or "3ª TENTATIVA" in situacao:
+            return 10, "ALTA", "3ª TENTATIVA DE ENTREGA", \
+                "Validar direcionamento para a Torre após a terceira tentativa"
 
         if "ACAREACAO" in controle:
             return 11, "MÉDIA", "ACAREAÇÃO EM TRATATIVA", \
@@ -3365,7 +2837,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["MOTORISTA / ENTREGADOR"] = df["ULTIMO_ENTREGADOR"] if "ULTIMO_ENTREGADOR" in df.columns else ""
     queue["STATUS ÚLTIMA ROTA"] = df["STATUS_ULTIMA_ROTA"] if "STATUS_ULTIMA_ROTA" in df.columns else ""
     queue["MOTIVO ÚLTIMA ROTA"] = df["MOTIVO_ULTIMA_ROTA"] if "MOTIVO_ULTIMA_ROTA" in df.columns else ""
-    queue["MOTIVO 3ª TENTATIVA"] = df["MOTIVO_TERCEIRA_TENTATIVA"] if "MOTIVO_TERCEIRA_TENTATIVA" in df.columns else ""
     queue["TIPO INSUCESSO"] = (
         df["MOTIVO_ULTIMA_ROTA"].astype(str).map(normalize_text)
         if "MOTIVO_ULTIMA_ROTA" in df.columns
@@ -3379,10 +2850,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["EU ENTREGO BAIXADO ENTREGUE"] = df["EU_ENTREGO_BAIXADO_ENTREGUE"] if "EU_ENTREGO_BAIXADO_ENTREGUE" in df.columns else False
     queue["QT TENTATIVAS"] = df["QT_TENTATIVAS_INSUCESSO"] if "QT_TENTATIVAS_INSUCESSO" in df.columns else 0
     queue["RETORNO CONFIRMADO"] = df["RETORNO_CONFIRMADO"] if "RETORNO_CONFIRMADO" in df.columns else False
-    # Evidência adicional para o controle de retorno físico no app do gerente.
-    # Uma nova rota criada hoje comprova que a carga voltou ao galpão e não
-    # deve permanecer na cobrança do entregador.
-    queue["ROTA CRIADA HOJE"] = df["TEVE_ROTA_HOJE"] if "TEVE_ROTA_HOJE" in df.columns else False
     queue["EVENTO TORRE"] = df["EVENTO_TORRE"] if "EVENTO_TORRE" in df.columns else ""
     queue["ABA TORRE"] = df["ABA_ORIGEM"] if "ABA_ORIGEM" in df.columns else ""
     queue["STATUS TORRE"] = df["STATUS_TRATATIVA"] if "STATUS_TRATATIVA" in df.columns else ""
@@ -3390,19 +2857,6 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
     queue["NA PENDENCIA TORRE LINK"] = df["NA_PENDENCIA_TORRE_LINK"] if "NA_PENDENCIA_TORRE_LINK" in df.columns else False
     queue["EM TORRE ATIVA"] = df["EM_TORRE_ATIVA"] if "EM_TORRE_ATIVA" in df.columns else False
     queue["EM QUALIDADE TORRE"] = df["EM_QUALIDADE_TORRE"] if "EM_QUALIDADE_TORRE" in df.columns else False
-    if "EM_QUALIDADE_TORRE" in df.columns:
-        _qualidade_flag_fila = (
-            df["EM_QUALIDADE_TORRE"]
-            .fillna(False)
-            .astype(str)
-            .str.lower()
-            .isin(["true", "1", "sim", "yes", "y", "verdadeiro"])
-        )
-        queue["PROCESSO QUALIDADE"] = _qualidade_flag_fila.map(
-            {True: "EM PROCESSO DE QUALIDADE", False: ""}
-        )
-    else:
-        queue["PROCESSO QUALIDADE"] = ""
     queue["MOTIVO PENDÊNCIA"] = df["MOTIVO_PENDENCIA"] if "MOTIVO_PENDENCIA" in df.columns else ""
     queue["DATA EVENTO TORRE"] = df["DATA_EVENTO_TORRE"] if "DATA_EVENTO_TORRE" in df.columns else ""
 
@@ -3910,8 +3364,6 @@ st.title("Portal de Gestão da Torre de Controle")
 st.caption("V1.4.0 — Operação + app do gerente separado")
 
 with st.sidebar:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
     st.header("Atualização das bases")
 
     file_lm = st.file_uploader(
@@ -4154,7 +3606,6 @@ if not (file_lm and file_eu):
 try:
     with st.spinner("Processando bases filtradas e aplicando regras da Torre..."):
         lm = read_last_mile(file_lm.getvalue())
-        carga_parcial_detalhe_gerente = read_carga_parcial_last_mile(file_lm.getvalue(), reference_date)
 
         _lm_awb_filter = (
             tuple(sorted(lm["AWB"].dropna().astype(str).str.strip().unique()))
@@ -4162,40 +3613,16 @@ try:
             else None
         )
 
-        # O arquivo completo do Eu Entrego é preservado exclusivamente para a
-        # auditoria de rotas antigas sem baixa. Os demais indicadores continuam
-        # usando somente a interseção com a carteira AWBStatus/CDSP2.
-        eu_latest_completo, route_dates_completo = read_eu_entrego_files(
+        eu_latest, route_dates = read_eu_entrego_files(
             file_eu,
-            awb_filter=None,
+            awb_filter=_lm_awb_filter,
         )
-
-        if _lm_awb_filter:
-            _lm_awb_set = set(_lm_awb_filter)
-            eu_latest = eu_latest_completo[
-                eu_latest_completo["AWB"].astype(str).str.strip().isin(_lm_awb_set)
-            ].copy()
-            route_dates = route_dates_completo[
-                route_dates_completo["AWB"].astype(str).str.strip().isin(_lm_awb_set)
-            ].copy()
-        else:
-            eu_latest = eu_latest_completo.copy()
-            route_dates = route_dates_completo.copy()
 
         st.caption(
             f"Eu Entrego: {len(file_eu) if isinstance(file_eu, list) else 1} arquivo(s) processado(s). "
-            f"{eu_latest_completo['AWB'].nunique() if not eu_latest_completo.empty and 'AWB' in eu_latest_completo.columns else 0} AWB(s) lidas no arquivo completo. "
             f"{len(_lm_awb_filter) if _lm_awb_filter else 0} AWB(s) da carteira CDSP2 usadas como filtro. "
             f"{eu_latest['AWB'].nunique() if not eu_latest.empty and 'AWB' in eu_latest.columns else 0} AWB(s) encontradas no Eu Entrego após o filtro."
         )
-
-        # Proteção: se o filtro retornar 0 AWBs, preservar estrutura esperada.
-        if "AWB" not in eu_latest.columns:
-            eu_latest["AWB"] = pd.Series(dtype=str)
-        if "AWB" not in route_dates.columns:
-            route_dates["AWB"] = pd.Series(dtype=str)
-        if "DATA_ROTA" not in route_dates.columns:
-            route_dates["DATA_ROTA"] = pd.NaT
 
         # Índice de retorno do entregador:
         # WhatsApp prevalece; quando a AWB não estiver no WhatsApp,
@@ -4246,60 +3673,9 @@ try:
             tower_history=tower_history,
         )
 
-        # Carga Parcial:
-        # Se uma AWB aparece como Pendente Entrega e Pendente Desembarque,
-        # ela sai das demais filas operacionais e fica apenas no card Carga Parcial.
-        try:
-            _carga_parcial_awbs = set(
-                carga_parcial_detalhe_gerente["AWB"]
-                .dropna()
-                .astype(str)
-                .str.replace(r"\D+", "", regex=True)
-                .str.strip()
-                .unique()
-            ) if not carga_parcial_detalhe_gerente.empty and "AWB" in carga_parcial_detalhe_gerente.columns else set()
-
-            if not master.empty and "AWB" in master.columns:
-                master["EM_CARGA_PARCIAL"] = (
-                    master["AWB"]
-                    .fillna("")
-                    .astype(str)
-                    .str.replace(r"\D+", "", regex=True)
-                    .str.strip()
-                    .isin(_carga_parcial_awbs)
-                )
-        except Exception:
-            if not master.empty:
-                master["EM_CARGA_PARCIAL"] = False
-
-        # Avarias / Salvados:
-        # Tudo que estiver na planilha de Avarias/Salvados sai das filas operacionais
-        # de entrega/SLA/desembarque e fica apenas no card próprio de Avarias.
-        try:
-            avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
-                pendencias_torre_workbook
-            )
-        except Exception:
-            avarias_detalhe_gerente = pd.DataFrame()
-
-        try:
-            _avaria_awbs_gerente_pre = _extract_avaria_awbs_for_manager(avarias_detalhe_gerente)
-            if not master.empty and "AWB" in master.columns:
-                master["EM_AVARIA_TORRE"] = (
-                    master["AWB"]
-                    .fillna("")
-                    .astype(str)
-                    .str.replace(r"\D+", "", regex=True)
-                    .isin(_avaria_awbs_gerente_pre)
-                )
-        except Exception:
-            if not master.empty:
-                master["EM_AVARIA_TORRE"] = False
-
-
         # Qualidade:
-        # A planilha identifica o processo em andamento, mas não retira cargas
-        # com SLA vencido do backlog de entrega.
+        # Tudo que estiver na planilha de Qualidade deve sair de pendente/backlog
+        # e entrar em AGUARDANDO RETORNO DA QUALIDADE.
         try:
             _qualidade_awbs = qualidade_awbs_from_df(qualidade_detalhe_gerente)
             if not master.empty and "AWB" in master.columns:
@@ -4331,11 +3707,6 @@ try:
                 edi_loaded=edi_loaded_for_panel,
                 analysis_date=reference_date,
             )
-            rotas_sem_baixa_gerente = rotas_sem_baixa_d1_d2_rows(
-                eu_latest_completo,
-                sk_df=lm,
-                analysis_date=reference_date,
-            )
             fila_gerencial = fila_gerencial[
                 fila_gerencial["PRIORIDADE"].isin(["CRÍTICA", "ALTA", "MÉDIA"])
             ].copy()
@@ -4354,19 +3725,7 @@ try:
                     ]["AWB"].nunique()
                 )
             insucesso_sem_pendencia = int((fila_gerencial["PROBLEMA"] == "INSUCESSO SEM PENDÊNCIA").sum()) if not fila_gerencial.empty else 0
-            if not fila_gerencial.empty and "EM QUALIDADE TORRE" in fila_gerencial.columns:
-                _qualidade_flag_resumo = (
-                    fila_gerencial["EM QUALIDADE TORRE"]
-                    .fillna(False)
-                    .astype(str)
-                    .str.lower()
-                    .isin(["true", "1", "sim", "yes", "y", "verdadeiro"])
-                )
-                aguardando_retorno_qualidade = int(
-                    fila_gerencial.loc[_qualidade_flag_resumo, "AWB"].nunique()
-                )
-            else:
-                aguardando_retorno_qualidade = 0
+            aguardando_retorno_qualidade = int((fila_gerencial["PROBLEMA"] == "AGUARDANDO RETORNO DA QUALIDADE").sum()) if not fila_gerencial.empty else 0
 
             if not fila_gerencial.empty:
                 _eu_flag = (
@@ -4440,6 +3799,20 @@ try:
                 tower_latest.loc[~tower_latest["EVENTO_TORRE"].eq("FINALIZADO"), "AWB"].nunique()
             ) if not tower_latest.empty else 0
 
+            # Avarias / Salvados precisa ser conhecido antes da movimentação,
+            # pois FINALIZADAS contém baixas de pendência e de avaria.
+            try:
+                avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
+                    pendencias_torre_workbook
+                )
+            except Exception:
+                avarias_detalhe_gerente = pd.DataFrame()
+
+            try:
+                _avaria_awbs_mov = _extract_avaria_awbs_for_manager(avarias_detalhe_gerente)
+            except Exception:
+                _avaria_awbs_mov = set()
+
             # Movimentação diária da pendência da Torre.
             _ref_torre = pd.Timestamp(reference_date).normalize()
             entradas_torre_hoje = 0
@@ -4452,7 +3825,6 @@ try:
                     "DATA_EVENTO_TORRE",
                     "EVENTO_TORRE",
                     "STATUS_TRATATIVA",
-                    "STATUS_EMAIL",
                     "ORIGEM_TORRE",
                     "MOTIVO_PENDENCIA",
                     "ABA_ORIGEM",
@@ -4483,23 +3855,35 @@ try:
                         & _evento_norm.isin(["PENDENCIA", "PENDENCIA_CORP"])
                     )
 
-                    _saida_mask = (
+                    # FINALIZADAS recebe baixas de pendência e também de avaria.
+                    # Saíram hoje da pendência = finalizados do dia que NÃO estão em Avarias / Salvados.
+                    _awb_norm_hist = (
+                        _hist_torre["AWB"]
+                        .fillna("")
+                        .astype(str)
+                        .str.replace(r"\D+", "", regex=True)
+                    )
+
+                    _saida_finalizado_dia = (
                         _hist_torre["_DATA_NORM"].eq(_ref_torre)
                         & _evento_norm.eq("FINALIZADO")
                     )
+
+                    _saida_pendencia_mask = _saida_finalizado_dia & ~_awb_norm_hist.isin(_avaria_awbs_mov)
+                    _saida_avaria_mask = _saida_finalizado_dia & _awb_norm_hist.isin(_avaria_awbs_mov)
 
                     entradas_torre_hoje = int(
                         _hist_torre.loc[_entrada_mask, "AWB"].dropna().nunique()
                     )
                     saidas_torre_hoje = int(
-                        _hist_torre.loc[_saida_mask, "AWB"].dropna().nunique()
+                        _hist_torre.loc[_saida_pendencia_mask, "AWB"].dropna().nunique()
                     )
 
                     _entradas = _hist_torre.loc[_entrada_mask].copy()
                     _entradas["TIPO_MOVIMENTO"] = "ENTROU HOJE"
                     _mov_parts.append(_entradas)
 
-                    _saidas = _hist_torre.loc[_saida_mask].copy()
+                    _saidas = _hist_torre.loc[_saida_pendencia_mask].copy()
                     _saidas["TIPO_MOVIMENTO"] = "SAIU HOJE"
                     _mov_parts.append(_saidas)
 
@@ -4515,7 +3899,6 @@ try:
                         "DATA_EVENTO_TORRE",
                         "EVENTO_TORRE",
                         "STATUS_TRATATIVA",
-                        "STATUS_EMAIL",
                         "ORIGEM_TORRE",
                         "MOTIVO_PENDENCIA",
                         "ABA_ORIGEM",
@@ -4534,7 +3917,6 @@ try:
                         "DATA_EVENTO_TORRE",
                         "EVENTO_TORRE",
                         "STATUS_TRATATIVA",
-                        "STATUS_EMAIL",
                         "ORIGEM_TORRE",
                         "MOTIVO_PENDENCIA",
                         "ABA_ORIGEM",
@@ -4603,11 +3985,12 @@ try:
             sla_dia_piso_sem_rota = int(_piso_sem_rota_mask.sum())
 
             terceira_tentativa_entrega = int(
-                fila_gerencial.loc[
-                    fila_gerencial["PROBLEMA"].astype(str).eq("3ª TENTATIVA DE ENTREGA"),
-                    "AWB",
-                ].nunique()
-            ) if not fila_gerencial.empty else 0
+                (
+                    _tentativas_panel.ge(3)
+                    & _status_norm_panel.eq("PENDENTE ENTREGA")
+                    & ~_situacao_norm.str.contains("ENTREGUE|BAIXADO|DEVOLVIDO", regex=True, na=False)
+                ).sum()
+            )
 
             last_mile_pendente_desembarque = int(
                 (
@@ -4650,13 +4033,6 @@ try:
                 ].sum())
             else:
                 passivel_total = 0.0
-
-            # Passível a Débito / Indenização — detalhe para o app gerente.
-            # Fonte já existente no app operacional: planilha Passível a Débito e Indenização.
-            try:
-                passivel_debito_detalhe_gerente = debito_indenizacao_link.copy()
-            except Exception:
-                passivel_debito_detalhe_gerente = pd.DataFrame()
 
             # EDI gerencial: First Mile será exibido como EDI no painel do gerente.
             fm_frames_gerente = []
@@ -4823,21 +4199,8 @@ try:
                     ])
                     _status_col = _find_acar_col(_acar_src, ["STATUS", "STATUS ACAREACAO", "STATUS_TRATATIVA"])
                     _tipo_col = _find_acar_col(_acar_src, ["TIPO", "TIPO ACAREACAO", "TIPO RESSALVA"])
-                    _prazo_col = _find_acar_col(_acar_src, [
-                        "PRAZO DE DEVOLUTIVA",
-                        "PRAZO DEVOLUTIVA",
-                        "PRAZO",
-                        "DATA PRAZO",
-                        "DATA DE PRAZO",
-                    ])
-                    _dentro_prazo_col = _find_acar_col(_acar_src, [
-                        "DENTRO DO PRAZO?",
-                        "DENTRO DO PRAZO",
-                        "STATUS PRAZO",
-                        "PRAZO STATUS",
-                    ])
                     _obs_col = _find_acar_col(_acar_src, ["OBSERVAÇÃO", "OBSERVACAO", "OBS", "MOTIVO"])
-                    _data_col = _find_acar_col(_acar_src, ["DATA", "DATA ABERTURA", "DATA DA TRATATIVA", "DATA DA SOLICITAÇÃO", "DATA DA SOLICITACAO"])
+                    _data_col = _find_acar_col(_acar_src, ["DATA", "DATA ABERTURA", "DATA DA TRATATIVA"])
                     _nf_col = _find_acar_col(_acar_src, ["NF", "NOTA FISCAL", "Nº NF"])
                     _pedido_col = _find_acar_col(_acar_src, ["PEDIDO", "ORDER", "Nº PEDIDO"])
             
@@ -4849,8 +4212,6 @@ try:
                     out_acar["VALOR_NUM"] = _panel_money_to_num(_acar_src[_valor_col]) if _valor_col else 0
                     out_acar["STATUS"] = _acar_src[_status_col] if _status_col else ""
                     out_acar["TIPO"] = _acar_src[_tipo_col] if _tipo_col else ""
-                    out_acar["PRAZO DE DEVOLUTIVA"] = parse_date(_acar_src[_prazo_col]) if _prazo_col else pd.NaT
-                    out_acar["DENTRO DO PRAZO"] = _acar_src[_dentro_prazo_col] if _dentro_prazo_col else ""
                     out_acar["OBSERVACAO"] = _acar_src[_obs_col] if _obs_col else ""
                     out_acar["DATA"] = parse_date(_acar_src[_data_col]) if _data_col else pd.NaT
                     out_acar["NF"] = _acar_src[_nf_col] if _nf_col else ""
@@ -4870,12 +4231,14 @@ try:
 
             # Detalhe gerencial de avarias e salvados aguardando aprovação.
             # Fonte: planilha Pendências da Torre, abas AVARIAS e SALVADOS.
-            try:
-                avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
-                    pendencias_torre_workbook
-                )
-            except Exception:
-                avarias_detalhe_gerente = pd.DataFrame()
+            # Já foi lida acima para separar saída de pendência x avaria.
+            if "avarias_detalhe_gerente" not in locals():
+                try:
+                    avarias_detalhe_gerente = read_avarias_salvados_from_torre_workbook(
+                        pendencias_torre_workbook
+                    )
+                except Exception:
+                    avarias_detalhe_gerente = pd.DataFrame()
 
             # Auditoria: marca na FILA quais AWBs também estão em Avarias / Salvados.
             # O app do gerente usa essa aba para impedir sobreposição com Backlog.
@@ -4908,6 +4271,56 @@ try:
                 if not fila_gerencial.empty and "EM_QUALIDADE_TORRE" not in fila_gerencial.columns:
                     fila_gerencial["EM_QUALIDADE_TORRE"] = False
 
+            # Movimentação diária de Avarias / Salvados.
+            avarias_entraram_hoje = 0
+            avarias_sairam_hoje = 0
+            avarias_saldo_dia = 0
+
+            try:
+                if avarias_detalhe_gerente is not None and not avarias_detalhe_gerente.empty:
+                    _avaria_dt = pd.to_datetime(
+                        avarias_detalhe_gerente.get("DATA"),
+                        errors="coerce",
+                    ).dt.normalize()
+
+                    avarias_entraram_hoje = int(
+                        avarias_detalhe_gerente.loc[_avaria_dt.eq(_ref_torre), "AWB"]
+                        .dropna()
+                        .nunique()
+                    )
+
+                if tower_history is not None and not tower_history.empty and _avaria_awbs_mov:
+                    _hist_av = tower_history.copy()
+                    _hist_av["_DATA_NORM"] = pd.to_datetime(
+                        _hist_av["DATA_EVENTO_TORRE"],
+                        errors="coerce",
+                    ).dt.normalize()
+
+                    _evento_av = _hist_av["EVENTO_TORRE"].astype(str).map(normalize_text)
+                    _awb_av_norm = (
+                        _hist_av["AWB"]
+                        .fillna("")
+                        .astype(str)
+                        .str.replace(r"\D+", "", regex=True)
+                    )
+
+                    _saida_avaria_mask = (
+                        _hist_av["_DATA_NORM"].eq(_ref_torre)
+                        & _evento_av.eq("FINALIZADO")
+                        & _awb_av_norm.isin(_avaria_awbs_mov)
+                    )
+
+                    avarias_sairam_hoje = int(
+                        _hist_av.loc[_saida_avaria_mask, "AWB"].dropna().nunique()
+                    )
+
+                avarias_saldo_dia = int(avarias_entraram_hoje - avarias_sairam_hoje)
+
+            except Exception:
+                avarias_entraram_hoje = 0
+                avarias_sairam_hoje = 0
+                avarias_saldo_dia = 0
+
             resumo_dashboard = pd.DataFrame([
                 {"METRICA": "Data de análise", "VALOR": str(reference_date)},
                 {"METRICA": "Atualizado em", "VALOR": str(pd.Timestamp.now())},
@@ -4918,7 +4331,6 @@ try:
                 {"METRICA": "Entregue Eu Entrego x Pendente SK", "VALOR": entregue_eu_pendente_sk},
                 {"METRICA": "Aguardando retorno da qualidade", "VALOR": aguardando_retorno_qualidade},
                 {"METRICA": "Insucesso sem pendência", "VALOR": insucesso_sem_pendencia},
-                {"METRICA": "Rotas D-1/D-2 abertas no Eu Entrego e pendentes no SK", "VALOR": int(len(rotas_sem_baixa_gerente))},
                 {"METRICA": "SLA do dia sem rota", "VALOR": sla_dia_piso_sem_rota},
                 {"METRICA": "Last Mile pendente desembarque", "VALOR": last_mile_pendente_desembarque},
                 {"METRICA": "3ª tentativa de entrega", "VALOR": terceira_tentativa_entrega},
@@ -4929,6 +4341,9 @@ try:
                 {"METRICA": "Saíram da pendência hoje", "VALOR": saidas_torre_hoje},
                 {"METRICA": "Acareações em andamento", "VALOR": int(len(acar_andamento))},
                 {"METRICA": "Avarias / Salvados", "VALOR": int(len(avarias_detalhe_gerente))},
+                {"METRICA": "Avarias / Salvados entraram hoje", "VALOR": int(avarias_entraram_hoje)},
+                {"METRICA": "Avarias / Salvados saíram hoje", "VALOR": int(avarias_sairam_hoje)},
+                {"METRICA": "Avarias / Salvados saldo do dia", "VALOR": int(avarias_saldo_dia)},
                 {"METRICA": "Valor em acareação", "VALOR": float(
                     _panel_money_to_num(
                         acar_andamento[_panel_find_col(acar_andamento, ["VALOR DA CARGA", "VALOR"])]
@@ -5003,9 +4418,6 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
-                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
-                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
-                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -5036,9 +4448,6 @@ try:
                 int(len(acar_andamento)),
                 int(len(avarias_detalhe_gerente)),
                 int(len(qualidade_detalhe_gerente)),
-                int(len(rotas_sem_baixa_gerente)),
-                int(len(carga_parcial_detalhe_gerente)),
-                int(len(passivel_debito_detalhe_gerente)),
                 int(last_mile_pendente_desembarque),
                 int(len(edi_detalhe_gerente)),
                 int(len(bi_azul_detalhe_gerente)),
@@ -5058,9 +4467,6 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
-                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
-                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
-                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,
@@ -5083,9 +4489,6 @@ try:
                         "ACAREACOES_DETALHE": acareacoes_detalhe_gerente,
                         "AVARIAS_DETALHE": avarias_detalhe_gerente,
                         "QUALIDADE_DETALHE": qualidade_detalhe_gerente,
-                        "ROTAS_SEM_BAIXA_DETALHE": rotas_sem_baixa_gerente,
-                        "CARGA_PARCIAL_DETALHE": carga_parcial_detalhe_gerente,
-                        "PASSIVEL_DEBITO_DETALHE": passivel_debito_detalhe_gerente,
                         "BI_AZUL_RESUMO": bi_azul_resumo_gerente,
                         "BI_AZUL_DETALHE": bi_azul_detalhe_gerente,
                         "BI_AZUL_CONFERENCIA": bi_azul_conferencia_gerente,

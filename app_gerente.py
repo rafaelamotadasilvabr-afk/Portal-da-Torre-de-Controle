@@ -1,9 +1,7 @@
 import io
 import re
 import unicodedata
-from datetime import date, timedelta, datetime, timezone
-from pathlib import Path
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 import pandas as pd
 import altair as alt
@@ -19,7 +17,6 @@ st.set_page_config(
 )
 
 DEFAULT_MANAGER_SOURCE_URL = ""
-LOGO_PATH = Path(__file__).with_name("gds-logo.png")
 
 SHEET_NAMES = [
     "RESUMO",
@@ -32,9 +29,6 @@ SHEET_NAMES = [
     "ACAREACOES_DETALHE",
     "AVARIAS_DETALHE",
     "QUALIDADE_DETALHE",
-    "ROTAS_SEM_BAIXA_DETALHE",
-    "CARGA_PARCIAL_DETALHE",
-    "PASSIVEL_DEBITO_DETALHE",
     "BI_AZUL_RESUMO",
     "BI_AZUL_DETALHE",
     "BI_AZUL_CONFERENCIA",
@@ -49,159 +43,179 @@ st.markdown(
     """
     <style>
     :root {
-        --op-blue-900: #181818;
-        --op-blue-800: #252525;
-        --op-blue-700: #ff7900;
-        --op-blue-100: #fff1e5;
-        --op-slate-900: #292929;
-        --op-slate-700: #504b47;
-        --op-slate-500: #746e69;
-        --op-border: #e3ddd6;
-        --op-bg: #f5f3f0;
-        --op-white: #ffffff;
-        --op-red: #d92d20;
-        --op-orange: #ff7900;
-        --op-yellow: #b7791f;
-        --op-green: #0f766e;
-        --op-purple: #7c3aed;
-        --op-shadow: 0 8px 22px rgba(37, 29, 22, .08);
-        --op-shadow-soft: 0 4px 14px rgba(37, 29, 22, .055);
+        --gds-navy: #071d3a;
+        --gds-navy-2: #0b2a52;
+        --gds-blue: #0b63ce;
+        --gds-blue-2: #1d7be8;
+        --gds-blue-soft: #e7f0ff;
+        --gds-bg: #edf3f8;
+        --gds-bg-2: #f4f7fb;
+        --gds-card: #ffffff;
+        --gds-border: #d8e3f0;
+        --gds-text: #0b1f3a;
+        --gds-muted: #5f7188;
+        --gds-shadow: 0 10px 28px rgba(7, 29, 58, .075);
+        --gds-shadow-soft: 0 6px 18px rgba(7, 29, 58, .055);
     }
 
     .stApp {
-        background: var(--op-bg);
-        color: var(--op-slate-900);
+        background:
+            radial-gradient(circle at top left, rgba(29, 123, 232, .08), transparent 32%),
+            linear-gradient(180deg, #f6f9fd 0%, var(--gds-bg) 100%);
+        color: var(--gds-text);
     }
 
     .block-container {
-        padding-top: .72rem !important;
-        padding-left: 1.15rem !important;
-        padding-right: 1.15rem !important;
-        padding-bottom: 1.2rem !important;
-        max-width: 1560px !important;
+        padding-top: 0.18rem;
+        padding-bottom: 1.2rem;
+        max-width: 1540px;
     }
 
+    /* Sidebar corporativo */
     [data-testid="stSidebar"] {
-        background: #ffffff;
-        border-right: 1px solid var(--op-border);
-        box-shadow: 8px 0 18px rgba(8, 37, 78, .045);
+        background: linear-gradient(180deg, var(--gds-navy) 0%, #082341 48%, #06182f 100%);
+        border-right: 1px solid rgba(255,255,255,.08);
+        box-shadow: 10px 0 26px rgba(7, 29, 58, .14);
     }
 
     [data-testid="stSidebar"] * {
-        color: var(--op-slate-900);
+        color: #e8f1ff;
     }
 
     .brand-box {
-        padding: 14px 10px 16px 10px;
-        border-bottom: 1px solid var(--op-border);
-        margin-bottom: 12px;
+        padding: 10px 8px 14px 8px;
+        border-bottom: 1px solid rgba(255,255,255,.14);
+        margin-bottom: 10px;
     }
 
     .brand-main {
-        color: var(--op-blue-900);
-        font-size: 3.10rem;
-        font-weight: 980;
+        color: #ffffff;
+        font-size: 2.7rem;
+        font-weight: 950;
         font-style: italic;
         letter-spacing: -.07em;
-        line-height: .84;
+        line-height: .86;
+        text-shadow: 0 8px 20px rgba(0,0,0,.20);
     }
 
     .brand-sub {
-        color: var(--op-blue-700);
-        font-size: .78rem;
-        font-weight: 900;
-        letter-spacing: .38em;
-        margin-top: 8px;
+        color: #b8d8ff;
+        font-size: .68rem;
+        font-weight: 850;
+        letter-spacing: .42em;
+        margin-top: 7px;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button {
         width: 100%;
         justify-content: flex-start;
         text-align: left;
-        border-radius: 11px;
-        border: 1px solid var(--op-border);
-        background: #ffffff;
-        color: var(--op-slate-900);
-        font-weight: 780;
-        padding: .58rem .72rem;
-        margin-bottom: .24rem;
-        min-height: 39px;
+        border-radius: 10px;
+        border: 1px solid rgba(184, 216, 255, .24);
+        background: rgba(255,255,255,.055);
+        color: #e8f1ff;
+        font-weight: 760;
+        padding: 0.54rem 0.72rem;
+        margin-bottom: 0.18rem;
+        min-height: 38px;
         box-shadow: none;
-        transition: all .14s ease-in-out;
+        transition: all .16s ease-in-out;
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: var(--op-blue-100);
-        border-color: #9cc5f5;
-        color: var(--op-blue-900);
+        background: rgba(255,255,255,.105);
+        border-color: rgba(184, 216, 255, .45);
+        transform: translateX(1px);
     }
 
     [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: var(--op-blue-700);
+        background: linear-gradient(90deg, #0b63ce 0%, #1d7be8 100%);
         color: #ffffff;
-        border-color: var(--op-blue-700);
-        box-shadow: 0 6px 16px rgba(11, 99, 206, .20);
+        border-color: rgba(255,255,255,.35);
+        box-shadow: 0 8px 20px rgba(11, 99, 206, .26);
     }
 
     .side-note {
         margin-top: 14px;
-        border-top: 1px solid var(--op-border);
-        padding-top: 10px;
-        color: var(--op-slate-500);
+        border-top: 1px solid rgba(255,255,255,.13);
+        padding-top: 12px;
+        color: #bdd7f7;
         font-size: .72rem;
         line-height: 1.42;
     }
 
+    /* Cabeçalho executivo compacto */
     .hero {
-        background: #ffffff;
-        color: var(--op-slate-900);
-        border: 1px solid var(--op-border);
-        border-left: 5px solid var(--op-blue-700);
-        border-radius: 16px;
-        padding: 12px 16px;
+        background: linear-gradient(120deg, #ffffff 0%, #eef5ff 58%, #dcecff 100%);
+        color: var(--gds-text);
+        border: 1px solid #cfe0f5;
+        border-radius: 14px;
+        padding: 12px 18px;
         margin-bottom: 8px;
-        box-shadow: var(--op-shadow-soft);
+        box-shadow: var(--gds-shadow);
         position: relative;
         overflow: hidden;
     }
 
-    .hero:before { display: none; }
+    .hero:before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+        background: linear-gradient(180deg, var(--gds-blue) 0%, var(--gds-blue-2) 100%);
+    }
 
     .hero h1 {
-        margin: 0 0 4px 0;
-        font-size: 1.45rem;
+        margin: 0 0 3px 0;
+        font-size: 1.42rem;
         line-height: 1.12;
-        letter-spacing: -0.035em;
-        color: var(--op-blue-900);
+        letter-spacing: -0.045em;
+        color: var(--gds-navy);
         font-weight: 950;
     }
 
     .hero p {
         margin: 0;
-        color: var(--op-slate-500);
-        font-size: .82rem;
+        color: #4d6076;
+        font-size: 0.78rem;
     }
+
+    .badge {
+        display: none;
+        padding: 5px 9px;
+        margin: 0 6px 6px 0;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid #bad3f5;
+        color: #064a9d;
+        font-size: 0.68rem;
+        font-weight: 850;
+        letter-spacing: .015em;
+    }
+
 
     .status-strip {
         display: flex;
         align-items: center;
         gap: 8px;
         background: #ffffff;
-        border: 1px solid var(--op-border);
-        border-left: 4px solid var(--op-blue-700);
+        border: 1px solid var(--gds-border);
+        border-left: 4px solid var(--gds-blue);
         border-radius: 12px;
-        padding: 7px 10px;
+        padding: 8px 11px;
         margin-bottom: 8px;
-        box-shadow: var(--op-shadow-soft);
-        color: var(--op-slate-500);
-        font-size: .73rem;
+        box-shadow: var(--gds-shadow-soft);
+        color: #4f6279;
+        font-size: .72rem;
         line-height: 1.35;
     }
 
     .status-dot {
         width: 8px;
         height: 8px;
-        background: var(--op-blue-700);
+        background: var(--gds-blue);
         border-radius: 999px;
         display: inline-block;
         box-shadow: 0 0 0 4px rgba(11, 99, 206, .10);
@@ -209,133 +223,46 @@ st.markdown(
     }
 
     .status-strong {
-        color: var(--op-blue-900);
+        color: var(--gds-navy);
         font-weight: 850;
     }
 
+    .info {
+        background: #ffffff;
+        border: 1px solid var(--gds-border);
+        border-left: 4px solid var(--gds-blue);
+        border-radius: 12px;
+        padding: 9px 12px;
+        color: #4f6279;
+        font-size: 0.77rem;
+        margin-bottom: 10px;
+        box-shadow: var(--gds-shadow-soft);
+    }
+
     .filter-caption {
-        color: var(--op-blue-900);
+        color: var(--gds-navy);
         font-weight: 850;
         font-size: .76rem;
         margin-bottom: 4px;
     }
 
     .filter-note-compact {
-        color: var(--op-slate-500);
+        color: #60748d;
         font-size: .68rem;
         text-align: right;
         margin-top: 2px;
     }
 
-    .section-title {
-        font-size: 1.02rem;
-        font-weight: 950;
-        color: var(--op-blue-900);
-        margin: 10px 0 2px 0;
-    }
-
-    .section-subtitle {
-        color: var(--op-slate-500);
-        font-size: .78rem;
-        margin-bottom: 10px;
-    }
-
-    .ops-card {
-        background: #ffffff;
-        border: 1px solid var(--op-border);
-        border-top: 4px solid var(--accent);
-        border-radius: 16px;
-        padding: 16px 16px 14px 16px;
-        min-height: 208px;
-        max-height: 208px;
-        box-shadow: var(--op-shadow-soft);
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-    }
-
-    .ops-icon {
-        width: 38px;
-        height: 38px;
-        border-radius: 11px;
-        background: var(--soft);
-        color: var(--accent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 950;
-        margin-bottom: 10px;
-        font-size: .96rem;
-    }
-
-    .ops-label {
-        color: var(--op-blue-900);
-        font-size: .78rem;
-        font-weight: 950;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: .012em;
-        min-height: 38px;
-        line-height: 1.24;
-        overflow: hidden;
-    }
-
-    .ops-value {
-        color: var(--accent);
-        font-size: 2.55rem;
-        font-weight: 980;
-        line-height: 1;
-        letter-spacing: -.055em;
-        margin-bottom: 8px;
-    }
-
-    .ops-sub {
-        color: var(--op-slate-500);
-        font-size: .76rem;
-        line-height: 1.34;
-        margin-top: auto;
-        min-height: 42px;
-        overflow: hidden;
-    }
-
-    .ops-mini-grid {
-        margin-top: auto;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-    }
-
-    .ops-mini {
-        border: 1px solid var(--op-border);
-        background: #f8fafc;
-        border-radius: 11px;
-        padding: 8px 8px;
-        text-align: center;
-    }
-
-    .ops-mini-title {
-        color: var(--op-slate-500);
-        font-size: .66rem;
-        font-weight: 800;
-        margin-bottom: 3px;
-    }
-
-    .ops-mini-value {
-        color: var(--mini-color);
-        font-size: 1.16rem;
-        font-weight: 950;
-        line-height: 1;
-    }
-
+    /* Cards executivos */
     .kpi {
-        background: #ffffff;
-        border: 1px solid var(--op-border);
+        background: var(--gds-card);
+        border: 1px solid var(--gds-border);
         border-radius: 15px;
-        padding: 13px 14px 11px 14px;
-        height: 172px;
-        min-height: 172px;
-        max-height: 172px;
-        box-shadow: var(--op-shadow-soft);
+        padding: 13px 14px 12px 14px;
+        height: 166px;
+        min-height: 166px;
+        max-height: 166px;
+        box-shadow: var(--gds-shadow-soft);
         border-top: 4px solid var(--accent);
         display: flex;
         flex-direction: column;
@@ -343,7 +270,13 @@ st.markdown(
         position: relative;
     }
 
-    .kpi:after { display: none; }
+    .kpi:after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255,255,255,.0) 0%, rgba(11,99,206,.025) 100%);
+        pointer-events: none;
+    }
 
     .kpi-icon {
         width: 34px;
@@ -355,90 +288,163 @@ st.markdown(
         align-items: center;
         justify-content: center;
         font-weight: 950;
-        margin-bottom: 8px;
+        margin-bottom: 9px;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
     }
 
     .label {
-        color: var(--op-blue-900);
-        font-size: .70rem;
-        font-weight: 950;
-        margin-bottom: 6px;
+        color: var(--gds-navy);
+        font-size: 0.70rem;
+        font-weight: 900;
+        margin-bottom: 7px;
         text-transform: uppercase;
-        min-height: 31px;
-        max-height: 31px;
+        min-height: 32px;
+        max-height: 32px;
         line-height: 1.22;
         overflow: hidden;
-        letter-spacing: .012em;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        word-break: normal;
+        letter-spacing: .008em;
     }
 
     .value {
         color: var(--value);
-        font-size: 2.16rem;
+        font-size: 2.02rem;
         font-weight: 980;
         line-height: 1;
-        margin-bottom: 6px;
-        letter-spacing: -.055em;
+        margin-bottom: 7px;
+        letter-spacing: -0.055em;
         min-height: 34px;
         display: flex;
         align-items: center;
     }
 
     .sub {
-        color: var(--op-slate-500);
-        font-size: .69rem;
-        line-height: 1.28;
-        min-height: 34px;
-        max-height: 34px;
+        color: var(--gds-muted);
+        font-size: 0.68rem;
+        line-height: 1.32;
+        min-height: 36px;
+        max-height: 36px;
         overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
         margin-top: auto;
     }
 
+    .section-title {
+        font-size: 1.0rem;
+        font-weight: 900;
+        color: var(--gds-navy);
+        margin: 8px 0 3px 0;
+    }
+
+    .small-muted {
+        color: #63758c;
+        font-size: .76rem;
+        margin-bottom: 8px;
+    }
+
+    /* Botões próximos aos cards */
     div[data-testid="stButton"] button {
-        border-radius: 11px;
-        font-weight: 800;
+        border-radius: 10px;
+        font-weight: 760;
         min-height: 38px;
-        padding-top: .34rem;
-        padding-bottom: .34rem;
-        border: 1px solid #cfd9e7;
+        padding-top: .36rem;
+        padding-bottom: .36rem;
+        border: 1px solid #c7d5e7;
         background: #ffffff;
-        color: var(--op-blue-900);
-        box-shadow: 0 3px 10px rgba(8, 37, 78, .035);
+        color: var(--gds-navy);
+        box-shadow: 0 3px 10px rgba(7, 29, 58, .035);
     }
 
     div[data-testid="stButton"] button:hover {
-        border-color: var(--op-blue-700);
-        background: var(--op-blue-100);
-        color: var(--op-blue-900);
-    }
-
-    div[data-testid="column"] div[data-testid="stButton"] {
-        margin-top: -0.34rem;
+        border-color: #8bb8ee;
+        background: #f5f9ff;
+        color: #064a9d;
     }
 
     .card-row-spacer {
-        height: 10px;
+        height: 8px;
+    }
+
+    /* Reduz a folga entre card e botão nos containers de coluna */
+    div[data-testid="column"] > div:has(.kpi) + div[data-testid="stButton"] {
+        margin-top: -0.35rem;
+    }
+
+    div[data-testid="column"] div[data-testid="stButton"] {
+        margin-top: -0.30rem;
+    }
+
+    /* Tabelas e downloads */
+    div[data-testid="stDataFrame"] {
+        border: 1px solid var(--gds-border);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 14px rgba(7,29,58,.035);
+    }
+
+    div[data-testid="stDownloadButton"] button {
+        border-radius: 10px;
+        border: 1px solid #bfcfe2;
+        background: #ffffff;
+        color: var(--gds-navy);
+        font-weight: 780;
+        min-height: 38px;
+    }
+
+    div[data-testid="stDownloadButton"] button:hover {
+        border-color: #0b63ce;
+        background: #f3f8ff;
+        color: #064a9d;
+    }
+
+    .chart-card {
+        background: #ffffff;
+        border: 1px solid var(--gds-border);
+        border-radius: 15px;
+        padding: 14px 16px;
+        box-shadow: var(--gds-shadow-soft);
+        margin-top: 12px;
+        margin-bottom: 10px;
+    }
+
+    .chart-title {
+        color: var(--gds-navy);
+        font-size: 1.0rem;
+        font-weight: 950;
+        margin-bottom: 3px;
+    }
+
+    .chart-sub {
+        color: #65768d;
+        font-size: .74rem;
+        margin-bottom: 8px;
     }
 
     .detail-box {
         background: #ffffff;
         border: 1px solid #cfe0f5;
-        border-left: 5px solid var(--op-blue-700);
+        border-left: 5px solid var(--gds-blue);
         border-radius: 15px;
         padding: 14px 16px;
-        margin-top: 4px;
-        margin-bottom: 14px;
-        box-shadow: 0 10px 24px rgba(8, 37, 78, .075);
+        margin-top: 10px;
+        margin-bottom: 10px;
+        box-shadow: var(--gds-shadow-soft);
     }
 
     .detail-title {
-        color: var(--op-blue-900);
+        color: var(--gds-navy);
         font-size: 1.02rem;
         font-weight: 950;
         margin-bottom: 4px;
     }
 
     .detail-sub {
-        color: var(--op-slate-500);
+        color: #5d7087;
         font-size: .76rem;
         margin-bottom: 9px;
         line-height: 1.36;
@@ -446,8 +452,8 @@ st.markdown(
 
     .detail-count {
         display: inline-block;
-        background: var(--op-blue-100);
-        color: var(--op-blue-900);
+        background: var(--gds-blue-soft);
+        color: #064a9d;
         border: 1px solid #c9dcf8;
         border-radius: 999px;
         padding: 5px 9px;
@@ -455,1610 +461,63 @@ st.markdown(
         font-weight: 900;
     }
 
-    div[data-testid="stDataFrame"] {
-        border: 1px solid var(--op-border);
-        border-radius: 14px;
-        overflow: hidden;
-        box-shadow: var(--op-shadow-soft);
+    /* Inputs/filtro */
+    div[data-baseweb="input"] {
+        border-radius: 10px;
     }
 
-    div[data-testid="stDownloadButton"] button {
-        border-radius: 11px;
-        border: 1px solid #cfd9e7;
-        background: #ffffff;
-        color: var(--op-blue-900);
-        font-weight: 800;
-        min-height: 38px;
-    }
-
-    .stAlert { border-radius: 13px !important; }
-
-    div[data-testid="stVerticalBlock"] { gap: .50rem; }
-    .element-container { margin-bottom: .18rem; }
-
-    /* Cabeçalho corporativo — Central Operacional */
-    .ops-header-shell {
-        width: 100%;
-        background: #ffffff;
-        border: 1px solid var(--op-border);
-        border-bottom: 1px solid #d8e3f0;
-        border-radius: 16px;
-        box-shadow: 0 8px 22px rgba(8, 37, 78, .055);
-        padding: 14px 16px;
-        margin-bottom: 10px;
-    }
-
-    .ops-header-title {
-        margin: 0;
-        color: var(--op-blue-900);
-        font-size: 1.52rem;
-        font-weight: 950;
-        letter-spacing: -0.04em;
-        line-height: 1.08;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    .ops-header-subtitle {
-        margin-top: 6px;
-        color: var(--op-slate-500);
-        font-size: .82rem;
-        font-weight: 650;
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        white-space: nowrap;
-    }
-
-    .ops-info-icon {
-        width: 17px;
-        height: 17px;
-        border-radius: 999px;
-        border: 1px solid #b8c8dc;
-        color: var(--op-slate-500);
-        font-size: .68rem;
-        font-weight: 850;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: #f8fafc;
-    }
-
-    .ops-update-box {
-        min-height: 50px;
-        padding: 7px 9px;
+    [data-testid="stDateInput"] {
+        background: rgba(255,255,255,.55);
         border-radius: 12px;
-        border: 1px solid #e0e8f2;
-        background: #f8fafc;
-        line-height: 1.18;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
     }
 
-    .ops-update-label {
-        color: var(--op-slate-500);
-        font-size: .64rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .035em;
-        margin-bottom: 3px;
-        white-space: nowrap;
+    /* Alertas só quando necessário */
+    .stAlert {
+        border-radius: 12px;
     }
 
-    .ops-update-value {
-        color: var(--op-blue-900);
-        font-size: .78rem;
-        font-weight: 850;
-        white-space: nowrap;
+    /* Compactação vertical geral */
+    div[data-testid="stVerticalBlock"] {
+        gap: .55rem;
     }
 
-    .ops-header-control-label {
-        color: var(--op-blue-900);
-        font-size: .68rem;
-        font-weight: 850;
-        margin-bottom: 4px;
+    /* Esconde respiros excessivos gerados pelo Streamlit */
+    .element-container {
+        margin-bottom: .25rem;
     }
 
-    .ops-filter-static {
-        min-height: 38px;
-        border-radius: 11px;
-        border: 1px solid #d5dfeb;
-        background: #ffffff;
-        color: var(--op-slate-700);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 11px;
-        font-size: .78rem;
-        font-weight: 750;
-        box-shadow: 0 2px 8px rgba(8, 37, 78, .025);
-    }
-
-    .ops-filter-static span:last-child {
-        color: var(--op-slate-500);
-        font-size: .72rem;
-    }
-
-    .ops-header-button-spacer {
-        height: 18px;
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button {
-        min-height: 38px;
-        border-radius: 11px;
-        border: 1px solid var(--op-blue-700);
-        background: var(--op-blue-700);
-        color: #ffffff;
-        font-weight: 850;
-        padding: .38rem .84rem;
-        white-space: nowrap;
-        box-shadow: 0 5px 14px rgba(11, 99, 206, .22);
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button:hover {
-        background: #0959bb;
-        color: #ffffff;
-        border-color: #0959bb;
-    }
-
-    .ops-header-shell div[data-testid="stDateInput"] input {
-        min-height: 38px;
-        border-radius: 11px;
-        border: 1px solid #d5dfeb;
-        background: #ffffff;
-        font-size: .78rem;
-        font-weight: 750;
-    }
-
-    .ops-header-filter-note {
-        color: var(--op-slate-500);
-        font-size: .66rem;
-        text-align: right;
-        margin-top: 2px;
-    }
-
-
-
-    /* Cabeçalho — sincronização administrativa */
-    .sync-card {
-        min-height: 54px;
-        padding: 8px 11px;
-        border-radius: 13px;
-        border: 1px solid #dbe5f0;
-        background: #f8fafc;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        box-shadow: 0 3px 10px rgba(8, 37, 78, .03);
-    }
-
-    .sync-card-label {
-        color: var(--op-slate-500);
-        font-size: .64rem;
-        font-weight: 850;
-        text-transform: uppercase;
-        letter-spacing: .035em;
-        margin-bottom: 3px;
-    }
-
-    .sync-card-value {
-        color: var(--op-blue-900);
-        font-size: .82rem;
-        font-weight: 900;
-        white-space: nowrap;
-    }
-
-    .sync-card-detail {
-        color: var(--op-slate-500);
-        font-size: .66rem;
-        font-weight: 650;
-        margin-top: 3px;
-        white-space: nowrap;
-    }
-
-    .sync-success-strip {
-        background: #ecfdf5;
-        border: 1px solid #bbf7d0;
-        color: #0f766e;
-        border-radius: 11px;
-        padding: 6px 10px;
-        font-size: .74rem;
-        font-weight: 800;
-        margin-top: 6px;
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button {
-        min-height: 40px;
-        border-radius: 11px;
-        border: 1px solid var(--op-blue-700);
-        background: var(--op-blue-700);
-        color: #ffffff;
-        font-weight: 850;
-        padding: .40rem .82rem;
-        white-space: nowrap;
-        box-shadow: 0 5px 14px rgba(11, 99, 206, .18);
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button:hover {
-        background: #0959bb;
-        border-color: #0959bb;
-        color: #ffffff;
-    }
-
-    .ops-header-button-spacer {
-        height: 18px;
-    }
-
-
-
-    /* Cards operacionais — footer interno sem sobreposição */
-    .clickable-card-wrap {
-        height: 100%;
-        margin-bottom: 0;
-    }
-
-    .clickable-card-wrap .ops-card {
-        cursor: pointer;
-        display: flex;
-        flex-direction: column;
-        min-height: 238px;
-        max-height: none;
-        height: 100%;
-        overflow: hidden;
-        transition:
-            transform .18s ease,
-            box-shadow .18s ease,
-            border-color .18s ease;
-    }
-
-    .clickable-card-wrap:hover .ops-card {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
-        border-color: var(--accent);
-    }
-
-    .ops-card-main {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-    }
-
-    .ops-sub {
-        min-height: auto !important;
-        max-height: none !important;
-        margin-top: 0 !important;
-        overflow: visible !important;
-    }
-
-    .ops-mini-grid {
-        margin-top: 12px !important;
-        margin-bottom: 0 !important;
+    .kpi-mini-row {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 5px;
+        margin-top: 7px;
     }
 
-    .ops-mini {
-        min-width: 0;
-        overflow: hidden;
+    .kpi-mini-item {
+        border: 1px solid var(--gds-border);
+        border-radius: 8px;
+        padding: 5px 4px;
+        background: #f8fafc;
+        text-align: center;
+        min-height: 35px;
     }
 
-    .ops-mini-title,
-    .ops-mini-value {
-        white-space: normal;
-        overflow-wrap: anywhere;
-    }
-
-    .ops-card-footer {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        min-height: 36px;
-        margin-top: 12px;
-        padding-top: 10px;
-        border-top: 1px solid #e5e7eb;
-        color: var(--op-slate-500);
-        font-size: .72rem;
+    .kpi-mini-title {
+        color: #667085;
+        font-size: .50rem;
         font-weight: 850;
-        white-space: nowrap;
-        transition: color .18s ease, transform .18s ease;
-    }
-
-    .clickable-card-wrap:hover .ops-card-footer {
-        color: var(--accent);
-        transform: translateX(1px);
-    }
-
-    .card-footer-action div[data-testid="stButton"] {
-        margin-top: -48px !important;
-        height: 48px !important;
-        position: relative;
-        z-index: 15;
-    }
-
-    .card-footer-action div[data-testid="stButton"] button {
-        height: 48px !important;
-        min-height: 48px !important;
-        width: 100% !important;
-        border: 0 !important;
-        background: transparent !important;
-        color: transparent !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        cursor: pointer !important;
-    }
-
-    .card-footer-action div[data-testid="stButton"] button:hover,
-    .card-footer-action div[data-testid="stButton"] button:focus,
-    .card-footer-action div[data-testid="stButton"] button:active {
-        background: transparent !important;
-        color: transparent !important;
-        border: 0 !important;
-        box-shadow: none !important;
-    }
-
-    .card-footer-action div[data-testid="stButton"] button p {
-        color: transparent !important;
-    }
-
-    @media (max-width: 900px) {
-        .ops-mini-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @media (max-width: 640px) {
-        .ops-mini-grid {
-            grid-template-columns: 1fr;
-        }
-        .clickable-card-wrap .ops-card {
-            min-height: 260px;
-        }
-    }
-
-
-    /* V2.6.9 — card como link real, sem botão Streamlit externo */
-    a.operational-card-link,
-    a.operational-card-link:visited,
-    a.operational-card-link:hover,
-    a.operational-card-link:active {
-        text-decoration: none !important;
-        color: inherit !important;
-        display: block;
-        height: 100%;
-    }
-
-    a.operational-card-link .ops-card {
-        cursor: pointer;
-        display: flex;
-        flex-direction: column;
-        min-height: 238px;
-        height: 100%;
-        max-height: none;
-        overflow: hidden;
-        transition:
-            transform .18s ease,
-            box-shadow .18s ease,
-            border-color .18s ease;
-    }
-
-    a.operational-card-link:hover .ops-card {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 26px rgba(15, 23, 42, .10);
-        border-color: var(--accent);
-    }
-
-    a.operational-card-link:hover .ops-card-footer {
-        color: var(--accent);
-        transform: translateX(1px);
-    }
-
-    .card-footer-action {
-        display: none !important;
-        height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-
-
-    /* V2.7.1 — rodapé de ação integrado ao card */
-    a.operational-card-link,
-    a.operational-card-link:visited,
-    a.operational-card-link:hover,
-    a.operational-card-link:active {
-        text-decoration: none !important;
-        color: inherit !important;
-        cursor: default !important;
-        pointer-events: none !important;
-    }
-
-    .clickable-card-wrap {
-        margin-bottom: 0 !important;
-    }
-
-    .clickable-card-wrap .ops-card {
-        cursor: default !important;
-        border-bottom-left-radius: 0 !important;
-        border-bottom-right-radius: 0 !important;
-        border-bottom: 0 !important;
-        box-shadow: 0 8px 22px rgba(8, 37, 78, .055) !important;
-        transition:
-            transform .18s ease,
-            box-shadow .18s ease,
-            border-color .18s ease;
-    }
-
-    .ops-card-footer {
-        display: none !important;
-        visibility: hidden !important;
-    }
-
-    .card-footer-button {
-        margin-top: -1px !important;
-        margin-bottom: 12px !important;
-        position: relative;
-        z-index: 5;
-        padding: 0 !important;
-        width: 100%;
-    }
-
-    .card-footer-button div[data-testid="stButton"] {
-        margin: 0 !important;
-        width: 100%;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button {
-        width: 100% !important;
-        height: 42px !important;
-        min-height: 42px !important;
-        border-radius: 0 0 16px 16px !important;
-        border: 1px solid var(--op-border) !important;
-        border-top: 1px solid #e5e7eb !important;
-        background: #ffffff !important;
-        color: var(--op-slate-700) !important;
-        box-shadow: 0 8px 22px rgba(8, 37, 78, .055) !important;
-        font-size: .78rem !important;
-        font-weight: 850 !important;
-        line-height: 1 !important;
-        padding: 0 15px !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        transition:
-            background-color .18s ease,
-            color .18s ease,
-            border-color .18s ease,
-            box-shadow .18s ease;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button:hover,
-    .card-footer-button div[data-testid="stButton"] button:focus {
-        background: #f8fbff !important;
-        color: var(--op-blue-700) !important;
-        border-color: #c9dcf8 !important;
-        border-top-color: #dbe5f0 !important;
-        box-shadow: 0 10px 24px rgba(8, 37, 78, .075) !important;
-        transform: none !important;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button p {
-        width: 100%;
-        text-align: right;
-        color: inherit !important;
-        font-size: inherit !important;
-        font-weight: inherit !important;
-    }
-
-    .clickable-card-wrap:has(+ .card-footer-button:hover) .ops-card,
-    .clickable-card-wrap:hover .ops-card {
-        transform: translateY(-2px);
-        box-shadow: 0 12px 26px rgba(15, 23, 42, .10) !important;
-        border-color: var(--accent) !important;
-    }
-
-    .clickable-card-wrap:hover + .card-footer-button div[data-testid="stButton"] button {
-        color: var(--op-blue-700) !important;
-        border-color: #c9dcf8 !important;
-    }
-
-
-    /* =====================================================
-       V2.7.4 — Refinamento visual da Central Operacional
-       Escopo: UI/UX apenas. Sem regra de negócio.
-       ===================================================== */
-
-    :root {
-        --op-radius-sm: 10px;
-        --op-radius-md: 14px;
-        --op-radius-lg: 18px;
-        --op-space-1: 4px;
-        --op-space-2: 8px;
-        --op-space-3: 12px;
-        --op-space-4: 16px;
-        --op-space-5: 20px;
-        --op-space-6: 24px;
-        --op-shadow-soft: 0 7px 18px rgba(8, 37, 78, .045);
-        --op-shadow-hover: 0 12px 28px rgba(8, 37, 78, .085);
-        --op-line: #d9e4f2;
-        --op-surface: #ffffff;
-        --op-surface-soft: #f8fafc;
-    }
-
-    .stApp {
-        background:
-            radial-gradient(circle at top left, rgba(11, 99, 206, .055), transparent 32%),
-            linear-gradient(180deg, #f7fafe 0%, #f4f7fb 54%, #f8fafc 100%) !important;
-        color: var(--op-blue-900);
-    }
-
-    .block-container {
-        padding-top: 1.05rem !important;
-        padding-bottom: 2.25rem !important;
-        padding-left: 1.25rem !important;
-        padding-right: 1.25rem !important;
-        max-width: 1480px !important;
-    }
-
-    h1, h2, h3 {
-        letter-spacing: -0.025em !important;
-        color: var(--op-blue-900) !important;
-    }
-
-    h1 {
-        font-size: clamp(1.56rem, 1.35rem + .65vw, 2.06rem) !important;
-        line-height: 1.12 !important;
-        margin-bottom: .40rem !important;
-    }
-
-    h2 {
-        font-size: 1.12rem !important;
-        line-height: 1.22 !important;
-        margin-top: 1.05rem !important;
-        margin-bottom: .22rem !important;
-    }
-
-    h3 {
-        font-size: .98rem !important;
-        line-height: 1.25 !important;
-    }
-
-    p, label, span, div {
-        -webkit-font-smoothing: antialiased;
-        text-rendering: geometricPrecision;
-    }
-
-    /* Cabeçalho corporativo */
-    .ops-header-shell {
-        background: rgba(255,255,255,.94);
-        border: 1px solid var(--op-line);
-        box-shadow: var(--op-shadow-soft);
-        border-radius: var(--op-radius-lg);
-        padding: 15px 16px !important;
-        margin-bottom: 18px !important;
-        backdrop-filter: blur(6px);
-    }
-
-    .ops-header-title {
-        font-size: clamp(1.05rem, .96rem + .35vw, 1.36rem) !important;
-        font-weight: 950 !important;
-        letter-spacing: -0.035em !important;
-        color: var(--op-blue-900) !important;
-        line-height: 1.08 !important;
-        margin-top: 2px;
-    }
-
-    .ops-header-subtitle {
-        color: var(--op-slate-600) !important;
-        font-size: .84rem !important;
-        font-weight: 650 !important;
-        margin-top: 7px !important;
-    }
-
-    .ops-info-icon {
-        display: inline-flex !important;
-        width: 17px !important;
-        height: 17px !important;
-        align-items: center;
-        justify-content: center;
-        border-radius: 999px;
-        background: #eef5ff;
-        color: var(--op-blue-700);
-        font-size: .68rem !important;
-        font-weight: 850 !important;
-        margin-left: 6px;
-    }
-
-    .sync-card {
-        min-height: 58px !important;
-        border-radius: var(--op-radius-md) !important;
-        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
-        border: 1px solid var(--op-line) !important;
-        box-shadow: 0 3px 10px rgba(8, 37, 78, .035) !important;
-        padding: 9px 12px !important;
-    }
-
-    .sync-card-label,
-    .ops-header-control-label {
-        color: var(--op-slate-500) !important;
-        font-size: .63rem !important;
-        font-weight: 900 !important;
-        letter-spacing: .055em !important;
-        text-transform: uppercase !important;
-    }
-
-    .sync-card-value {
-        color: var(--op-blue-900) !important;
-        font-size: .86rem !important;
-        font-weight: 950 !important;
-        margin-top: 1px;
-    }
-
-    .sync-card-detail {
-        color: var(--op-slate-500) !important;
-        font-size: .67rem !important;
-        font-weight: 700 !important;
-        margin-top: 3px !important;
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button {
-        border-radius: var(--op-radius-md) !important;
-        min-height: 42px !important;
-        font-size: .80rem !important;
-        font-weight: 900 !important;
-        box-shadow: 0 7px 16px rgba(11, 99, 206, .16) !important;
-        transition: transform .18s ease, box-shadow .18s ease, background-color .18s ease !important;
-    }
-
-    .ops-header-shell div[data-testid="stButton"] button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 10px 22px rgba(11, 99, 206, .22) !important;
-    }
-
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%) !important;
-        border-right: 1px solid var(--op-line) !important;
-    }
-
-    section[data-testid="stSidebar"] .block-container,
-    section[data-testid="stSidebar"] > div {
-        padding-top: 1.0rem !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
-        min-height: 43px !important;
-        border-radius: var(--op-radius-md) !important;
-        border: 1px solid #d8e4f3 !important;
-        background: #ffffff !important;
-        color: var(--op-blue-900) !important;
-        font-size: .84rem !important;
-        font-weight: 750 !important;
-        box-shadow: none !important;
-        transition: background-color .18s ease, border-color .18s ease, color .18s ease, transform .18s ease !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: #f1f7ff !important;
-        border-color: #bcd4f3 !important;
-        color: var(--op-blue-700) !important;
-        transform: translateX(1px);
-    }
-
-    section[data-testid="stSidebar"] hr {
-        border-color: #dbe5f0 !important;
-        margin-top: 18px !important;
-        margin-bottom: 12px !important;
-    }
-
-    /* Seções e textos de apoio */
-    .section-subtitle,
-    .ops-section-subtitle,
-    .muted,
-    .small-muted {
-        color: var(--op-slate-600) !important;
-    }
-
-    /* Cards operacionais */
-    .clickable-card-wrap {
-        height: 100%;
-        margin-bottom: 0 !important;
-    }
-
-    .clickable-card-wrap .ops-card {
-        background: #ffffff !important;
-        border: 1px solid var(--op-line) !important;
-        border-top-width: 4px !important;
-        border-radius: var(--op-radius-lg) var(--op-radius-lg) 0 0 !important;
-        min-height: 236px !important;
-        padding: 17px 16px 14px 16px !important;
-        box-shadow: var(--op-shadow-soft) !important;
-        transition:
-            transform .18s ease,
-            box-shadow .18s ease,
-            border-color .18s ease,
-            background-color .18s ease !important;
-    }
-
-    .clickable-card-wrap:hover .ops-card {
-        transform: translateY(-2px);
-        box-shadow: var(--op-shadow-hover) !important;
-        border-color: var(--accent) !important;
-    }
-
-    .ops-card header {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        min-height: 76px;
-    }
-
-    .ops-icon {
-        width: 38px !important;
-        height: 38px !important;
-        border-radius: 12px !important;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        background: var(--soft) !important;
-        color: var(--accent) !important;
-        font-size: 1.04rem !important;
-        font-weight: 950 !important;
-    }
-
-    .ops-label {
-        font-size: .75rem !important;
-        font-weight: 950 !important;
-        letter-spacing: .018em !important;
-        color: var(--op-blue-900) !important;
-        text-transform: uppercase !important;
-        line-height: 1.2 !important;
-    }
-
-    .ops-card-main {
-        display: flex !important;
-        flex-direction: column !important;
-        justify-content: flex-end !important;
-        gap: 8px !important;
-        flex: 1 !important;
-        min-height: 112px !important;
-    }
-
-    .ops-value {
-        font-size: clamp(2.05rem, 1.76rem + .9vw, 2.70rem) !important;
-        line-height: .98 !important;
-        font-weight: 950 !important;
-        color: var(--accent) !important;
-        letter-spacing: -0.055em !important;
-        margin-top: 0 !important;
-    }
-
-    .ops-sub {
-        color: var(--op-slate-600) !important;
-        font-size: .78rem !important;
-        line-height: 1.34 !important;
-        font-weight: 650 !important;
-    }
-
-    .ops-mini-grid {
-        display: grid !important;
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-        gap: 8px !important;
-        margin-top: 12px !important;
-    }
-
-    .ops-mini {
-        background: #f8fafc !important;
-        border: 1px solid #e5edf7 !important;
-        border-radius: var(--op-radius-sm) !important;
-        padding: 8px 8px !important;
-        min-width: 0 !important;
-    }
-
-    .ops-mini-title {
-        font-size: .61rem !important;
-        color: var(--op-slate-500) !important;
-        font-weight: 850 !important;
-        letter-spacing: .03em;
         text-transform: uppercase;
-        line-height: 1.15 !important;
+        line-height: 1.1;
     }
 
-    .ops-mini-value {
-        margin-top: 4px !important;
-        font-size: .86rem !important;
-        font-weight: 950 !important;
-        color: var(--mini-color) !important;
-        line-height: 1.1 !important;
-    }
-
-    /* Rodapé de ação integrado ao card */
-    .card-footer-button {
-        margin-top: -1px !important;
-        margin-bottom: 16px !important;
-        padding: 0 !important;
-        width: 100%;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button {
-        width: 100% !important;
-        height: 42px !important;
-        min-height: 42px !important;
-        border-radius: 0 0 var(--op-radius-lg) var(--op-radius-lg) !important;
-        border: 1px solid var(--op-line) !important;
-        border-top: 1px solid #e5e7eb !important;
-        background: #ffffff !important;
-        color: var(--op-slate-600) !important;
-        box-shadow: var(--op-shadow-soft) !important;
-        font-size: .77rem !important;
-        font-weight: 850 !important;
-        padding: 0 16px !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        transition:
-            background-color .18s ease,
-            color .18s ease,
-            border-color .18s ease,
-            box-shadow .18s ease !important;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button:hover {
-        background: #f8fbff !important;
-        color: var(--op-blue-700) !important;
-        border-color: #c7daf4 !important;
-        box-shadow: var(--op-shadow-hover) !important;
-        transform: none !important;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button p {
-        width: 100%;
-        text-align: right;
-        color: inherit !important;
-        font-size: inherit !important;
-        font-weight: inherit !important;
-    }
-
-    /* Cards de detalhe */
-    .detail-box,
-    .card-detail-box {
-        border-radius: var(--op-radius-lg) !important;
-        border: 1px solid var(--op-line) !important;
-        box-shadow: var(--op-shadow-soft) !important;
-        background: rgba(255,255,255,.96) !important;
-    }
-
-    /* Botões gerais fora dos cards */
-    div[data-testid="stButton"] button {
-        border-radius: var(--op-radius-md) !important;
-        font-weight: 800 !important;
-        transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease !important;
-    }
-
-    div[data-testid="stButton"] button:hover {
-        transform: translateY(-1px);
-    }
-
-    /* Inputs/filtros */
-    div[data-baseweb="input"],
-    div[data-baseweb="select"],
-    div[data-baseweb="datepicker"] {
-        border-radius: var(--op-radius-md) !important;
-    }
-
-    input,
-    textarea {
-        font-size: .88rem !important;
-    }
-
-    /* Tabelas */
-    div[data-testid="stDataFrame"],
-    div[data-testid="stTable"] {
-        border-radius: var(--op-radius-md) !important;
-        overflow: hidden !important;
-        border: 1px solid var(--op-line) !important;
-        box-shadow: 0 5px 16px rgba(8, 37, 78, .035) !important;
-        background: #ffffff !important;
-    }
-
-    div[data-testid="stDataFrame"] [role="columnheader"] {
-        background: #f3f7fc !important;
-        color: var(--op-blue-900) !important;
-        font-weight: 850 !important;
-    }
-
-    /* Alertas/mensagens */
-    div[data-testid="stAlert"] {
-        border-radius: var(--op-radius-md) !important;
-        border-color: var(--op-line) !important;
-    }
-
-    /* Responsividade */
-    @media (max-width: 1100px) {
-        .ops-header-shell {
-            padding: 14px !important;
-        }
-
-        .clickable-card-wrap .ops-card {
-            min-height: 226px !important;
-        }
-
-        .ops-mini-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-        }
-    }
-
-    @media (max-width: 760px) {
-        .block-container {
-            padding-left: .85rem !important;
-            padding-right: .85rem !important;
-        }
-
-        .ops-header-shell {
-            border-radius: var(--op-radius-md) !important;
-        }
-
-        .ops-mini-grid {
-            grid-template-columns: 1fr !important;
-        }
-
-        .clickable-card-wrap .ops-card {
-            min-height: 252px !important;
-        }
-
-        .ops-card header {
-            min-height: auto;
-        }
-    }
-
-
-    /* =====================================================
-       V2.7.5 — Correção de proporção dos cards
-       Escopo: CSS apenas. Sem regra de negócio.
-       ===================================================== */
-
-    .block-container {
-        padding-top: .85rem !important;
-    }
-
-    .ops-header-shell {
-        margin-bottom: 16px !important;
-        padding: 13px 15px !important;
-    }
-
-    .sync-card {
-        min-height: 54px !important;
-    }
-
-    .ops-header-button-spacer {
-        height: 12px !important;
-    }
-
-    /* Reduz o vazio vertical dos cards */
-    .clickable-card-wrap .ops-card {
-        min-height: 206px !important;
-        height: 206px !important;
-        padding: 15px 16px 12px 16px !important;
-        justify-content: space-between !important;
-    }
-
-    .ops-card header {
-        min-height: 68px !important;
-        gap: 8px !important;
-    }
-
-    .ops-icon {
-        width: 37px !important;
-        height: 37px !important;
-    }
-
-    .ops-label {
-        font-size: .73rem !important;
-        line-height: 1.18 !important;
-    }
-
-    .ops-card-main {
-        min-height: 88px !important;
-        justify-content: flex-end !important;
-        gap: 7px !important;
-        flex: 0 0 auto !important;
-    }
-
-    .ops-value {
-        font-size: clamp(2.05rem, 1.80rem + .70vw, 2.42rem) !important;
-        line-height: .92 !important;
-        margin: 0 !important;
-    }
-
-    .ops-sub {
-        font-size: .76rem !important;
-        line-height: 1.26 !important;
-        margin: 0 !important;
-    }
-
-    .ops-mini-grid {
-        margin-top: 8px !important;
-        gap: 7px !important;
-    }
-
-    .ops-mini {
-        padding: 7px 7px !important;
-        border-radius: 10px !important;
-    }
-
-    .ops-mini-title {
-        font-size: .58rem !important;
-    }
-
-    .ops-mini-value {
-        font-size: .82rem !important;
-        margin-top: 3px !important;
-    }
-
-    /* Rodapé colado ao card, sem parecer elemento solto */
-    .card-footer-button {
-        margin-top: -1px !important;
-        margin-bottom: 18px !important;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button {
-        height: 40px !important;
-        min-height: 40px !important;
-        box-shadow: 0 7px 18px rgba(8, 37, 78, .045) !important;
-        font-size: .76rem !important;
-    }
-
-    /* Cards com mini-indicadores precisam de altura um pouco maior */
-    .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-        min-height: 236px !important;
-        height: 236px !important;
-    }
-
-    .clickable-card-wrap .ops-card:has(.ops-mini-grid) .ops-card-main {
-        min-height: 132px !important;
-    }
-
-    /* Em telas menores, não força altura exagerada */
-    @media (max-width: 1100px) {
-        .clickable-card-wrap .ops-card {
-            min-height: 206px !important;
-            height: auto !important;
-        }
-
-        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-            min-height: 236px !important;
-            height: auto !important;
-        }
-    }
-
-    @media (max-width: 760px) {
-        .clickable-card-wrap .ops-card {
-            min-height: 210px !important;
-            height: auto !important;
-        }
-
-        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-            min-height: 260px !important;
-            height: auto !important;
-        }
-
-        .card-footer-button {
-            margin-bottom: 14px !important;
-        }
-    }
-
-
-    /* =====================================================
-       V2.7.6 — Ícones operacionais maiores
-       Escopo: visual apenas.
-       ===================================================== */
-
-    .ops-icon {
-        width: 48px !important;
-        height: 48px !important;
-        min-width: 48px !important;
-        min-height: 48px !important;
-        border-radius: 15px !important;
-        font-size: 1.34rem !important;
-        line-height: 1 !important;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.55);
-    }
-
-    .ops-card header {
-        min-height: 76px !important;
-        gap: 10px !important;
-    }
-
-    .ops-label {
-        margin-top: 1px !important;
-    }
-
-    .clickable-card-wrap .ops-card {
-        padding-top: 17px !important;
-    }
-
-    /* Ícones compostos, como Avarias / Salvados */
-    .ops-icon {
-        letter-spacing: -0.08em;
-    }
-
-    @media (max-width: 760px) {
-        .ops-icon {
-            width: 44px !important;
-            height: 44px !important;
-            min-width: 44px !important;
-            min-height: 44px !important;
-            font-size: 1.22rem !important;
-        }
-    }
-
-
-    /* V2.8.0 — Painel de Indenização */
-    .indenizacao-card {
-        background: #ffffff;
-        border: 1px solid var(--op-line);
-        border-top: 4px solid var(--accent);
-        border-radius: var(--op-radius-lg);
-        min-height: 158px;
-        padding: 16px 16px 14px 16px;
-        box-shadow: var(--op-shadow-soft);
-        transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
-    }
-
-    .indenizacao-card:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--op-shadow-hover);
-        border-color: var(--accent);
-    }
-
-    .indenizacao-icon {
-        width: 38px;
-        height: 38px;
-        border-radius: 13px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: #f3f7fc;
-        font-size: 1.18rem;
-        margin-bottom: 12px;
-    }
-
-    .indenizacao-label {
-        color: var(--op-blue-900);
+    .kpi-mini-value {
         font-size: .72rem;
         font-weight: 950;
-        text-transform: uppercase;
-        letter-spacing: .025em;
-        line-height: 1.18;
-    }
-
-    .indenizacao-value {
-        color: var(--accent);
-        font-size: 1.64rem;
-        font-weight: 950;
-        letter-spacing: -.045em;
-        line-height: 1;
-        margin-top: 12px;
-    }
-
-    .indenizacao-sub {
-        color: var(--op-slate-600);
-        font-size: .75rem;
-        font-weight: 650;
-        line-height: 1.30;
-        margin-top: 8px;
+        line-height: 1.1;
+        margin-top: 2px;
     }
 
 </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =========================================================
-# IDENTIDADE VISUAL GDS — CAMADA FINAL DE TEMA
-# Somente apresentação: preserva estrutura, componentes e regras.
-# =========================================================
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background:
-            radial-gradient(circle at 96% 0%, rgba(255,121,0,.08), transparent 24rem),
-            linear-gradient(180deg, #f5f3f0 0%, #f8f7f5 100%) !important;
-        color: #292929 !important;
-    }
-
-    /* Oculta somente a barra nativa do Streamlit e recupera seu espaço. */
-    header[data-testid="stHeader"] {
-        height: 0 !important;
-        min-height: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-    }
-
-    [data-testid="stToolbar"],
-    [data-testid="stDecoration"],
-    [data-testid="stStatusWidget"] {
-        display: none !important;
-    }
-
-    [data-testid="stAppViewBlockContainer"] {
-        padding-top: .55rem !important;
-    }
-
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #151515 0%, #222222 100%) !important;
-        border-right: 1px solid #37322e !important;
-        box-shadow: 9px 0 25px rgba(0,0,0,.14) !important;
-    }
-
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        background: #101010;
-        border: 1px solid rgba(255,121,0,.30);
-        border-radius: 14px;
-        padding: 12px 14px;
-        margin: 2px 0 14px;
-    }
-
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] .side-note,
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: #e9e5e1 !important;
-    }
-
-    [data-testid="stSidebar"] div[data-testid="stButton"] button {
-        background: #242424 !important;
-        color: #f7f4f1 !important;
-        border-color: #403b37 !important;
-        box-shadow: none !important;
-    }
-
-    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: #30261e !important;
-        color: #ff9b45 !important;
-        border-color: #ff7900 !important;
-    }
-
-    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: #ff7900 !important;
-        color: #171717 !important;
-        border-color: #ff7900 !important;
-        box-shadow: 0 7px 18px rgba(255,121,0,.25) !important;
-    }
-
-    .side-note { border-top-color: rgba(255,255,255,.13) !important; }
-
-    .ops-header-shell,
-    .sync-card,
-    .hero,
-    .chart-card,
-    .card-detail-box,
-    .indenizacao-card {
-        border-color: #e3ddd6 !important;
-        box-shadow: 0 7px 22px rgba(37,29,22,.065) !important;
-    }
-
-    .ops-header-shell {
-        background: rgba(255,255,255,.94) !important;
-        border-top: 3px solid #ff7900 !important;
-    }
-
-    .ops-header-title,
-    .ops-header-subtitle,
-    .hero h1,
-    .section-title,
-    h1, h2, h3, h4 {
-        color: #1d1d1d !important;
-    }
-
-    .ops-info-icon {
-        background: #fff1e5 !important;
-        color: #d95f00 !important;
-    }
-
-    .sync-card {
-        background: linear-gradient(180deg, #ffffff 0%, #fffaf6 100%) !important;
-    }
-
-    .sync-card-value { color: #1d1d1d !important; }
-
-    .clickable-card-wrap .ops-card,
-    .indenizacao-card,
-    .kpi-card {
-        background: #ffffff !important;
-        border-color: #e3ddd6 !important;
-    }
-
-    .clickable-card-wrap .ops-card:hover,
-    .indenizacao-card:hover {
-        box-shadow: 0 12px 28px rgba(37,29,22,.10) !important;
-    }
-
-    .ops-label,
-    .kpi-label,
-    .indenizacao-label { color: #242424 !important; }
-
-    .card-footer-button div[data-testid="stButton"] button,
-    div[data-testid="stDownloadButton"] button,
-    .ops-header-shell div[data-testid="stButton"] button {
-        background: #ffffff !important;
-        color: #2a2725 !important;
-        border-color: #d8d0c8 !important;
-    }
-
-    .card-footer-button div[data-testid="stButton"] button:hover,
-    div[data-testid="stDownloadButton"] button:hover,
-    .ops-header-shell div[data-testid="stButton"] button:hover {
-        background: #fff5ec !important;
-        color: #d95f00 !important;
-        border-color: #ff7900 !important;
-    }
-
-    input:focus, textarea:focus,
-    [data-baseweb="select"] > div:focus-within {
-        border-color: #ff7900 !important;
-        box-shadow: 0 0 0 1px #ff7900 !important;
-    }
-
-    [data-baseweb="tab-list"] { border-bottom-color: #e3ddd6 !important; }
-
-    [aria-selected="true"][data-baseweb="tab"] {
-        color: #d95f00 !important;
-        border-bottom-color: #ff7900 !important;
-    }
-
-    [data-testid="stDataFrame"],
-    [data-testid="stTable"],
-    [data-testid="stExpander"] {
-        border-color: #e3ddd6 !important;
-        border-radius: 12px !important;
-        box-shadow: 0 5px 16px rgba(37,29,22,.05) !important;
-    }
-
-    /* =====================================================
-       V2.9.0 — Densidade e hierarquia visual
-       Somente apresentação. Funções e regras preservadas.
-       ===================================================== */
-
-    /* Menu GDS: contraste real para itens ativos e inativos. */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #151515 0%, #222222 100%) !important;
-        border-right: 1px solid #37322e !important;
-        box-shadow: 9px 0 25px rgba(0,0,0,.14) !important;
-    }
-
-    section[data-testid="stSidebar"] [data-testid="stImage"] {
-        background: #101010 !important;
-        border: 1px solid rgba(255,121,0,.30) !important;
-        border-radius: 13px !important;
-        padding: 9px 12px !important;
-        margin: 0 0 10px !important;
-    }
-
-    section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] .side-note,
-    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-        color: #e9e5e1 !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
-        min-height: 40px !important;
-        background: #242424 !important;
-        color: #f7f4f1 !important;
-        border: 1px solid #403b37 !important;
-        box-shadow: none !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button p {
-        color: inherit !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: #30261e !important;
-        color: #ffad66 !important;
-        border-color: #ff7900 !important;
-    }
-
-    section[data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: #ff7900 !important;
-        color: #171717 !important;
-        border-color: #ff7900 !important;
-        box-shadow: 0 6px 16px rgba(255,121,0,.22) !important;
-    }
-
-    /* Cabeçalho com os mesmos controles, ocupando menos altura. */
-    .ops-header-shell {
-        padding: 10px 13px !important;
-        margin-bottom: 8px !important;
-        border-radius: 14px !important;
-    }
-
-    .ops-header-title {
-        width: 100% !important;
-        margin-top: 0 !important;
-        text-align: center !important;
-        font-size: clamp(1.18rem, 1.08rem + .34vw, 1.42rem) !important;
-    }
-
-    .ops-header-subtitle {
-        margin-top: 4px !important;
-        justify-content: center !important;
-        text-align: center !important;
-        font-size: .74rem !important;
-    }
-
-    .sync-card {
-        min-height: 48px !important;
-        padding: 6px 10px !important;
-        border-radius: 11px !important;
-    }
-
-    .sync-card-value { font-size: .80rem !important; }
-    .sync-card-detail { font-size: .61rem !important; margin-top: 2px !important; }
-    .ops-header-button-spacer { height: 8px !important; }
-
-    .sync-success-strip {
-        margin-top: 4px !important;
-        padding: 4px 8px !important;
-        font-size: .68rem !important;
-    }
-
-    /* Cards comuns: aproximadamente 25% mais baixos. */
-    .clickable-card-wrap .ops-card {
-        min-height: 154px !important;
-        height: 154px !important;
-        padding: 11px 14px 10px !important;
-        border-radius: 14px 14px 0 0 !important;
-        justify-content: space-between !important;
-    }
-
-    .ops-card header {
-        min-height: 32px !important;
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        gap: 9px !important;
-    }
-
-    .ops-icon {
-        width: 32px !important;
-        height: 32px !important;
-        min-width: 32px !important;
-        min-height: 32px !important;
-        border-radius: 10px !important;
-        font-family: "Segoe UI Symbol", "Arial", sans-serif !important;
-        font-size: 1rem !important;
-        font-weight: 900 !important;
-        letter-spacing: 0 !important;
-        box-shadow: inset 0 0 0 1px rgba(255,255,255,.62) !important;
-    }
-
-    .ops-label {
-        margin: 0 !important;
-        font-size: .68rem !important;
-        line-height: 1.16 !important;
-        letter-spacing: .022em !important;
-    }
-
-    .ops-card-main {
-        min-height: 72px !important;
-        flex: 1 1 auto !important;
-        justify-content: flex-end !important;
-        gap: 4px !important;
-    }
-
-    .ops-value {
-        font-size: clamp(2.30rem, 2.02rem + .80vw, 2.78rem) !important;
-        line-height: .90 !important;
-        margin: 0 !important;
-    }
-
-    .ops-sub {
-        font-size: .70rem !important;
-        line-height: 1.22 !important;
-        font-weight: 650 !important;
-        margin: 0 !important;
-    }
-
-    /* Os dois cards com resumo mantêm espaço apenas para os mini-indicadores. */
-    .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-        min-height: 184px !important;
-        height: 184px !important;
-    }
-
-    .clickable-card-wrap .ops-card:has(.ops-mini-grid) .ops-card-main {
-        min-height: 126px !important;
-    }
-
-    .ops-mini-grid {
-        margin-top: 6px !important;
-        gap: 6px !important;
-    }
-
-    .ops-mini {
-        padding: 5px 6px !important;
-        border-radius: 9px !important;
-    }
-
-    .ops-mini-title { font-size: .52rem !important; }
-    .ops-mini-value { font-size: .76rem !important; margin-top: 2px !important; }
-
-    /* Cola o botão Streamlit ao card usando a coluna real que contém ambos. */
-    div[data-testid="stColumn"]:has(.clickable-card-wrap)
-    div[data-testid="stVerticalBlock"] {
-        gap: 0 !important;
-    }
-
-    div[data-testid="stElementContainer"]:has(.card-footer-button),
-    .element-container:has(.card-footer-button),
-    .card-footer-button {
-        height: 0 !important;
-        min-height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-    }
-
-    div[data-testid="stColumn"]:has(.clickable-card-wrap)
-    div[data-testid="stButton"] {
-        margin: 0 0 12px !important;
-    }
-
-    div[data-testid="stColumn"]:has(.clickable-card-wrap)
-    div[data-testid="stButton"] button {
-        width: 100% !important;
-        height: 34px !important;
-        min-height: 34px !important;
-        border-radius: 0 0 14px 14px !important;
-        border: 1px solid #e3ddd6 !important;
-        border-top: 1px solid #eee8e2 !important;
-        background: #ffffff !important;
-        color: #5f5954 !important;
-        box-shadow: 0 7px 18px rgba(37,29,22,.055) !important;
-        padding: 0 13px !important;
-        font-size: .70rem !important;
-        font-weight: 820 !important;
-        justify-content: flex-end !important;
-        transform: none !important;
-    }
-
-    div[data-testid="stColumn"]:has(.clickable-card-wrap)
-    div[data-testid="stButton"] button p {
-        width: 100% !important;
-        color: inherit !important;
-        text-align: right !important;
-    }
-
-    div[data-testid="stColumn"]:has(.clickable-card-wrap)
-    div[data-testid="stButton"] button:hover {
-        background: #fff5ec !important;
-        color: #d95f00 !important;
-        border-color: #ff7900 !important;
-    }
-
-    @media (max-width: 1100px) {
-        .clickable-card-wrap .ops-card,
-        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-            height: auto !important;
-        }
-    }
-
-    @media (max-width: 760px) {
-        .clickable-card-wrap .ops-card {
-            min-height: 164px !important;
-        }
-
-        .clickable-card-wrap .ops-card:has(.ops-mini-grid) {
-            min-height: 216px !important;
-        }
-    }
-    </style>
     """,
     unsafe_allow_html=True,
 )
@@ -2421,99 +880,26 @@ def apply_date_filter(df, date_range):
 
 
 
-def operational_card(label, value, subtitle, icon, accent, soft, card_key=None):
-    st.markdown(
-        f"""            <div class="clickable-card-wrap">
-                <article class="ops-card" style="--accent:{accent}; --soft:{soft};">
-                    <header>
-                        <div class="ops-icon">{icon}</div>
-                        <div class="ops-label">{label}</div>
-                    </header>
-                    <main class="ops-card-main">
-                        <div class="ops-value">{value}</div>
-                        <div class="ops-sub">{subtitle}</div>
-                    </main>
-                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
-                </article>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def pendencia_operational_card(total, entradas, saidas, saldo, card_key=None):
-    saldo_txt = f"+{saldo}" if saldo > 0 else str(saldo)
-    saldo_color = "#d97706" if saldo > 0 else "#0f766e"
-    st.markdown(
-        f"""            <div class="clickable-card-wrap">
-                <article class="ops-card" style="--accent:#b7791f; --soft:#fff8e1;">
-                    <header>
-                        <div class="ops-icon">≡</div>
-                        <div class="ops-label">Pendências da Torre</div>
-                    </header>
-                    <main class="ops-card-main">
-                        <div class="ops-value">{total}</div>
-                        <div class="ops-sub">Backlog atual da Torre</div>
-                        <section class="ops-mini-grid">
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Entraram hoje</div>
-                                <div class="ops-mini-value" style="--mini-color:#d92d20;">{entradas}</div>
-                            </div>
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Saíram hoje</div>
-                                <div class="ops-mini-value" style="--mini-color:#0f766e;">{saidas}</div>
-                            </div>
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Saldo do dia</div>
-                                <div class="ops-mini-value" style="--mini-color:{saldo_color};">{saldo_txt}</div>
-                            </div>
-                        </section>
-                    </main>
-                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
-                </article>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def acareacao_operational_card(qtd, valor, vencendo_hoje, card_key=None):
-    st.markdown(
-        f"""            <div class="clickable-card-wrap">
-                <article class="ops-card" style="--accent:#0b63ce; --soft:#eaf3ff;">
-                    <header>
-                        <div class="ops-icon">▤</div>
-                        <div class="ops-label">Acareações</div>
-                    </header>
-                    <main class="ops-card-main">
-                        <div class="ops-value">{qtd}</div>
-                        <div class="ops-sub">Solicitações de comprovação em aberto</div>
-                        <section class="ops-mini-grid">
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Valor</div>
-                                <div class="ops-mini-value" style="--mini-color:#08254e;">{valor}</div>
-                            </div>
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Vencem hoje</div>
-                                <div class="ops-mini-value" style="--mini-color:#d92d20;">{vencendo_hoje}</div>
-                            </div>
-                            <div class="ops-mini">
-                                <div class="ops-mini-title">Status</div>
-                                <div class="ops-mini-value" style="--mini-color:#0b63ce;">aberto</div>
-                            </div>
-                        </section>
-                    </main>
-                    <footer class="ops-card-footer">Visualizar detalhes →</footer>
-                </article>
-            </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
-def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None):
+def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None, extras=None):
     value_color = value_color or "#10213d"
+
+    extras_html = ""
+    if extras:
+        items = []
+        for item in extras:
+            title = item.get("title", "")
+            val = item.get("value", "")
+            color = item.get("color", value_color)
+            items.append(
+                f"""
+                <div class="kpi-mini-item">
+                    <div class="kpi-mini-title">{title}</div>
+                    <div class="kpi-mini-value" style="color:{color};">{val}</div>
+                </div>
+                """
+            )
+        extras_html = f'<div class="kpi-mini-row">{"".join(items)}</div>'
+
     st.markdown(
         f"""
         <div class="kpi" style="--accent:{accent}; --soft:{soft}; --value:{value_color};">
@@ -2521,6 +907,7 @@ def kpi_card(label, value, subtitle, icon, accent, soft, value_color=None):
             <div class="label">{label}</div>
             <div class="value">{value}</div>
             <div class="sub">{subtitle}</div>
+            {extras_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -2832,8 +1219,6 @@ def edi_rows_desembarque(df):
     # Prioriza colunas úteis no detalhe.
     preferred = [
         "AWB",
-        "STATUS_EMAIL",
-        "STATUS EMAIL",
         "CLIENTE",
         "BASE",
         "OPS_STATION",
@@ -3178,145 +1563,23 @@ def render_bi_card_detail(card_key):
     )
 
 
-
-def _find_status_email_col(df):
-    if df is None or df.empty:
-        return None
-    candidatos = [
-        "STATUS EMAIL",
-        "STATUS_EMAIL",
-        "STATUS DO EMAIL",
-        "STATUS E-MAIL",
-        "STATUS E MAIL",
-        "E-MAIL",
-        "EMAIL",
-    ]
-    for alvo in candidatos:
-        col = find_col(df, [alvo])
-        if col:
-            return col
-
-    # Busca final por normalização.
-    for col in df.columns:
-        n = normalize_text(col)
-        if ("STATUS" in n and "EMAIL" in n) or n in {"EMAIL", "E MAIL"}:
-            return col
-    return None
-
-
-def anexar_status_email_pendencia(df):
-    """
-    Exibe STATUS EMAIL nas pendências usando qualquer fonte já carregada.
-    Não altera cálculo nem regra; apenas enriquece a tabela visual.
-    """
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    # Se já veio no próprio detalhe, só padroniza o nome.
-    col_status = _find_status_email_col(out)
-    if col_status:
-        if col_status != "STATUS EMAIL":
-            out = out.rename(columns={col_status: "STATUS EMAIL"})
-        col_status = "STATUS EMAIL"
-
-    # Se não veio, tenta buscar em PENDENCIA_MOVIMENTOS.
-    if "STATUS EMAIL" not in out.columns:
-        fonte = globals().get("pendencia_movimentos", pd.DataFrame())
-        if fonte is not None and hasattr(fonte, "empty") and not fonte.empty:
-            awb_out = find_col(out, ["AWB", "awb", "Awb"])
-            awb_fonte = find_col(fonte, ["AWB", "awb", "Awb"])
-            status_fonte = _find_status_email_col(fonte)
-
-            if awb_out and awb_fonte and status_fonte:
-                mapa = fonte[[awb_fonte, status_fonte]].copy()
-                mapa["__AWB_KEY"] = mapa[awb_fonte].astype(str).str.replace(r"\\.0$", "", regex=True).str.strip()
-                mapa = mapa.dropna(subset=["__AWB_KEY"])
-                mapa = mapa[mapa["__AWB_KEY"].ne("")]
-                mapa = mapa.drop_duplicates(subset=["__AWB_KEY"], keep="last")
-                mapa = mapa[["__AWB_KEY", status_fonte]].rename(columns={status_fonte: "STATUS EMAIL"})
-
-                out["__AWB_KEY"] = out[awb_out].astype(str).str.replace(r"\\.0$", "", regex=True).str.strip()
-                out = out.merge(mapa, on="__AWB_KEY", how="left")
-                out = out.drop(columns=["__AWB_KEY"], errors="ignore")
-
-    if "STATUS EMAIL" not in out.columns:
-        out["STATUS EMAIL"] = ""
-
-    # Colocar STATUS EMAIL depois do AWB.
-    cols = list(out.columns)
-    awb_col = find_col(out, ["AWB", "awb", "Awb"])
-    first = []
-    if awb_col and awb_col in cols:
-        first.append(awb_col)
-    if "STATUS EMAIL" in cols:
-        first.append("STATUS EMAIL")
-    rest = [c for c in cols if c not in first]
-    return out[first + rest]
-
-
-
-
-def colunas_detalhe_carga_parcial(df):
-    """
-    Detalhe operacional do card Carga Parcial.
-    Mantém as colunas de ação no detalhe, sem depender do filtro geral de colunas.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    df = remover_pendencia_torre_da_carga_parcial(df)
-    out = enriquecer_carga_parcial_acoes(df.copy())
-
-    preferred = [
-        "AWB",
-        "PRIORIDADE CARGA PARCIAL",
-        "ENCAMINHAR PARA PENDÊNCIA",
-        "PRECISA DAR MISSING",
-        "STATUS SLA",
-        "E-MAIL ENTREGA PARCIAL",
-        "AÇÃO OPERACIONAL",
-        "ONDE ESTA PENDENTE",
-        "STATUS",
-        "STATUS EN",
-        "OPS STATION",
-        "DESTINO",
-        "SLA",
-        "TIPO REGISTRO",
-    ]
-
-    cols = [c for c in preferred if c in out.columns]
-    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
-
-    return out[cols + rest].copy() if cols else out
-
-
-
 def detail_columns(df):
     if df is None or df.empty:
         return df
-
-    df = df.copy()
-    if "STATUS_EMAIL" in df.columns and "STATUS EMAIL" not in df.columns:
-        df = df.rename(columns={"STATUS_EMAIL": "STATUS EMAIL"})
 
     preferred = [
         "PRIORIDADE",
         "AWB",
         "CLIENTE",
         "PROBLEMA",
-        "PROCESSO QUALIDADE",
         "SLA",
         "DIAS EM ATRASO",
         "MOTORISTA / ENTREGADOR",
         "STATUS ÚLTIMA ROTA",
         "MOTIVO ÚLTIMA ROTA",
-        "MOTIVO 3ª TENTATIVA",
         "ÚLTIMA ROTA",
         "DIAS DESDE ÚLTIMA ROTA",
         "QT TENTATIVAS",
-        "AÇÃO APÓS 3ª TENTATIVA",
         "LOCALIZAÇÃO / RESPONSÁVEL",
         "PRÓXIMA AÇÃO",
         "MOTIVO PENDÊNCIA",
@@ -3330,153 +1593,6 @@ def detail_columns(df):
     ]
     cols = [c for c in preferred if c in df.columns]
     return df[cols].copy() if cols else df.copy()
-
-
-def rota_sem_baixa_detail_columns(df):
-    """Prioriza os campos de auditoria exclusivos do card Rota criada sem baixa."""
-    if df is None or df.empty:
-        return df
-
-    out = df.copy()
-
-    entregador_col = first_col(out, [
-        "ENTREGADOR",
-        "ULTIMO_ENTREGADOR",
-        "ÚLTIMO ENTREGADOR",
-        "MOTORISTA / ENTREGADOR",
-        "NOME ENTREGADOR",
-    ])
-    if entregador_col:
-        out["ENTREGADOR"] = out[entregador_col].fillna("").astype(str).str.strip()
-    elif "ENTREGADOR" not in out.columns:
-        out["ENTREGADOR"] = ""
-
-    data_rota_col = first_col(out, [
-        "DATA/HORA CRIAÇÃO DA ROTA",
-        "DATA HORA CRIAÇÃO DA ROTA",
-        "ULTIMA_ROTA",
-        "ÚLTIMA ROTA",
-        "DATA_ROTA",
-        "DATA ROTA",
-    ])
-    if data_rota_col:
-        data_hora = pd.to_datetime(out[data_rota_col], errors="coerce", dayfirst=True)
-        formatada = data_hora.dt.strftime("%d/%m/%Y %H:%M")
-        out["DATA/HORA CRIAÇÃO DA ROTA"] = formatada.where(
-            data_hora.notna(),
-            out[data_rota_col].fillna("").astype(str),
-        )
-    elif "DATA/HORA CRIAÇÃO DA ROTA" not in out.columns:
-        out["DATA/HORA CRIAÇÃO DA ROTA"] = ""
-
-    preferred = [
-        "AWB",
-        "ENTREGADOR",
-        "DATA/HORA CRIAÇÃO DA ROTA",
-        "STATUS_ULTIMA_ROTA",
-        "STATUS ÚLTIMA ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "MOTIVO ÚLTIMA ROTA",
-        "AÇÃO OPERACIONAL",
-        "PRÓXIMA AÇÃO",
-        "CLIENTE",
-        "BillTo",
-        "STATUS_SISTEMA",
-        "STATUS SK",
-        "PRIORIDADE",
-    ]
-    cols = [c for c in preferred if c in out.columns]
-    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
-    return out[cols + rest].copy()
-
-
-def filtrar_rotas_sem_baixa_d1_d2(df, reference_date=None):
-    """Mantém D-1/D-2 abertos no Eu Entrego e PENDENTE ENTREGA no SK."""
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df.copy()
-
-    data = df.copy()
-    data_rota_col = first_col(data, [
-        "DATA/HORA CRIAÇÃO DA ROTA",
-        "DATA HORA CRIAÇÃO DA ROTA",
-        "ULTIMA_ROTA",
-        "ÚLTIMA ROTA",
-        "DATA_ROTA",
-        "DATA ROTA",
-    ])
-    if not data_rota_col:
-        return data.iloc[0:0].copy()
-
-    status_rota_col = first_col(data, [
-        "STATUS_ULTIMA_ROTA",
-        "STATUS ÚLTIMA ROTA",
-        "STATUS ROTA",
-        "STATUS",
-    ])
-    entregador_col = first_col(data, [
-        "ENTREGADOR",
-        "ULTIMO_ENTREGADOR",
-        "ÚLTIMO ENTREGADOR",
-        "MOTORISTA / ENTREGADOR",
-        "NOME ENTREGADOR",
-    ])
-    status_sk_col = first_col(data, [
-        "STATUS SK",
-        "STATUS_SISTEMA",
-        "STATUS SISTEMA",
-    ])
-    if not status_rota_col or not entregador_col or not status_sk_col:
-        return data.iloc[0:0].copy()
-
-    if reference_date is None:
-        try:
-            reference_date = datetime.now(timezone.utc).astimezone(
-                ZoneInfo("America/Sao_Paulo")
-            ).date()
-        except Exception:
-            reference_date = date.today()
-
-    data_referencia = pd.Timestamp(reference_date).normalize()
-    datas_alvo = {
-        data_referencia - pd.Timedelta(days=1),
-        data_referencia - pd.Timedelta(days=2),
-    }
-    data_hora_rota = pd.to_datetime(
-        data[data_rota_col],
-        errors="coerce",
-        dayfirst=True,
-    )
-    mask_d1_d2 = (
-        data_hora_rota.notna()
-        & data_hora_rota.dt.normalize().isin(datas_alvo)
-    )
-    status_em_aberto = (
-        data[status_rota_col]
-        .fillna("")
-        .astype(str)
-        .map(normalize_text)
-        .isin({"EM ROTA", "ACEITA"})
-    )
-    tem_entregador = ~(
-        data[entregador_col]
-        .fillna("")
-        .astype(str)
-        .map(normalize_text)
-        .isin({"", "NAN", "NONE", "NULL", "NAT", "-"})
-    )
-    status_sk_pendente = (
-        data[status_sk_col]
-        .fillna("")
-        .astype(str)
-        .map(normalize_text)
-        .isin({"PENDENTE ENTREGA", "PENDENTE DE ENTREGA"})
-    )
-    return data[
-        mask_d1_d2
-        & status_em_aberto
-        & tem_entregador
-        & status_sk_pendente
-    ].copy()
 
 
 def truthy_series(series, index=None):
@@ -3702,35 +1818,6 @@ def avaria_awbs_set():
 
 
 
-
-def remove_avarias_from_rows(df):
-    """
-    Remove das filas operacionais qualquer AWB que esteja em Avarias / Salvados.
-    Uso restrito a detalhes/cards operacionais; não altera a aba própria de Avarias.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    awbs_avaria = avaria_awbs_set() if "avaria_awbs_set" in globals() else set()
-    if not awbs_avaria:
-        return df
-
-    awb_col = first_col(df, ["AWB", "awb", "Awb"])
-    if not awb_col:
-        return df
-
-    data = df.copy()
-    awb_norm = (
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .map(lambda x: re.sub(r"\D+", "", x))
-    )
-    return data[~awb_norm.isin(awbs_avaria)].copy()
-
-
-
 def filter_qualidade_pendente_rows(df):
     """
     No gerente, protege bases antigas:
@@ -3872,10 +1959,20 @@ def overdue_delivery_rows(df):
         )
         data = data[~data_awb_norm.isin(avaria_awbs)].copy()
 
-    # Qualidade não exclui a carga do backlog. O processo em andamento é
-    # apresentado no detalhe pela coluna PROCESSO QUALIDADE.
+    # Regra de não sobreposição com Qualidade:
+    # Se está aguardando retorno da Qualidade, não compõe backlog.
+    qualidade_awbs = qualidade_awbs_set() if "qualidade_awbs_set" in globals() else set()
+    if qualidade_awbs and "AWB" in data.columns:
+        data_awb_norm = (
+            data["AWB"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .map(lambda x: re.sub(r"\D+", "", x))
+        )
+        data = data[~data_awb_norm.isin(qualidade_awbs)].copy()
 
-    return remove_avarias_from_rows(data)
+    return data
 
 
 
@@ -3983,64 +2080,6 @@ def remove_pendencia_from_rows(df):
     return data
 
 
-
-def _mask_nunca_saiu_em_rota(df):
-    """
-    True = carga sem qualquer evidência de rota no Eu Entrego.
-    Uso exclusivo no card SLA do Dia.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    data = df.copy()
-    mask_tem_rota = pd.Series(False, index=data.index)
-
-    route_cols = [
-        "ULTIMA_ROTA",
-        "DATA_ROTA",
-        "DATA ROTA",
-        "ROTA",
-        "ID_ROTA",
-        "ID ROTA",
-        "ROUTE",
-        "EXECUTADA_DT",
-        "EXECUTADA",
-        "Executada",
-        "MOTORISTA / ENTREGADOR",
-        "ULTIMO_ENTREGADOR",
-        "ENTREGADOR",
-        "STATUS ÚLTIMA ROTA",
-        "STATUS_ULTIMA_ROTA",
-    ]
-
-    for col in route_cols:
-        real_col = first_col(data, [col])
-        if real_col and real_col in data.columns:
-            serie = data[real_col].fillna("").astype(str).str.strip()
-            serie_norm = serie.map(normalize_text)
-            mask_col = serie.ne("") & ~serie_norm.isin({"NAN", "NONE", "NULL", "NAT", "0", "-"})
-            mask_tem_rota = mask_tem_rota | mask_col
-
-    tent_col = first_col(data, ["QT_TENTATIVAS_INSUCESSO", "TENTATIVAS", "QT TENTATIVAS"])
-    if tent_col and tent_col in data.columns:
-        tent = pd.to_numeric(data[tent_col], errors="coerce").fillna(0)
-        mask_tem_rota = mask_tem_rota | tent.gt(0)
-
-    return ~mask_tem_rota
-
-
-def filtrar_sla_dia_nunca_saiu_rota(df):
-    """
-    SLA do Dia: mantém somente cargas do SLA do dia que nunca saíram em rota.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    data = df.copy()
-    return data[_mask_nunca_saiu_em_rota(data)].copy()
-
-
-
 def sla_sem_rota_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
@@ -4050,10 +2089,10 @@ def sla_sem_rota_rows(df):
         problema = df[problema_col].astype(str).map(normalize_text)
         exact = df[problema.eq("SLA DO DIA SEM ROTA")].copy()
         if not exact.empty:
-            return remove_avarias_from_rows(remove_pendencia_from_rows(exact))
+            return remove_pendencia_from_rows(exact)
 
     filtered = filter_terms(df, ["SLA DO DIA SEM ROTA", "SLA SEM ROTA"])
-    return remove_avarias_from_rows(remove_pendencia_from_rows(filtered))
+    return remove_pendencia_from_rows(filtered)
 
 
 
@@ -4067,9 +2106,9 @@ def last_mile_desembarque_rows(df):
         problema = df[problema_col].astype(str).map(normalize_text)
         exact = df[problema.eq("PENDENTE DE DESEMBARQUE")].copy()
         if not exact.empty:
-            return remove_avarias_from_rows(exact)
+            return exact
 
-    return remove_avarias_from_rows(filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"]))
+    return filter_terms(df, ["PENDENTE DE DESEMBARQUE", "PENDENTE DESEMBARQUE"])
 
 
 def pendencia_movimento_rows(tipo):
@@ -4081,14 +2120,9 @@ def pendencia_movimento_rows(tipo):
     mask = df["TIPO_MOVIMENTO"].astype(str).map(normalize_text).eq(normalize_text(tipo))
     out = df[mask].copy()
 
-    if "STATUS_EMAIL" in out.columns and "STATUS EMAIL" not in out.columns:
-        out = out.rename(columns={"STATUS_EMAIL": "STATUS EMAIL"})
-
     preferred = [
         "TIPO_MOVIMENTO",
         "AWB",
-        "STATUS_EMAIL",
-        "STATUS EMAIL",
         "DATA_EVENTO_TORRE",
         "EVENTO_TORRE",
         "STATUS_TRATATIVA",
@@ -4100,125 +2134,18 @@ def pendencia_movimento_rows(tipo):
     return out[cols].copy() if cols else out
 
 
-
-AWBS_EXCLUIR_TERCEIRA_TENTATIVA = {
-    "12601352",
-    "77361734",
-    "5029474",
-}
-
-
-def remover_excecoes_terceira_tentativa(df):
-    """
-    Remove AWBs específicas do card/detalhe 3ª tentativa de entrega.
-    Motivo: cargas entregues; erro sistêmico.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
-    if not awb_col:
-        return df
-
-    data = df.copy()
-    awb_norm = (
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-    )
-
-    return data[~awb_norm.isin(AWBS_EXCLUIR_TERCEIRA_TENTATIVA)].copy()
-
-
-
 def terceira_tentativa_rows(df):
     if df is None or df.empty:
         return pd.DataFrame()
 
-    data = df.copy()
-    tent_col = first_col(data, ["QT TENTATIVAS", "QT_TENTATIVAS_INSUCESSO"])
-    motivo_col = first_col(data, [
-        "MOTIVO 3ª TENTATIVA",
-        "MOTIVO TERCEIRA TENTATIVA",
-        "MOTIVO_TERCEIRA_TENTATIVA",
-        "MOTIVO ÚLTIMA ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "TIPO INSUCESSO",
-    ])
-    status_sk_col = first_col(data, [
-        "STATUS SK",
-        "STATUS_SISTEMA",
-        "STATUS SISTEMA",
-    ])
+    tent_col = first_col(df, ["QT TENTATIVAS", "QT_TENTATIVAS_INSUCESSO"])
+    if tent_col:
+        tent = numeric_series(df[tent_col])
+        tentativa_df = df[tent >= 3].copy()
+        if not tentativa_df.empty:
+            return tentativa_df
 
-    # Sem a quantidade, o motivo e o status do SK, a linha não possui evidência
-    # suficiente para entrar neste card.
-    if not tent_col or not motivo_col or not status_sk_col:
-        return data.iloc[0:0].copy()
-
-    # Quantidade de tentativas não é valor monetário: preserve o decimal.
-    # O conversor genérico removia o ponto e transformava 2.0 em 20.
-    tentativas = pd.to_numeric(
-        data[tent_col]
-        .fillna(0)
-        .astype(str)
-        .str.strip()
-        .str.replace(",", ".", regex=False),
-        errors="coerce",
-    ).fillna(0)
-    motivo = data[motivo_col].fillna("").astype(str).map(normalize_text)
-    status_sk = data[status_sk_col].fillna("").astype(str).map(normalize_text)
-
-    motivo_ausente_fechado = motivo.str.contains(
-        "AUSENTE|FECHADO|FECHADA",
-        regex=True,
-        na=False,
-    )
-    sk_pendente_entrega = status_sk.isin({
-        "PENDENTE ENTREGA",
-        "PENDENTE DE ENTREGA",
-    })
-
-    entregue_eu = pd.Series(False, index=data.index)
-    flag_entregue_col = first_col(data, [
-        "EU ENTREGO BAIXADO ENTREGUE",
-        "EU_ENTREGO_BAIXADO_ENTREGUE",
-    ])
-    if flag_entregue_col:
-        entregue_eu = entregue_eu | truthy_series(
-            data[flag_entregue_col],
-            index=data.index,
-        )
-
-    status_eu_col = first_col(data, [
-        "STATUS ÚLTIMA ROTA",
-        "STATUS_ULTIMA_ROTA",
-    ])
-    if status_eu_col:
-        status_eu = data[status_eu_col].fillna("").astype(str).map(normalize_text)
-        entregue_eu = entregue_eu | status_eu.str.fullmatch(
-            r"FECHAD[AO]?|ENTREGUE|FINALIZAD[AO]?|CONCLUID[AO]?|BAIXAD[AO]?",
-            na=False,
-        )
-
-    tentativa_df = data[
-        tentativas.ge(3)
-        & motivo_ausente_fechado
-        & sk_pendente_entrega
-        & ~entregue_eu
-    ].copy()
-
-    if tentativa_df.empty:
-        return tentativa_df
-
-    # Após entrar na Pendência da Torre, deixa de compor este card.
-    tentativa_df = remove_pendencia_from_rows(tentativa_df)
-    tentativa_df = remove_avarias_from_rows(tentativa_df)
-    tentativa_df = remover_excecoes_terceira_tentativa(tentativa_df)
-    tentativa_df["AÇÃO APÓS 3ª TENTATIVA"] = "ENCAMINHAR PARA PENDÊNCIA"
-    return tentativa_df
+    return filter_terms(df, ["3A TENTATIVA", "3ª TENTATIVA", "TERCEIRA TENTATIVA"])
 
 
 def awb_col_name(df):
@@ -4256,277 +2183,6 @@ def daily_awb_counts(df):
         out = base.groupby("_DATA_BASE").size().reset_index(name="AWBS")
 
     return out.rename(columns={"_DATA_BASE": "DATA"}).sort_values("DATA")
-
-
-
-
-def carga_parcial_rows():
-    """
-    Detalhe de Carga Parcial sincronizado do app operacional.
-    AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
-    """
-    df = globals().get("carga_parcial_detalhe", pd.DataFrame())
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-    preferred = [
-        "AWB",
-        "PRIORIDADE CARGA PARCIAL",
-        "ENCAMINHAR PARA PENDÊNCIA",
-        "PRECISA DAR MISSING",
-        "STATUS SLA",
-        "E-MAIL ENTREGA PARCIAL",
-        "AÇÃO OPERACIONAL",
-        "ONDE ESTA PENDENTE",
-        "STATUS",
-        "STATUS EN",
-        "OPS STATION",
-        "DESTINO",
-        "SLA",
-        "TIPO REGISTRO",
-    ]
-    cols = [c for c in preferred if c in data.columns]
-    rest = [c for c in data.columns if c not in cols]
-    return remover_pendencia_torre_da_carga_parcial(enriquecer_carga_parcial_acoes(data[cols + rest].copy() if cols else data))
-
-
-
-def enriquecer_carga_parcial_acoes(df):
-    """
-    Garante que o detalhe de Carga Parcial tenha as colunas operacionais,
-    mesmo se a aba sincronizada ainda tiver vindo somente com AWB e SLA.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    out = df.copy()
-
-    # Garantir colunas base.
-    for col in [
-        "PRIORIDADE CARGA PARCIAL",
-        "ENCAMINHAR PARA PENDÊNCIA",
-        "PRECISA DAR MISSING",
-        "STATUS SLA",
-        "E-MAIL ENTREGA PARCIAL",
-        "AÇÃO OPERACIONAL",
-    ]:
-        if col not in out.columns:
-            out[col] = ""
-
-    sla_col = first_col(out, ["SLA", "ApproxSLA", "APPROX SLA", "DATA SLA"])
-    if sla_col:
-        try:
-            ref_date = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
-        except Exception:
-            ref_date = pd.Timestamp.today().normalize()
-
-        sla_dt = pd.to_datetime(out[sla_col], errors="coerce", dayfirst=True).dt.normalize()
-        mask_vencido = sla_dt.lt(ref_date)
-        mask_hoje = sla_dt.eq(ref_date)
-
-        out.loc[mask_vencido, "STATUS SLA"] = "SLA VENCIDO"
-        out.loc[mask_hoje, "STATUS SLA"] = "SLA HOJE"
-        out.loc[out["STATUS SLA"].astype(str).str.strip().eq(""), "STATUS SLA"] = "SEM SLA"
-
-        out.loc[mask_vencido, "ENCAMINHAR PARA PENDÊNCIA"] = "SIM"
-        out.loc[mask_vencido, "E-MAIL ENTREGA PARCIAL"] = (
-            "ENVIAR E-MAIL: confirmar se podemos seguir com entrega parcial"
-        )
-
-        # Não apagar ação de Missing/Rádio Busca se já existir.
-        acao_atual = out["AÇÃO OPERACIONAL"].fillna("").astype(str).str.strip()
-        out.loc[mask_vencido & acao_atual.eq(""), "AÇÃO OPERACIONAL"] = (
-            "ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
-        )
-        out.loc[
-            mask_vencido & acao_atual.str.contains("MISSING|RÁDIO|RADIO", regex=True, na=False),
-            "AÇÃO OPERACIONAL",
-        ] = acao_atual + " + ENCAMINHAR PARA PENDÊNCIA + ENVIAR E-MAIL SOBRE ENTREGA PARCIAL"
-
-        out.loc[mask_vencido, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
-        out.loc[~mask_vencido & out["PRIORIDADE CARGA PARCIAL"].astype(str).str.strip().eq(""), "PRIORIDADE CARGA PARCIAL"] = "ACOMPANHAR"
-
-    # Missing/Rádio Busca por status/origem, quando as colunas existirem.
-    tipo_col = first_col(out, ["TIPO REGISTRO", "STATUS", "StatusDescription", "STATUSDESCRIPTION"])
-    origem_col = first_col(out, ["ONDE ESTA PENDENTE", "FltOrigin", "FLT ORIGIN", "FLTORIGIN"])
-    if tipo_col and origem_col:
-        tipo = out[tipo_col].fillna("").astype(str).map(normalize_text)
-        origem = out[origem_col].fillna("").astype(str).map(normalize_text)
-        mask_missing = (
-            tipo.str.contains("PENDENTE DESEMBARQUE|PENDENTE DE DESEMBARQUE", regex=True, na=False)
-            & origem.str.contains("CDSP2|SAO12", regex=True, na=False)
-        )
-        out.loc[mask_missing, "PRECISA DAR MISSING"] = "SIM"
-        acao = out["AÇÃO OPERACIONAL"].fillna("").astype(str).str.strip()
-        out.loc[mask_missing & acao.eq(""), "AÇÃO OPERACIONAL"] = "ABRIR MISSING + ACIONAR RÁDIO BUSCA"
-        out.loc[mask_missing, "PRIORIDADE CARGA PARCIAL"] = "URGENTE"
-
-    preferred = [
-        "AWB",
-        "PRIORIDADE CARGA PARCIAL",
-        "ENCAMINHAR PARA PENDÊNCIA",
-        "PRECISA DAR MISSING",
-        "STATUS SLA",
-        "E-MAIL ENTREGA PARCIAL",
-        "AÇÃO OPERACIONAL",
-        "ONDE ESTA PENDENTE",
-        "STATUS",
-        "STATUS EN",
-        "OPS STATION",
-        "DESTINO",
-        "SLA",
-        "TIPO REGISTRO",
-    ]
-    cols = [c for c in preferred if c in out.columns]
-    rest = [c for c in out.columns if c not in cols]
-    return out[cols + rest].copy() if cols else out
-
-
-
-
-def pendencia_torre_awbs_set():
-    """
-    AWBs atualmente na Pendência da Torre.
-    Usado para evitar duplicidade com Carga Parcial.
-    """
-    awbs = set()
-
-    fontes = []
-    try:
-        if "pendencia_movimentos" in globals() and pendencia_movimentos is not None and not pendencia_movimentos.empty:
-            fontes.append(("pendencia_movimentos", pendencia_movimentos))
-    except Exception:
-        pass
-
-    try:
-        if "fila_filtrada" in globals() and fila_filtrada is not None and not fila_filtrada.empty:
-            fontes.append(("fila_filtrada", fila_filtrada))
-    except Exception:
-        pass
-
-    try:
-        if "fila" in globals() and fila is not None and not fila.empty:
-            fontes.append(("fila", fila))
-    except Exception:
-        pass
-
-    for nome, df in fontes:
-        if df is None or df.empty:
-            continue
-
-        awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
-        if not awb_col:
-            continue
-
-        df_base = df.copy()
-
-        if nome != "pendencia_movimentos":
-            problema_col = first_col(df_base, ["PROBLEMA", "PENDÊNCIA", "PENDENCIA", "MOTIVO"])
-            if problema_col:
-                problema = df_base[problema_col].fillna("").astype(str).map(normalize_text)
-                mask_pend = problema.str.contains("PENDENCIA|PENDÊNCIA|PENDENCIA TORRE|PENDENCIA DA TORRE|PENDENCIA CORP", regex=True, na=False)
-                df_base = df_base[mask_pend].copy()
-
-        if df_base.empty:
-            continue
-
-        serie = (
-            df_base[awb_col]
-            .fillna("")
-            .astype(str)
-            .str.replace(r"\D+", "", regex=True)
-            .str.strip()
-        )
-        awbs.update(serie[serie.ne("")].unique().tolist())
-
-    return awbs
-
-
-def remover_pendencia_torre_da_carga_parcial(df):
-    """
-    Se a AWB já estiver na Pendência da Torre, remove do card/detalhe Carga Parcial.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    awbs_pend = pendencia_torre_awbs_set()
-    if not awbs_pend:
-        return df
-
-    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
-    if not awb_col:
-        return df
-
-    data = df.copy()
-    awb_norm = (
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-    )
-
-    return data[~awb_norm.isin(awbs_pend)].copy()
-
-
-
-def carga_parcial_count(df=None):
-    data = remover_pendencia_torre_da_carga_parcial(carga_parcial_rows() if df is None else df)
-    if data is None or data.empty:
-        return 0
-    if "AWB" in data.columns:
-        awbs = data["AWB"].fillna("").astype(str).str.strip()
-        awbs = awbs[awbs.ne("")]
-        return int(awbs.nunique())
-    return int(len(data))
-
-
-
-
-def carga_parcial_awbs_set():
-    df = carga_parcial_rows() if "carga_parcial_rows" in globals() else pd.DataFrame()
-    if df is None or df.empty or "AWB" not in df.columns:
-        return set()
-
-    return set(
-        df["AWB"]
-        .dropna()
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-        .loc[lambda s: s.ne("")]
-        .unique()
-    )
-
-
-def remove_carga_parcial_from_rows(df):
-    """
-    Remove Carga Parcial das demais filas operacionais.
-    A AWB permanece apenas no card Carga Parcial.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame() if df is None else df
-
-    awbs_cp = carga_parcial_awbs_set()
-    if not awbs_cp:
-        return df
-
-    awb_col = first_col(df, ["AWB", "awb", "Awb"])
-    if not awb_col:
-        return df
-
-    data = df.copy()
-    awb_norm = (
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-    )
-
-    return data[~awb_norm.isin(awbs_cp)].copy()
-
 
 
 def avaria_rows(df):
@@ -4595,8 +2251,6 @@ def acareacao_rows_prefer_sheet(fila_df):
             "VALOR_NUM",
             "STATUS",
             "TIPO",
-            "PRAZO DE DEVOLUTIVA",
-            "DENTRO DO PRAZO",
             "OBSERVACAO",
             "DATA",
             "NF",
@@ -4614,108 +2268,6 @@ def acareacao_rows_prefer_sheet(fila_df):
         return out[non_empty_cols].copy() if non_empty_cols else out
 
     return acareacao_rows(fila_df)
-
-
-
-
-
-
-
-def localizar_coluna_prazo_devolutiva(df):
-    if df is None or df.empty:
-        return None
-
-    candidatos = [
-        "PRAZO DE DEVOLUTIVA",
-        "PRAZO DEVOLUTIVA",
-        "PRAZO",
-        "DATA PRAZO",
-        "DATA DE PRAZO",
-        "ORIG_PRAZO DE DEVOLUTIVA",
-        "ORIG_PRAZO DEVOLUTIVA",
-        "ORIG_PRAZO",
-    ]
-
-    col = first_col(df, candidatos)
-    if col:
-        return col
-
-    for c in df.columns:
-        n = normalize_text(c)
-        if "PRAZO" in n and "DEVOLUTIVA" in n:
-            return c
-
-    return None
-
-
-def _parse_data_prazo_devolutiva(series):
-    """
-    Parser robusto para PRAZO DE DEVOLUTIVA.
-    Aceita dd/mm/aaaa, datetime, texto com hora e serial Excel/Sheets.
-    """
-    if series is None:
-        return pd.Series(dtype="datetime64[ns]")
-
-    raw = series.copy()
-    parsed = pd.to_datetime(raw, errors="coerce", dayfirst=True)
-
-    missing = parsed.isna()
-    if missing.any():
-        numeric = pd.to_numeric(
-            raw.astype(str).str.replace(",", ".", regex=False),
-            errors="coerce",
-        )
-        serial_mask = missing & numeric.notna() & numeric.between(20000, 80000)
-        if serial_mask.any():
-            parsed.loc[serial_mask] = pd.to_datetime(
-                numeric.loc[serial_mask],
-                unit="D",
-                origin="1899-12-30",
-                errors="coerce",
-            )
-
-    return parsed
-
-
-def _data_operacional_acareacao(reference_date=None):
-    """
-    Para o card Acareações:
-    - se o painel está filtrado em uma data única, usar essa data;
-    - se não estiver, usar a data atual de Brasília.
-    """
-    ref = pd.to_datetime(reference_date, errors="coerce")
-    if pd.notna(ref):
-        return ref.normalize()
-
-    try:
-        return pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
-    except Exception:
-        return pd.Timestamp.today().normalize()
-
-
-def acareacao_vencem_hoje_por_prazo(df, reference_date=None):
-    """
-    Mini-indicador do card Acareações.
-
-    Regra:
-    Vencem hoje = PRAZO DE DEVOLUTIVA igual à data operacional do painel.
-    """
-    if df is None or df.empty:
-        return 0
-
-    prazo_col = localizar_coluna_prazo_devolutiva(df)
-    if not prazo_col:
-        return 0
-
-    data_operacional = _data_operacional_acareacao(reference_date)
-    prazo = _parse_data_prazo_devolutiva(df[prazo_col]).dt.normalize()
-
-    return int(prazo.eq(data_operacional).sum())
-
-
-
-
-
 
 
 def acareacao_driver_summary_prefer_sheet(fila_df):
@@ -4837,24 +2389,6 @@ def acareacao_driver_summary(df):
     return grouped.sort_values("AWBS", ascending=False)
 
 
-
-def detalhe_retorno_carga_com_insucesso():
-    """
-    Detalhe seguro do card Retorno de carga com insucesso.
-    Recalcula pela função base e não depende de variável global.
-    """
-    try:
-        df_base = insucesso_sem_retorno_fisico_rows(fila_filtrada)
-    except Exception:
-        df_base = pd.DataFrame()
-
-    try:
-        return enriquecer_insucesso_sem_retorno(df_base)
-    except Exception:
-        return df_base
-
-
-
 def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df):
     title = ""
     subtitle = ""
@@ -4877,7 +2411,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "atraso":
         title = "Detalhe — Backlog (atraso de entrega)"
-        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK e Avarias / Salvados. Cargas em Qualidade permanecem no backlog e são identificadas no detalhe."
+        subtitle = "Cargas com atraso/SLA vencido, excluindo integração Eu Entrego x SK, Avarias / Salvados e Qualidade."
         df = backlog_atraso_df.copy() if "backlog_atraso_df" in globals() else overdue_delivery_rows(fila_filtrada)
 
     elif card_key == "backlog_eu_entregue":
@@ -4887,18 +2421,8 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
 
     elif card_key == "qualidade":
         title = "Detalhe — Aguardando retorno da Qualidade"
-        subtitle = "AWBs da planilha de Qualidade com RETORNO_QUALIDADE = PENDENTE. Se o SLA estiver vencido, também entram no Backlog de Entrega."
+        subtitle = "AWBs da planilha de Qualidade com RETORNO_QUALIDADE = PENDENTE. Não entram em Pendente de entrega nem no Backlog de atraso."
         df = qualidade_df.copy() if "qualidade_df" in globals() else aguardando_qualidade_rows(fila_filtrada)
-
-    elif card_key == "carga_parcial":
-        title = "Detalhe — Carga Parcial"
-        subtitle = "AWBs com Pendente Entrega + Embarque/Desembarque. Se o SLA estiver vencido, a ação é encaminhar para Pendência e enviar e-mail para validar se podemos seguir com entrega parcial."
-        df = colunas_detalhe_carga_parcial(remover_pendencia_torre_da_carga_parcial(carga_parcial_df.copy() if "carga_parcial_df" in globals() else carga_parcial_rows()))
-
-    elif card_key == "rota_sem_baixa":
-        title = "Detalhe — Rota criada sem baixa"
-        subtitle = "Rotas de ontem e antes de ontem com entregador, Em rota ou Aceita no Eu Entrego e Pendente Entrega no Smart Kargo."
-        df = rotas_sem_baixa_detalhe.copy()
 
     elif card_key == "insucesso_sem_pendencia":
         title = "Detalhe — Insucesso sem pendência"
@@ -4908,29 +2432,17 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     elif card_key == "sla_sem_rota":
         title = "Detalhe — SLA do dia sem rota"
         subtitle = "Cargas com SLA no dia analisado, sem rota/saída no dia e sem insucesso que exija pendência."
-        df = filtrar_sla_dia_nunca_saiu_rota(sla_sem_rota_df.copy() if "sla_sem_rota_df" in globals() else sla_sem_rota_rows(fila_filtrada))
+        df = sla_sem_rota_df.copy() if "sla_sem_rota_df" in globals() else sla_sem_rota_rows(fila_filtrada)
 
     elif card_key == "lastmile_desembarque":
         title = "Detalhe — Pendente de desembarque CDSP2"
         subtitle = "Cargas CDSP2 em pendência de desembarque com SLA vencido ou SLA do dia."
-        df = last_mile_desembarque_df.copy() if "last_mile_desembarque_df" in globals() else last_mile_desembarque_rows(fila_filtrada)
-
-    elif card_key == "retorno_rotas":
-        title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "Insucessos de ontem/antes de ontem sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota hoje."
-        df = detalhe_retorno_carga_com_insucesso()
-
-
-    elif card_key == "insucesso_sem_retorno":
-        title = "Detalhe — Retorno de carga com insucesso"
-        subtitle = "Insucessos de ontem/antes de ontem sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota hoje."
-        df = detalhe_retorno_carga_com_insucesso()
-
+        df = last_mile_desembarque_rows(fila_filtrada)
 
     elif card_key == "terceira":
         title = "Detalhe — 3ª tentativa de entrega"
-        subtitle = "Somente cargas com 3 ou mais tentativas, motivo Ausente/Fechado, Pendente Entrega no SK e ainda fora da Pendência da Torre."
-        df = remover_excecoes_terceira_tentativa(terceira_tentativa_df.copy() if "terceira_tentativa_df" in globals() else terceira_tentativa_rows(fila_filtrada))
+        subtitle = "Cargas com 3 ou mais tentativas de entrega registradas."
+        df = terceira_tentativa_rows(fila_filtrada)
 
     elif card_key == "pend_total":
         title = "Detalhe — Total na pendência"
@@ -4975,45 +2487,7 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
     else:
         return
 
-    operational_keys_excluir_avaria = {
-        "atraso",
-        "sla_sem_rota",
-        "lastmile_desembarque",
-        "terceira",
-        "insucesso_sem_pendencia",
-        "backlog_eu_entregue",
-        "qualidade",
-    }
-    if card_key in operational_keys_excluir_avaria:
-        df = remove_avarias_from_rows(df)
-
-    operational_keys_excluir_carga_parcial = {
-        "atraso",
-        "sla_sem_rota",
-        "lastmile_desembarque",
-        "terceira",
-        "insucesso_sem_pendencia",
-        "backlog_eu_entregue",
-        "qualidade",
-    }
-    if card_key in operational_keys_excluir_carga_parcial:
-        df = remove_carga_parcial_from_rows(df)
-
-    if card_key == "terceira":
-        df = remover_excecoes_terceira_tentativa(df)
-
-    if card_key == "rota_sem_baixa":
-        detail_df = rota_sem_baixa_detail_columns(df)
-    elif card_key == "carga_parcial":
-        if card_key == "carga_parcial":
-            df = remover_pendencia_torre_da_carga_parcial(df)
-
-        if card_key == "sla_sem_rota":
-            df = filtrar_sla_dia_nunca_saiu_rota(df)
-
-        detail_df = colunas_detalhe_carga_parcial(df)
-    else:
-        detail_df = detail_columns(df)
+    detail_df = detail_columns(df)
 
     st.markdown(
         f"""
@@ -5062,6 +2536,27 @@ def render_card_detail(card_key, fila_filtrada, motoristas_df, retornos_df, acar
             "Baixar Excel deste card",
             excel_insucesso_sem_pendencia(detail_df),
             file_name="card_insucesso_sem_pendencia.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        return
+
+    if card_key == "avaria":
+        st.markdown("#### Movimentação do dia")
+        mov_av = pd.DataFrame([
+            {"INDICADOR": "Entraram hoje", "QTDE": resumo_avarias_entraram_hoje},
+            {"INDICADOR": "Saíram hoje", "QTDE": resumo_avarias_sairam_hoje},
+            {"INDICADOR": "Saldo do dia", "QTDE": resumo_avarias_saldo_dia},
+        ])
+        render_table(mov_av, height=160)
+
+        st.markdown("#### Detalhe por AWB")
+        render_table(detail_df.head(500), height=420)
+
+        st.download_button(
+            "Baixar Excel deste card",
+            excel_bytes(detail_df, sheet_name="AVARIAS_SALVADOS"),
+            file_name="card_avarias_salvados.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
@@ -5398,590 +2893,19 @@ if not SOURCE_URL:
     st.stop()
 
 
-
-def indenizacao_base_rows():
-    """
-    Base do painel de Indenização.
-    Usa a aba sincronizada PASSIVEL_DEBITO_DETALHE, vinda da planilha Passível a Débito.
-    """
-    df = globals().get("passivel_debito_detalhe", pd.DataFrame())
-    return pd.DataFrame() if df is None else df.copy()
-
-
-def _indenizacao_base_col(df):
-    return first_col(df, [
-        "BASE OFENSORA",
-        "BASE",
-        "OFENSOR",
-        "ORIGEM",
-        "ESTAÇÃO",
-        "ESTACAO",
-        "UNIDADE",
-        "STATION",
-        "OPS_STATION",
-        "OPSStation",
-        "FILIAL",
-    ])
-
-
-def _indenizacao_status_col(df):
-    return first_col(df, [
-        "STATUS",
-        "STATUS INDENIZACAO",
-        "STATUS INDENIZAÇÃO",
-        "STATUS DEBITO",
-        "STATUS DÉBITO",
-        "STATUS SUPERVISAO",
-        "STATUS SUPERVISÃO",
-        "ANALISE SUPERVISAO",
-        "ANÁLISE SUPERVISÃO",
-        "RETORNO SUPERVISAO",
-        "RETORNO SUPERVISÃO",
-    ])
-
-
-def _indenizacao_valor_col(df):
-    """
-    Coluna usada para valor da indenização.
-    Regra operacional: usar a coluna VALOR.
-    """
-    if df is None or df.empty:
-        return None
-
-    # Prioridade: cabeçalho exatamente VALOR.
-    for c in df.columns:
-        if normalize_text(c) == "VALOR":
-            return c
-
-    return first_col(df, [
-        "VALOR",
-        "VALOR INDENIZAÇÃO",
-        "VALOR INDENIZACAO",
-        "VALOR DO CLAIM",
-        "VALOR CLAIM",
-        "VALOR DEBITO",
-        "VALOR DÉBITO",
-        "VALOR TOTAL",
-        "TOTAL",
-        "PREJUIZO",
-        "PREJUÍZO",
-    ])
-
-
-def _indenizacao_data_col(df):
-    return first_col(df, [
-        "DATA DE CLAIM",
-        "DATA CLAIM",
-        "DATA DE EMISSÃO",
-        "DATA DE EMISSAO",
-        "DATA",
-    ])
-
-
-def _to_money_series_ind(s):
-    if s is None:
-        return pd.Series(dtype=float)
-
-    txt = s.astype(str).str.strip()
-    txt = (
-        txt.str.replace("R$", "", regex=False)
-           .str.replace(" ", "", regex=False)
-           .str.replace(".", "", regex=False)
-           .str.replace(",", ".", regex=False)
-    )
-    return pd.to_numeric(txt, errors="coerce").fillna(0)
-
-
-def _money_br_ind(value):
-    try:
-        value = float(value or 0)
-    except Exception:
-        value = 0
-    return "R$ " + f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def indenizacao_prepare(df):
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    out = df.copy()
-    base_col = _indenizacao_base_col(out)
-    status_col = _indenizacao_status_col(out)
-    valor_col = _indenizacao_valor_col(out)
-    data_col = _indenizacao_data_col(out)
-
-    if base_col:
-        out["_BASE_INDENIZACAO"] = out[base_col].astype(str).map(normalize_text)
-    else:
-        out["_BASE_INDENIZACAO"] = ""
-
-    if status_col:
-        out["_STATUS_INDENIZACAO"] = out[status_col].astype(str).map(normalize_text)
-    else:
-        out["_STATUS_INDENIZACAO"] = ""
-
-    if valor_col:
-        out["_VALOR_INDENIZACAO"] = _to_money_series_ind(out[valor_col])
-    else:
-        out["_VALOR_INDENIZACAO"] = 0.0
-
-    # Não filtrar por ano aqui.
-    # Métricas do painel precisam refletir a planilha completa sincronizada.
-    # A linha evolutiva mensal trata data separadamente.
-    return out
-
-
-
-def _indenizacao_supervisora_col(df):
-    """
-    Coluna M da planilha Passível a Débito:
-    STATUS ANALISE SUPERVISORA.
-
-    Regra: usar a coluna M como prioridade, pois é a coluna operacional definida.
-    """
-    try:
-        if df is not None and len(df.columns) > 12:
-            return df.columns[12]
-    except Exception:
-        pass
-
-    col = first_col(df, [
-        "STATUS ANALISE SUPERVISORA",
-        "STATUS ANÁLISE SUPERVISORA",
-        "STATUS_ANALISE_SUPERVISORA",
-        "ANALISE SUPERVISORA",
-        "ANÁLISE SUPERVISORA",
-        "STATUS SUPERVISORA",
-    ])
-    if col:
-        return col
-
-    return None
-
-
-def _indenizacao_debito_revertido_col(df):
-    """
-    Coluna P da planilha Passível a Débito:
-    DÉBITO REVERTIDO.
-
-    Regra: usar a coluna P como prioridade, pois é a coluna operacional definida.
-    """
-    try:
-        if df is not None and len(df.columns) > 15:
-            return df.columns[15]
-    except Exception:
-        pass
-
-    col = first_col(df, [
-        "DÉBITO REVERTIDO",
-        "DEBITO REVERTIDO",
-        "DEBITO_REVERTIDO",
-        "DÉBITO_REVERTIDO",
-        "STATUS DÉBITO REVERTIDO",
-        "STATUS DEBITO REVERTIDO",
-    ])
-    if col:
-        return col
-
-    return None
-
-
-def _serie_preenchida(s):
-    if s is None:
-        return pd.Series(dtype=bool)
-    txt = s.fillna("").astype(str).str.strip()
-    norm = txt.map(normalize_text)
-    return txt.ne("") & ~norm.isin({"NAN", "NONE", "NULL", "-", "NA", "N/A"})
-
-
-def _serie_vazia(s):
-    if s is None:
-        return pd.Series(dtype=bool)
-    return ~_serie_preenchida(s)
-
-
-
-
-def _indenizacao_ofensor_col(df):
-    """
-    Coluna usada para identificar o OFENSOR da indenização.
-
-    Regra operacional:
-    coluna A / OFENSOR é a referência.
-    Sempre que OFENSOR contiver CDSP2 ou SAO12, mesmo combinado
-    com outra base, deve ser considerado.
-    """
-    # Prioridade absoluta: coluna A = índice 0.
-    try:
-        if df is not None and len(df.columns) > 0:
-            col_a = df.columns[0]
-            if "OFENSOR" in normalize_text(col_a):
-                return col_a
-    except Exception:
-        pass
-
-    col = first_col(df, [
-        "OFENSOR",
-        "BASE OFENSORA",
-        "BASE_OFENSORA",
-        "BASE OFENSOR",
-    ])
-    if col:
-        return col
-
-    try:
-        for c in df.columns:
-            n = normalize_text(c)
-            if "OFENSOR" in n:
-                return c
-    except Exception:
-        pass
-
-    # Fallback final: coluna A.
-    try:
-        if df is not None and len(df.columns) > 0:
-            return df.columns[0]
-    except Exception:
-        pass
-
-    return None
-
-
-def _mask_ofensor_cdsp2_sao12(df):
-    """
-    Retorna True quando a coluna OFENSOR contém CDSP2 ou SAO12 em qualquer parte do texto.
-    Aceita composições e variações como:
-    - VCP/SAO12
-    - VCP / SAO12
-    - VCP/CDSP2
-    - CDSP2/CGH
-    - CD SP2
-    - SAO 12
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    ofensor_col = _indenizacao_ofensor_col(df)
-    if not ofensor_col or ofensor_col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    ofensor_norm = df[ofensor_col].fillna("").astype(str).map(normalize_text)
-
-    # Regra: se OFENSOR contiver CDSP2 ou SAO12 em qualquer parte, aceita.
-    # Ex.: VCP/SAO12, VCP/CDSP2, CDSP2/CGH, SAO12/VCP.
-    ofensor_compacto = ofensor_norm.str.replace(r"[^A-Z0-9]", "", regex=True)
-
-    return (
-        ofensor_norm.str.contains("CDSP2|SAO12", regex=True, na=False)
-        | ofensor_compacto.str.contains("CDSP2|SAO12", regex=True, na=False)
-    )
-
-
-
-
-def _indenizacao_desconto_col(df):
-    """
-    Coluna da planilha Passível a Débito que indica se houve desconto.
-    Regra: HOUVE DESCONTO? = SIM.
-    """
-    col = first_col(df, [
-        "HOUVE DESCONTO?",
-        "HOUVE DESCONTO",
-        "DESCONTO?",
-        "DESCONTO",
-        "DESCONTO APLICADO",
-        "HOUVE_DESCONTO",
-    ])
-    if col:
-        return col
-
-    try:
-        for c in df.columns:
-            n = normalize_text(c)
-            if "HOUVE" in n and "DESCONTO" in n:
-                return c
-    except Exception:
-        pass
-
-    return None
-
-
-def _indenizacao_mask_desconto(df):
-    """
-    True quando HOUVE DESCONTO? está preenchido como SIM.
-    Aceita variações: SIM, S, YES.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    col = _indenizacao_desconto_col(df)
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    desconto = df[col].fillna("").astype(str).map(normalize_text).str.strip()
-    return desconto.isin({"SIM", "S", "YES", "Y"})
-
-
-
-
-def _indenizacao_mask_debito_revertido_sim(df):
-    """
-    Débito revertido:
-    contar somente quando a coluna DÉBITO REVERTIDO estiver como SIM/sim.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    col = _indenizacao_debito_revertido_col(df)
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    status = df[col].fillna("").astype(str).map(normalize_text).str.strip()
-    return status.eq("SIM")
-
-
-
-
-def _indenizacao_ofensor_norm(df):
-    """
-    Normaliza a coluna OFENSOR da planilha Passível a Débito.
-    Regra: coluna A / OFENSOR é a referência operacional.
-    """
-    if df is None or df.empty:
-        return pd.Series("", index=df.index if df is not None else None)
-
-    col = None
-
-    try:
-        if len(df.columns) > 0:
-            col_a = df.columns[0]
-            if "OFENSOR" in normalize_text(col_a):
-                col = col_a
-    except Exception:
-        col = None
-
-    if not col:
-        try:
-            col = _indenizacao_ofensor_col(df)
-        except Exception:
-            col = None
-
-    if not col or col not in df.columns:
-        return pd.Series("", index=df.index)
-
-    raw = df[col].fillna("").astype(str).map(normalize_text)
-    compacto = raw.str.replace(r"[^A-Z0-9]", "", regex=True)
-    return raw + " " + compacto
-
-
-def _mask_ofensor_cdsp2(df):
-    """
-    CDSP2 = OFENSOR contém CDSP2 em qualquer parte do texto.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    ofensor = _indenizacao_ofensor_norm(df)
-    return ofensor.str.contains("CDSP2", regex=False, na=False)
-
-
-def _mask_ofensor_sao12(df):
-    """
-    SAO12 = OFENSOR contém SAO12 em qualquer parte do texto.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    ofensor = _indenizacao_ofensor_norm(df)
-    return ofensor.str.contains("SAO12", regex=False, na=False)
-
-
-
-def indenizacao_metrics():
-    df = indenizacao_prepare(indenizacao_base_rows())
-
-    if df.empty:
-        return {
-            "base": df,
-            "valor_cdsp2": 0.0,
-            "valor_sao12": 0.0,
-            "qtd_revertido": 0,
-            "valor_revertido": 0.0,
-            "qtd_desconto": 0,
-            "valor_desconto": 0.0,
-            "qtd_supervisao": 0,
-            "valor_supervisao": 0.0,
-        }
-
-    valor = df["_VALOR_INDENIZACAO"]
-
-    # CDSP2 / SAO12 calculados pela coluna A / OFENSOR.
-    mask_cdsp2 = _mask_ofensor_cdsp2(df)
-    mask_sao12 = _mask_ofensor_sao12(df)
-
-    col_debito_revertido = _indenizacao_debito_revertido_col(df)
-    col_supervisora = _indenizacao_supervisora_col(df)
-
-    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
-    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
-
-    mask_desconto = _indenizacao_mask_desconto(df)
-
-    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
-    if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
-    else:
-        mask_supervisao = pd.Series(False, index=df.index)
-
-    valor_cdsp2_liquido = float(valor[mask_cdsp2 & ~mask_desconto].sum())
-
-    return {
-        "base": df,
-        "valor_cdsp2": valor_cdsp2_liquido,
-        "valor_sao12": float(valor[mask_sao12].sum()),
-        "qtd_revertido": int(mask_revertido.sum()),
-        "valor_revertido": float(valor[mask_revertido].sum()),
-        "qtd_desconto": int(mask_desconto.sum()),
-        "valor_desconto": float(valor[mask_desconto].sum()),
-        "qtd_supervisao": int(mask_supervisao.sum()),
-        "valor_supervisao": float(valor[mask_supervisao].sum()),
-    }
-
-def indenizacao_detail_rows(tipo):
-    df = indenizacao_prepare(indenizacao_base_rows())
-    if df.empty:
-        return df
-
-    col_debito_revertido = _indenizacao_debito_revertido_col(df)
-    col_supervisora = _indenizacao_supervisora_col(df)
-
-    # Débito revertido: contar somente quando DÉBITO REVERTIDO = SIM.
-    mask_revertido = _indenizacao_mask_debito_revertido_sim(df)
-
-    mask_desconto = _indenizacao_mask_desconto(df)
-
-    # CDSP2 / SAO12 calculados pela coluna A / OFENSOR.
-    mask_cdsp2 = _mask_ofensor_cdsp2(df)
-    mask_sao12 = _mask_ofensor_sao12(df)
-    mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
-
-    if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
-    else:
-        mask_supervisao = pd.Series(False, index=df.index)
-
-    if tipo == "cdsp2":
-        out = df[mask_cdsp2 & ~mask_desconto].copy()
-    elif tipo == "sao12":
-        out = df[mask_sao12].copy()
-    elif tipo == "revertido":
-        out = df[mask_revertido].copy()
-    elif tipo == "desconto":
-        out = df[mask_desconto].copy()
-    elif tipo == "supervisao":
-        out = df[mask_supervisao].copy()
-    else:
-        out = df.copy()
-
-    return out.drop(columns=[c for c in out.columns if c.startswith("_")], errors="ignore")
-
-
-def indenizacao_evolucao_mensal():
-    """
-    Evolução mensal do valor de indenização.
-    Agrupa por mês/ano com base na coluna de data da planilha Passível a Débito.
-    """
-    df_raw = indenizacao_base_rows()
-    if df_raw is None or df_raw.empty:
-        return pd.DataFrame()
-
-    data_col = _indenizacao_data_col(df_raw)
-    valor_col = _indenizacao_valor_col(df_raw)
-
-    if not data_col or not valor_col:
-        return pd.DataFrame()
-
-    df = df_raw.copy()
-    df["_DATA_INDENIZACAO"] = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True)
-    df["_VALOR_INDENIZACAO"] = _to_money_series_ind(df[valor_col])
-
-    df = df.dropna(subset=["_DATA_INDENIZACAO"]).copy()
-    if df.empty:
-        return pd.DataFrame()
-
-    df["ANO"] = df["_DATA_INDENIZACAO"].dt.year
-    df["MES_NUM"] = df["_DATA_INDENIZACAO"].dt.month
-    df["MES_ANO"] = df["_DATA_INDENIZACAO"].dt.strftime("%m/%Y")
-
-    evol = (
-        df.groupby(["ANO", "MES_NUM", "MES_ANO"], as_index=False)["_VALOR_INDENIZACAO"]
-        .sum()
-        .sort_values(["ANO", "MES_NUM"])
-    )
-    evol = evol.rename(columns={"_VALOR_INDENIZACAO": "VALOR"})
-    evol["VALOR_FORMATADO"] = evol["VALOR"].map(_money_br_ind)
-
-    return evol
-
-
-def render_indenizacao_evolucao():
-    evol = indenizacao_evolucao_mensal()
-
-    st.markdown("### Evolução mensal")
-    st.caption("Valor total por mês/ano com base na data da planilha Passível a Débito.")
-
-    if evol is None or evol.empty:
-        st.info("Não foi possível montar a evolução mensal. Verifique se a planilha possui coluna de data e valor.")
-        return
-
-    chart_df = evol.copy()
-    chart = (
-        alt.Chart(chart_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("MES_ANO:N", title="Mês/Ano", sort=list(chart_df["MES_ANO"])),
-            y=alt.Y("VALOR:Q", title="Valor"),
-            tooltip=[
-                alt.Tooltip("MES_ANO:N", title="Mês/Ano"),
-                alt.Tooltip("VALOR_FORMATADO:N", title="Valor"),
-            ],
-        )
-        .properties(height=280)
-    )
-
-    st.altair_chart(chart, use_container_width=True)
-
-    tabela = evol[["MES_ANO", "VALOR_FORMATADO"]].rename(
-        columns={
-            "MES_ANO": "MÊS/ANO",
-            "VALOR_FORMATADO": "VALOR",
-        }
-    )
-    render_table(tabela, height=260)
-
-
-
-def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰"):
-    st.markdown(
-        f"""
-        <div class="indenizacao-card" style="--accent:{accent};">
-            <div class="indenizacao-icon">{icon}</div>
-            <div class="indenizacao-label">{label}</div>
-            <div class="indenizacao-value">{value}</div>
-            <div class="indenizacao-sub">{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-
 # =========================================================
 # SIDEBAR FUNCIONAL
 # =========================================================
 with st.sidebar:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), use_container_width=True)
+    st.markdown(
+        """
+        <div class="brand-box">
+            <div class="brand-main">GDS</div>
+            <div class="brand-sub">LOGÍSTICA</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.button("Atualizar dados do Google", key="refresh_google_data", use_container_width=True):
         st.cache_data.clear()
@@ -5989,14 +2913,14 @@ with st.sidebar:
 
     menu_items = [
         ("visao", "⌂  Visão Geral"),
-        ("backlog", "▣  Backlog"),
-        ("pendencias", "Σ  Pendências"),
-        ("sla_dia", "◷  SLA do Dia"),
-        ("edi", "⇢  EDI / First Mile"),
-        ("indenizacao", "$  Indenização"),
-        ("acareacao", "▤  Acareações"),
-        ("relatorio", "▤  Relatórios"),
-        ("config", "⚙︎  Configurações"),
+        ("motoristas", "☑  Motoristas ofensores"),
+        ("retornos", "↩  Retornos em aberto"),
+        ("edi", "✈  EDI"),
+        ("bi_azul", "▣  BI Azul"),
+        ("acareacao", "⚖  Acareações"),
+        ("pendcorp", "▣  Top clientes pendência"),
+        ("relatorio", "▤  Download diretoria"),
+        ("config", "⚙  Configurações"),
     ]
 
     if "menu_gerente" not in st.session_state:
@@ -6004,7 +2928,6 @@ with st.sidebar:
 
     if "detail_card" not in st.session_state:
         st.session_state["detail_card"] = ""
-
 
     if "edi_detail_card" not in st.session_state:
         st.session_state["edi_detail_card"] = ""
@@ -6028,9 +2951,9 @@ with st.sidebar:
     st.markdown(
         """
         <div class="side-note">
-            <b>Central Operacional</b><br>
-            Uso contínuo da Torre<br>
-            Foco em ação
+            <b>Dashboard Gerencial</b><br>
+            Layout claro<br>
+            Menu funcional
         </div>
         """,
         unsafe_allow_html=True,
@@ -6040,6 +2963,11 @@ with st.sidebar:
 # =========================================================
 # CARREGAMENTO
 # =========================================================
+refresh_col, _ = st.columns([1, 8])
+with refresh_col:
+    if st.button("↻ Atualizar", use_container_width=True):
+        st.rerun()
+
 try:
     pack = load_source(SOURCE_URL)
 except Exception as exc:
@@ -6054,11 +2982,6 @@ pendencia_movimentos = pack.get("PENDENCIA_MOVIMENTOS", pd.DataFrame())
 acareacoes_detalhe = pack.get("ACAREACOES_DETALHE", pd.DataFrame())
 avarias_detalhe = pack.get("AVARIAS_DETALHE", pd.DataFrame())
 qualidade_detalhe = pack.get("QUALIDADE_DETALHE", pd.DataFrame())
-rotas_sem_baixa_detalhe = filtrar_rotas_sem_baixa_d1_d2(
-    pack.get("ROTAS_SEM_BAIXA_DETALHE", pd.DataFrame())
-)
-carga_parcial_detalhe = pack.get("CARGA_PARCIAL_DETALHE", pd.DataFrame())
-passivel_debito_detalhe = pack.get("PASSIVEL_DEBITO_DETALHE", pd.DataFrame())
 bi_azul_resumo = pack.get("BI_AZUL_RESUMO", pd.DataFrame())
 bi_azul_detalhe = pack.get("BI_AZUL_DETALHE", pd.DataFrame())
 bi_azul_conferencia = pack.get("BI_AZUL_CONFERENCIA", pd.DataFrame())
@@ -6069,124 +2992,54 @@ if not periodo:
 
 atualizado = summary_value(resumo, "Atualizado em", "")
 
-def datahora_brasilia_agora():
-    """
-    Hora oficial operacional: Brasília.
-    Usa UTC como base e converte para America/Sao_Paulo para evitar horário do servidor.
-    """
-    try:
-        return datetime.now(timezone.utc).astimezone(ZoneInfo("America/Sao_Paulo"))
-    except Exception:
-        return datetime.utcnow() - timedelta(hours=3)
-
-
-def formatar_datahora_sync(valor=None):
-    """
-    Exibe a hora de Brasília no cabeçalho.
-    Não usa o horário salvo na planilha porque pode chegar como UTC/servidor.
-    """
-    return datahora_brasilia_agora().strftime("%d/%m/%y • %H:%M")
-
-
-def resumo_carga_cabecalho():
-    """
-    Informação visual discreta, sem alterar regra de negócio.
-    Usa dados já carregados em memória.
-    """
-    partes = []
-
-    try:
-        if "fila" in globals() and fila is not None and not fila.empty:
-            partes.append(f"{len(fila):,}".replace(",", ".") + " registros carregados")
-    except Exception:
-        pass
-
-    try:
-        fontes = 0
-        for _df_name in ["fila", "edi_detalhe", "pendencia_movimentos", "acareacoes_detalhe", "avarias_detalhe", "qualidade_detalhe", "rotas_sem_baixa_detalhe", "carga_parcial_detalhe"]:
-            _df = globals().get(_df_name)
-            if _df is not None and hasattr(_df, "empty") and not _df.empty:
-                fontes += 1
-        if fontes:
-            partes.append(f"{fontes} fontes processadas")
-    except Exception:
-        pass
-
-    return " • ".join(partes) if partes else "Dados operacionais carregados"
-
-
-atualizado_cabecalho = formatar_datahora_sync()
-info_carga_cabecalho = resumo_carga_cabecalho()
-
+st.markdown(
+    f"""
+    <div class="hero">
+        <h1>Dashboard Torre de Controle</h1>
+        <p>Visão executiva de SLA, pendências, integração e ofensores operacionais.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # =========================================================
-# CABEÇALHO CORPORATIVO — CENTRAL OPERACIONAL
+# FILTRO DE DATA — COMPACTO NO CANTO DIREITO
 # =========================================================
 today = date.today()
 default_start = today - timedelta(days=7)
 
-st.markdown('<div class="ops-header-shell">', unsafe_allow_html=True)
+top_info_col, top_filter_col = st.columns([4.5, 1.35])
 
-header_left, header_sync, header_button, header_period = st.columns(
-    [3.45, 1.55, 1.35, 1.65],
-    gap="small",
-)
-
-with header_left:
-    st.markdown(
-        """
-        <div>
-            <div class="ops-header-title">TORRE DE CONTROLE GDS</div>
-            <div class="ops-header-subtitle">
-                Central Operacional da Torre
-                <span class="ops-info-icon">i</span>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with header_sync:
-    st.markdown(
-        f"""
-        <div class="sync-card">
-            <div class="sync-card-label">Última sincronização</div>
-            <div class="sync-card-value">{atualizado_cabecalho}</div>
-            <div class="sync-card-detail">{info_carga_cabecalho}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with header_button:
-    st.markdown('<div class="ops-header-button-spacer"></div>', unsafe_allow_html=True)
-    button_text = "⏳ Sincronizando..." if st.session_state.get("sync_feedback") == "running" else "🔄 Sincronizar Dados"
-
-    if st.button(button_text, key="header_refresh_data", use_container_width=True):
-        # Mesma funcionalidade já existente: limpar cache e recarregar dados.
-        st.session_state["sync_feedback"] = "success"
-        st.cache_data.clear()
-        st.rerun()
-
-    if st.session_state.get("sync_feedback") == "success":
-        st.markdown(
-            '<div class="sync-success-strip">✅ Dados sincronizados com sucesso</div>',
-            unsafe_allow_html=True,
-        )
-
-with header_period:
-    st.markdown('<div class="ops-header-control-label">Período</div>', unsafe_allow_html=True)
+with top_filter_col:
+    st.markdown('<div class="filter-caption">Filtro de data</div>', unsafe_allow_html=True)
     date_range = st.date_input(
-        "Período",
+        "Filtro de data",
         value=None,
         format="DD/MM/YYYY",
         label_visibility="collapsed",
         help="Deixe em branco para ver tudo que está aberto. Selecione 1 dia para filtrar por SLA do dia ou um período para SLA no intervalo.",
     )
-
-st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="filter-note-compact">Em branco = tudo aberto | 1 dia = SLA do dia</div>',
+        unsafe_allow_html=True,
+    )
 
 fila_filtrada, filtro_msg = apply_date_filter(fila, date_range)
+
+with top_info_col:
+    _filtro_msg_display = str(filtro_msg or "").strip()
+    if not _filtro_msg_display or _filtro_msg_display.lower() == "sem período definido":
+        _filtro_msg_display = "Sem filtro de data — exibindo tudo que está aberto"
+
+    st.markdown(
+        f"""
+        <div class="status-strip">
+            <span class="status-dot"></span>
+            <span><span class="status-strong">Filtro:</span> {_filtro_msg_display}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 motoristas_df = driver_offenders(fila_filtrada)
 retornos_df = open_returns(fila_filtrada)
@@ -6194,310 +3047,30 @@ pendcorp_df = top5_pendencia_corp(fila_filtrada)
 acareacao_df = acareacao_rows_prefer_sheet(fila_filtrada)
 avaria_df = avaria_rows(fila_filtrada)
 resumo_avarias_qtd = number(summary_value(resumo, "Avarias / Salvados", len(avaria_df)))
+resumo_avarias_entraram_hoje = number(summary_value(resumo, "Avarias / Salvados entraram hoje", 0))
+resumo_avarias_sairam_hoje = number(summary_value(resumo, "Avarias / Salvados saíram hoje", 0))
+resumo_avarias_saldo_dia = number(summary_value(resumo, "Avarias / Salvados saldo do dia", resumo_avarias_entraram_hoje - resumo_avarias_sairam_hoje))
 daily_df = daily_awb_counts(fila_filtrada)
 
 # Backlog precisa excluir casos que pertencem ao card Eu Entrego x SK.
-backlog_atraso_df = remove_carga_parcial_from_rows(overdue_delivery_rows(fila_filtrada))
+backlog_atraso_df = overdue_delivery_rows(fila_filtrada)
 resumo_entrega_atraso = len(backlog_atraso_df)
 resumo_entregue_eu_pendente_sk = number(summary_value(resumo, "Entregue Eu Entrego x Pendente SK", len(entregue_eu_entrego_pendente_sk_rows(fila_filtrada))))
 # Insucesso sem pendência precisa bater com o detalhe exibido.
-insucesso_sem_pendencia_df = remove_carga_parcial_from_rows(insucesso_sem_pendencia_rows(fila_filtrada))
+insucesso_sem_pendencia_df = insucesso_sem_pendencia_rows(fila_filtrada)
 resumo_insucesso_sem_pendencia = len(insucesso_sem_pendencia_df)
-
-
-def _data_operacional_ontem():
-    try:
-        hoje = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
-    except Exception:
-        hoje = pd.Timestamp.today().normalize()
-    return hoje - pd.Timedelta(days=1)
-
-
-def _col_data_norm(df, nomes):
-    col = first_col(df, nomes)
-    if not col or col not in df.columns:
-        return pd.Series(pd.NaT, index=df.index)
-    return pd.to_datetime(df[col], errors="coerce", dayfirst=True).dt.normalize()
-
-
-def _col_texto_norm(df, nomes):
-    col = first_col(df, nomes)
-    if not col or col not in df.columns:
-        return pd.Series("", index=df.index, dtype="object")
-    return df[col].fillna("").astype(str).map(normalize_text)
-
-
-def _col_tem_valor(df, nomes):
-    col = first_col(df, nomes)
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-    txt = df[col].fillna("").astype(str).str.strip()
-    norm = txt.map(normalize_text)
-    return txt.ne("") & ~norm.isin({"NAN", "NONE", "NULL", "NAT", "0", "-"})
-
-
-def _mask_rota_criada_hoje(df):
-    """True quando o Portal confirmou uma nova rota para a AWB no dia atual."""
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    col = first_col(df, [
-        "ROTA CRIADA HOJE",
-        "TEVE ROTA HOJE",
-        "TEVE_ROTA_HOJE",
-        "TEM ROTA HOJE",
-        "TEM_ROTA_HOJE",
-    ])
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    valor = df[col].fillna("").astype(str).map(normalize_text).str.strip()
-    return valor.isin({"TRUE", "SIM", "S", "1", "YES", "VERDADEIRO"})
-
-
-
-def _retornos_fisicos_awbs_set(df):
-    """
-    AWBs que constam como Retornos físicos.
-    Procura marcações de retorno em qualquer coluna com RETORNO no nome.
-    """
-    if df is None or df.empty:
-        return set()
-
-    awb_col = first_col(df, ["AWB", "awb", "Awb", "AWBNumber"])
-    if not awb_col:
-        return set()
-
-    mask = pd.Series(False, index=df.index)
-
-    for c in df.columns:
-        n = normalize_text(c)
-        if "RETORNO" in n:
-            val = df[c].fillna("").astype(str).map(normalize_text).str.strip()
-
-            # Coluna booleana/status de retorno.
-            mask = mask | val.isin({
-                "SIM",
-                "S",
-                "TRUE",
-                "VERDADEIRO",
-                "1",
-                "RETORNOU",
-                "RETORNO",
-                "RETORNO FISICO",
-                "RETORNO FÍSICO",
-                "CONFIRMADO",
-                "OK",
-            })
-
-            # Quando a própria célula possui texto de retorno.
-            mask = mask | val.str.contains("RETORNO FISICO|RETORNO FÍSICO|RETORNOU|DEVOLVIDO AO HUB|PORTAO|PORTÃO", regex=True, na=False)
-
-    if not mask.any():
-        return set()
-
-    awbs = (
-        df.loc[mask, awb_col]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-    )
-    return set(awbs[awbs.ne("")].unique().tolist())
-
-
-
-
-def _mask_ontem_antes_ontem_rota_insucesso(df):
-    """
-    True para registros cuja data de rota/insucesso seja ontem ou antes de ontem.
-    Exemplo: hoje 12/08 -> entram 10/08 e 11/08. Não entra rota de hoje.
-    """
-    if df is None or df.empty:
-        return pd.Series(False, index=df.index if df is not None else None)
-
-    data_col = first_col(df, [
-        "DATA INSUCESSO",
-        "ULTIMA_ROTA",
-        "DATA_ROTA",
-        "DATA ROTA",
-        "EXECUTADA_DT",
-        "EXECUTADA",
-        "ÚLTIMA ROTA",
-        "ULTIMA ROTA",
-        "DATA ÚLTIMA ROTA",
-        "DATA ULTIMA ROTA",
-    ])
-
-    if not data_col or data_col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    datas = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True).dt.normalize()
-
-    try:
-        hoje = pd.Timestamp.now(tz="America/Sao_Paulo").tz_localize(None).normalize()
-    except Exception:
-        hoje = pd.Timestamp.today().normalize()
-
-    ontem = hoje - pd.Timedelta(days=1)
-    antes_de_ontem = hoje - pd.Timedelta(days=2)
-
-    return datas.isin([antes_de_ontem, ontem])
-
-
-
-
-
-def insucesso_sem_retorno_fisico_rows(df):
-    """
-    Retorno de carga com insucesso.
-
-    Regra operacional:
-    - teve insucesso;
-    - saiu em rota ontem ou antes de ontem;
-    - não consta nas mensagens de retorno do WhatsApp;
-    - não está como devolvido no Eu Entrego;
-    - não possui nova rota criada hoje.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-    awb_col = first_col(data, ["AWB", "awb", "Awb", "AWBNumber"])
-    if not awb_col:
-        return pd.DataFrame()
-
-    status_rota = _col_texto_norm(data, [
-        "STATUS ÚLTIMA ROTA",
-        "STATUS_ULTIMA_ROTA",
-        "STATUS ROTA",
-        "STATUS",
-    ])
-    motivo_rota = _col_texto_norm(data, [
-        "MOTIVO ÚLTIMA ROTA",
-        "MOTIVO_ULTIMA_ROTA",
-        "MOTIVO",
-        "OCORRENCIA",
-        "OCORRÊNCIA",
-        "TIPO INSUCESSO",
-    ])
-    problema = _col_texto_norm(data, ["PROBLEMA", "TIPO INSUCESSO"])
-    status_eu_entrego = _col_texto_norm(data, [
-        "STATUS ANALISE EU ENTREGO",
-        "STATUS ANÁLISE EU ENTREGO",
-        "STATUS ROTA EU ENTREGO NORMALIZADO",
-        "STATUS EU ENTREGO",
-    ])
-
-    texto = status_rota + " " + motivo_rota + " " + problema + " " + status_eu_entrego
-
-    # DEVOLVIDO não entra neste controle.
-    mask_devolvido = texto.str.contains("DEVOLVIDO|DEVOLUCAO|DEVOLUÇÃO", regex=True, na=False)
-
-    mask_insucesso = texto.str.contains(
-        "INSUCESSO|AUSENTE|RESPONSAVEL AUSENTE|RESPONSÁVEL AUSENTE|"
-        "ESTABELECIMENTO FECHADO|DESTINATARIO|DESTINATÁRIO|RECUSADO|NAO LOCALIZADO|NÃO LOCALIZADO|"
-        "ENDERECO NAO LOCALIZADO|ENDEREÇO NÃO LOCALIZADO|MUDOU-SE|AREA DE RISCO|ÁREA DE RISCO",
-        regex=True,
-        na=False,
-    )
-
-    retornos = _retornos_fisicos_awbs_set(data)
-    awb_norm = (
-        data[awb_col]
-        .fillna("")
-        .astype(str)
-        .str.replace(r"\D+", "", regex=True)
-        .str.strip()
-    )
-    mask_nao_esta_no_retorno = ~awb_norm.isin(retornos)
-
-    # Precisa ter saído em rota ontem ou antes de ontem.
-    mask_rota_ontem_antes_ontem = _mask_ontem_antes_ontem_rota_insucesso(data)
-    # Se uma nova rota foi criada hoje, a carga já retornou ao galpão e não
-    # deve gerar cobrança do entregador.
-    mask_rota_criada_hoje = _mask_rota_criada_hoje(data)
-
-    out = data[
-        mask_insucesso
-        & mask_nao_esta_no_retorno
-        & ~mask_devolvido
-        & mask_rota_ontem_antes_ontem
-        & ~mask_rota_criada_hoje
-    ].copy()
-
-    if out.empty:
-        return out
-
-    out["AÇÃO OPERACIONAL"] = "COBRAR ENTREGADOR: CARGA COM INSUCESSO SEM RETORNO AO GALPÃO"
-    out["CONTROLE"] = "RETORNO DE CARGA COM INSUCESSO"
-
-    out = enriquecer_insucesso_sem_retorno(out) if "enriquecer_insucesso_sem_retorno" in globals() else out
-
-    return out
-
-
-
-def rotas_abertas_ontem_rows(df):
-    """
-    Rota do dia anterior ainda sem finalização/fechamento.
-    Ação: cobrar fechamento da delivery route.
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    data = df.copy()
-    ontem = _data_operacional_ontem()
-    data_rota = _col_data_norm(data, ["ULTIMA_ROTA", "DATA_ROTA", "DATA ROTA", "EXECUTADA_DT", "EXECUTADA", "DATA ÚLTIMA ROTA", "DATA ULTIMA ROTA"])
-    mask_ontem = data_rota.eq(ontem)
-
-    status_rota = _col_texto_norm(data, ["STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "STATUS ROTA", "STATUS"])
-    mask_finalizada = status_rota.str.contains("FINALIZ|FECHAD|CONCLUID|CONCLUÍD|ENTREGUE|BAIXAD", regex=True, na=False)
-
-    mask_tem_rota = (
-        _col_tem_valor(data, ["ULTIMA_ROTA", "DATA_ROTA", "DATA ROTA", "EXECUTADA_DT", "EXECUTADA"])
-        | _col_tem_valor(data, ["MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "ENTREGADOR"])
-    )
-
-    out = data[mask_ontem & mask_tem_rota & ~mask_finalizada].copy()
-    if out.empty:
-        return out
-
-    out["AÇÃO OPERACIONAL"] = "COBRAR FECHAMENTO DA DELIVERY ROUTE"
-    out["CONTROLE"] = "ROTA DE ONTEM ABERTA"
-
-    preferred = ["AWB", "AÇÃO OPERACIONAL", "CONTROLE", "MOTORISTA / ENTREGADOR", "ULTIMO_ENTREGADOR", "STATUS ÚLTIMA ROTA", "STATUS_ULTIMA_ROTA", "MOTIVO ÚLTIMA ROTA", "MOTIVO_ULTIMA_ROTA", "ULTIMA_ROTA", "EXECUTADA_DT", "SLA", "CLIENTE", "PROBLEMA"]
-    cols = [c for c in preferred if c in out.columns]
-    rest = [c for c in out.columns if c not in cols and not str(c).startswith("_")]
-    return enriquecer_rota_aberta_ontem(out[cols + rest].copy() if cols else out)
-
-
 
 # Qualidade precisa existir antes dos cards.
 # A quantidade do card usa o mesmo dataframe do detalhe.
-qualidade_df = remove_carga_parcial_from_rows(aguardando_qualidade_rows(fila_filtrada))
+qualidade_df = aguardando_qualidade_rows(fila_filtrada)
 resumo_qualidade_qtd = len(qualidade_df)
-resumo_rotas_sem_baixa = len(rotas_sem_baixa_detalhe)
-
-# Controles operacionais de retorno/rota.
-insucesso_sem_retorno_df = insucesso_sem_retorno_fisico_rows(fila_filtrada)
-resumo_insucesso_sem_retorno = len(insucesso_sem_retorno_df) if 'insucesso_sem_retorno_df' in globals() else len(insucesso_sem_retorno_fisico_rows(fila_filtrada))
-
-rotas_abertas_ontem_df = rotas_abertas_ontem_rows(fila_filtrada)
-resumo_rotas_abertas_ontem = len(rotas_abertas_ontem_df)
-
-# Carga Parcial: AWB aparece como Pendente Entrega e Pendente Desembarque no AWBStatus.
-carga_parcial_df = carga_parcial_rows()
-resumo_carga_parcial = carga_parcial_count(carga_parcial_df)
 
 # SLA do dia sem rota precisa refletir a FILA filtrada/detalhe atual.
 # Não usa mais o RESUMO como fonte principal, para evitar número defasado.
-sla_sem_rota_df = filtrar_sla_dia_nunca_saiu_rota(remove_carga_parcial_from_rows(sla_sem_rota_rows(fila_filtrada)))
+sla_sem_rota_df = sla_sem_rota_rows(fila_filtrada)
 resumo_sla_sem_rota = len(sla_sem_rota_df)
-last_mile_desembarque_df = remove_carga_parcial_from_rows(last_mile_desembarque_rows(fila_filtrada))
-resumo_lm_desembarque = len(last_mile_desembarque_df)
-terceira_tentativa_df = remover_excecoes_terceira_tentativa(remove_carga_parcial_from_rows(terceira_tentativa_rows(fila_filtrada)))
-resumo_terceira_tentativa = len(terceira_tentativa_df)
+resumo_lm_desembarque = number(summary_value(resumo, "CDSP2 pendente desembarque", len(last_mile_desembarque_rows(fila_filtrada))))
+resumo_terceira_tentativa = number(summary_value(resumo, "3ª tentativa de entrega", len(terceira_tentativa_rows(fila_filtrada))))
 resumo_acareacao_qtd = number(summary_value(resumo, "Acareações em andamento", len(acareacao_df)))
 resumo_total_pendencia = number(summary_value(resumo, "Total na pendência", summary_value(resumo, "Backlog da Torre", len(pendencia_movimento_rows("TOTAL NA PENDÊNCIA")))))
 resumo_entraram_pendencia_hoje = number(
@@ -6512,22 +3085,12 @@ resumo_entraram_pendencia_hoje = number(
     )
 )
 resumo_sairam_pendencia_hoje = number(summary_value(resumo, "Saíram da pendência hoje", len(pendencia_movimento_rows("SAIU HOJE"))))
-resumo_passivo_valor = pd.to_numeric(summary_value(resumo, "Valor passivo débito", summary_value(resumo, "Passivo de Débito", 0)), errors="coerce")
-resumo_passivo_valor = 0 if pd.isna(resumo_passivo_valor) else float(resumo_passivo_valor)
-resumo_passivo_qtd = number(summary_value(resumo, "Quantidade passivo débito", summary_value(resumo, "Processos passivo débito", 0)))
-resumo_debitos_revertidos_valor = pd.to_numeric(summary_value(resumo, "Valor débito revertido", summary_value(resumo, "Débitos Revertidos", 0)), errors="coerce")
-resumo_debitos_revertidos_valor = 0 if pd.isna(resumo_debitos_revertidos_valor) else float(resumo_debitos_revertidos_valor)
-resumo_debitos_revertidos_qtd = number(summary_value(resumo, "Quantidade débito revertido", summary_value(resumo, "Processos revertidos", 0)))
-resumo_percentual_reversao = pd.to_numeric(summary_value(resumo, "Percentual reversão", 0), errors="coerce")
-resumo_percentual_reversao = 0 if pd.isna(resumo_percentual_reversao) else float(resumo_percentual_reversao)
-
 
 alert_distribution_df = pd.DataFrame(
     [
         {"INDICADOR": "Backlog (atraso de entrega)", "QTDE": resumo_entrega_atraso},
         {"INDICADOR": "Entregue Eu Entrego x Pendente SK", "QTDE": resumo_entregue_eu_pendente_sk},
         {"INDICADOR": "Aguardando retorno da Qualidade", "QTDE": resumo_qualidade_qtd},
-        {"INDICADOR": "Rota criada sem baixa", "QTDE": resumo_rotas_sem_baixa},
         {"INDICADOR": "Insucesso sem pendência", "QTDE": resumo_insucesso_sem_pendencia},
         {"INDICADOR": "SLA do dia sem rota", "QTDE": resumo_sla_sem_rota},
         {"INDICADOR": "Pendente desembarque CDSP2", "QTDE": resumo_lm_desembarque},
@@ -6577,11 +3140,16 @@ kpis_df = pd.DataFrame(
 menu = st.session_state["menu_gerente"]
 
 if menu == "visao":
-    st.markdown('<div class="section-title">Central de ação</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="section-subtitle">Prioridade operacional: atraso, SLA do dia, pendência, acareações e risco financeiro.</div>',
-        unsafe_allow_html=True,
+    st.markdown('<div class="section-title">Resumo gerencial</div>', unsafe_allow_html=True)
+
+    st.caption(
+        "Clique em Abrir para ver somente o detalhe do indicador selecionado. O filtro de data atualiza os cards calculados pela fila."
     )
+
+    if st.button("Abrir EDI / First Mile", key="abrir_edi_home", use_container_width=False):
+        st.session_state["menu_gerente"] = "edi"
+        st.session_state["detail_card"] = ""
+        st.rerun()
 
     acareacao_qtd = resumo_acareacao_qtd
     _acareacao_valor_total = acareacao_total_value(acareacao_df)
@@ -6593,157 +3161,70 @@ if menu == "visao":
         _acareacao_valor_total = 0 if pd.isna(_acareacao_valor_total) else float(_acareacao_valor_total)
     acareacao_valor = brl(_acareacao_valor_total)
 
-    # Vencem hoje: PRAZO DE DEVOLUTIVA igual à data operacional do painel.
-    _ref_acareacao = None
-    if not isinstance(date_range, tuple):
-        _ref_acareacao = date_range
-    acareacao_vencendo_hoje = acareacao_vencem_hoje_por_prazo(acareacao_df, _ref_acareacao)
-
-    saldo_dia = int(resumo_entraram_pendencia_hoje) - int(resumo_sairam_pendencia_hoje)
-
-    primary_cards = [
-        ("Backlog de Entrega", fmt_int(resumo_entrega_atraso), "Cargas em atraso com SLA vencido", "!", "#d92d20", "#fff0ef", "atraso", "normal"),
-        ("SLA do Dia", fmt_int(resumo_sla_sem_rota), "Cargas que ainda precisam sair hoje", "◷", "#d97706", "#fff7e8", "sla_sem_rota", "normal"),
-        ("Pendente Desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Cargas aguardando desembarque até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque", "normal"),
-        ("Pendências da Torre", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "📋", "#b7791f", "#fff8e1", "pend_total", "pendencia"),
-        ("Acareações", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "🧾", "#0b63ce", "#eaf3ff", "acareacao", "acareacao"),
+    avaria_extras = [
+        {"title": "Entraram hoje", "value": fmt_int(resumo_avarias_entraram_hoje), "color": "#d92d20"},
+        {"title": "Saíram hoje", "value": fmt_int(resumo_avarias_sairam_hoje), "color": "#0f766e"},
+        {"title": "Saldo do dia", "value": fmt_int(resumo_avarias_saldo_dia), "color": "#b45309"},
     ]
 
-    secondary_cards = [
+    cards_linha1 = [
+        ("Backlog (atraso de entrega)", fmt_int(resumo_entrega_atraso), "Cargas sem finalização em atraso de entrega e não estão na pendência", "◷", "#d92d20", "#fff0ef", "atraso"),
         ("Entregue Eu Entrego x SK", fmt_int(resumo_entregue_eu_pendente_sk), "Entregue no Eu Entrego e pendente no SK", "↔", "#be123c", "#fff1f2", "backlog_eu_entregue"),
-        ("Rota criada sem baixa", fmt_int(resumo_rotas_sem_baixa), "D-1/D-2, Em rota/Aceita e Pendente Entrega no SK", "⚠", "#ff7900", "#fff1e5", "rota_sem_baixa"),
         ("Aguardando retorno da Qualidade", fmt_int(resumo_qualidade_qtd), "RETORNO_QUALIDADE = PENDENTE", "Q", "#0b63ce", "#e7f0ff", "qualidade"),
-        ("Carga Parcial", fmt_int(resumo_carga_parcial), "Entrega + Embarque/Desembarque; CDSP2/SAO12 exige rádio busca", "◫", "#7c3aed", "#f5f3ff", "carga_parcial"),
-        ("Insucesso sem Pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "×", "#d97706", "#fff7e8", "insucesso_sem_pendencia"),
-        ("Retorno de carga com insucesso", fmt_int(resumo_insucesso_sem_retorno), "Sem WhatsApp, devolução ou nova rota hoje", "↩", "#dc2626", "#fee2e2", "insucesso_sem_retorno"),
-        ("3ª Tentativa de Entrega", fmt_int(resumo_terceira_tentativa), "3+ tentativas por Ausente/Fechado; encaminhar à Pendência", "3×", "#c2410c", "#fff7ed", "terceira"),
-        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Avarias e salvados aguardando aprovação", "◇", "#d92d20", "#fff0ef", "avaria"),
+        ("Avarias / Salvados", fmt_int(resumo_avarias_qtd), "Aba Avarias + Salvados aguardando aprovação", "!", "#d92d20", "#fff0ef", "avaria", avaria_extras),
+        ("Insucesso sem pendência", fmt_int(resumo_insucesso_sem_pendencia), "Direcionar para pendência", "!", "#b45309", "#fff7ed", "insucesso_sem_pendencia"),
+        ("SLA do dia sem rota", fmt_int(resumo_sla_sem_rota), "Cargas no piso", "▦", "#d97706", "#fff7e8", "sla_sem_rota"),
+        ("Pendente desembarque CDSP2", fmt_int(resumo_lm_desembarque), "Até SLA do dia", "⇣", "#0f766e", "#f0fdfa", "lastmile_desembarque"),
+        ("3ª tentativa de entrega", fmt_int(resumo_terceira_tentativa), "Resumo operacional sincronizado", "3ª", "#c2410c", "#fff7ed", "terceira"),
     ]
 
-    def _render_card_item(item, idx=None):
-        label, value, sub, icon, accent, soft, key = item[:7]
-        card_type = item[7] if len(item) > 7 else "normal"
+    cards_linha2 = [
+        ("Total na pendência", fmt_int(resumo_total_pendencia), "Backlog atual da Torre", "Σ", "#334155", "#f8fafc", "pend_total"),
+        ("Entraram hoje", fmt_int(resumo_entraram_pendencia_hoje), "Entradas na Torre hoje", "+", "#2563eb", "#eff6ff", "pend_entrada_hoje"),
+        ("Saíram hoje", fmt_int(resumo_sairam_pendencia_hoje), "Saíram da pendência no dia", "✓", "#0f766e", "#f0fdfa", "pend_saida_hoje"),
+        ("Retornos em aberto", fmt_int(len(retornos_df)), "Retornos com 1 dia ou mais", "↩", "#7c3aed", "#f5f3ff", "retornos"),
+    ]
 
-        if card_type == "pendencia":
-            pendencia_operational_card(
-                fmt_int(resumo_total_pendencia),
-                fmt_int(resumo_entraram_pendencia_hoje),
-                fmt_int(resumo_sairam_pendencia_hoje),
-                saldo_dia,
-                card_key=key,
-            )
-        elif card_type == "acareacao":
-            acareacao_operational_card(
-                fmt_int(acareacao_qtd),
-                acareacao_valor,
-                fmt_int(acareacao_vencendo_hoje),
-                card_key=key,
-            )
-        else:
-            operational_card(label, value, sub, icon, accent, soft, card_key=key)
+    cards_linha3 = [
+        ("Motoristas ofensores", fmt_int(len(motoristas_df)), "Insucessos e retornos", "☑", "#0f766e", "#f0fdfa", "motoristas"),
+        ("Acareações em aberto", fmt_int(acareacao_qtd), f"Valor em aberto: {acareacao_valor}", "⚖", "#9333ea", "#faf5ff", "acareacao"),
+        ("Top clientes pendência", fmt_int(len(pendcorp_df)), "Top 5 por cliente e pendência", "▣", "#2563eb", "#eff6ff", "top_pendencia"),
+    ]
 
-        st.markdown('<div class="card-footer-button">', unsafe_allow_html=True)
-        footer_label = "Visualizar detalhes →"
-        if st.button(footer_label, key=f"abrir_{key}", use_container_width=True):
-            if st.session_state.get("detail_card") == key:
-                st.session_state["detail_card"] = ""
+    # Grade padronizada: no máximo 4 cards por linha.
+    # Evita cards estreitos, quebra excessiva de título e alturas diferentes.
+    all_cards = cards_linha1 + cards_linha2 + cards_linha3
+    cards_por_linha = 4
+
+    for start_idx in range(0, len(all_cards), cards_por_linha):
+        cards = all_cards[start_idx:start_idx + cards_por_linha]
+        cols = st.columns(cards_por_linha)
+
+        for idx, item in enumerate(cards):
+            if len(item) == 8:
+                label, value, sub, icon, accent, soft, key, extras = item
             else:
-                st.session_state["detail_card"] = key
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+                label, value, sub, icon, accent, soft, key = item
+                extras = None
 
-    def _render_detail_if_row(row_keys):
-        detail = st.session_state.get("detail_card", "")
-        if detail and detail in row_keys:
-            render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
-
-    # Linha 1 — cards críticos do piso/entrega.
-    primary_row_1 = primary_cards[:3]
-    cols = st.columns(3)
-    for idx, item in enumerate(primary_row_1):
-        with cols[idx]:
-            _render_card_item(item, idx)
-
-    _render_detail_if_row([item[6] for item in primary_row_1])
-
-    st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
-
-    # Linha 2 — pendência e acareação. Cards mais largos.
-    primary_row_2 = primary_cards[3:]
-    if primary_row_2:
-        cols = st.columns(len(primary_row_2))
-        for idx, item in enumerate(primary_row_2):
             with cols[idx]:
-                _render_card_item(item, idx)
+                kpi_card(label, value, sub, icon, accent, soft, extras=extras)
+                button_label = "Aberto" if st.session_state.get("detail_card") == key else "Abrir"
+                if st.button(button_label, key=f"abrir_{key}", use_container_width=True):
+                    if st.session_state.get("detail_card") == key:
+                        st.session_state["detail_card"] = ""
+                    else:
+                        st.session_state["detail_card"] = key
+                    st.rerun()
 
-        _render_detail_if_row([item[6] for item in primary_row_2])
+        # Mantém espaçamento visual entre linhas, sem afetar a altura dos cards.
+        st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">Outras frentes operacionais</div>', unsafe_allow_html=True)
-
-    # Linha 3 — outras frentes.
-    secondary_row_1 = secondary_cards[:3]
-    cols = st.columns(3)
-    for idx, item in enumerate(secondary_row_1):
-        with cols[idx]:
-            _render_card_item(item, idx)
-
-    _render_detail_if_row([item[6] for item in secondary_row_1])
-
-    st.markdown('<div class="card-row-spacer"></div>', unsafe_allow_html=True)
-
-    # Linha 4 — outras frentes remanescentes.
-    secondary_row_2 = secondary_cards[3:]
-    if secondary_row_2:
-        for _start in range(0, len(secondary_row_2), 3):
-            _row = secondary_row_2[_start:_start + 3]
-            cols = st.columns(len(_row))
-            for idx, item in enumerate(_row):
-                with cols[idx]:
-                    _render_card_item(item, idx)
-
-            _render_detail_if_row([item[6] for item in _row])
+    detail = st.session_state.get("detail_card", "")
 
 
-
-elif menu == "backlog":
-    st.markdown("### Backlog de Entrega")
-    st.caption("Cargas em atraso com SLA vencido. Mesma regra do card da Visão Geral.")
-    render_card_detail("atraso", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
-
-
-elif menu == "pendencias":
-    st.markdown("### Pendências da Torre")
-    st.caption("Pendências atuais, entradas do dia, saídas do dia e movimentação da Torre.")
-    render_card_detail("pend_total", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
-
-
-elif menu == "sla_dia":
-    st.markdown("### SLA do Dia")
-    st.caption("Cargas que precisam sair hoje conforme regra já existente.")
-    render_card_detail("sla_sem_rota", fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
-
-
-elif menu == "passivo":
-    st.markdown("### Passivo de Débito")
-    st.caption("Visão financeira conforme dados já sincronizados no RESUMO. Sem nova regra operacional.")
-    resumo_passivo = pd.DataFrame([
-        {"INDICADOR": "Valor financeiro em aberto", "VALOR": brl(resumo_passivo_valor)},
-        {"INDICADOR": "Quantidade de processos", "VALOR": fmt_int(resumo_passivo_qtd)},
-    ])
-    render_table(resumo_passivo, height=180)
-    st.info("Detalhe analítico será exibido aqui quando a origem sincronizada trouxer a aba/tabela de passivo.")
-
-
-elif menu == "debitos_revertidos":
-    st.markdown("### Débitos Revertidos")
-    st.caption("Valor recuperado e processos revertidos conforme dados já sincronizados no RESUMO.")
-    resumo_revertidos = pd.DataFrame([
-        {"INDICADOR": "Valor recuperado", "VALOR": brl(resumo_debitos_revertidos_valor)},
-        {"INDICADOR": "Quantidade de processos revertidos", "VALOR": fmt_int(resumo_debitos_revertidos_qtd)},
-        {"INDICADOR": "Percentual de reversão", "VALOR": f"{resumo_percentual_reversao:.1f}%"},
-    ])
-    render_table(resumo_revertidos, height=210)
-    st.info("Detalhe analítico será exibido aqui quando a origem sincronizada trouxer a aba/tabela de débitos revertidos.")
+    if detail:
+        render_card_detail(detail, fila_filtrada, motoristas_df, retornos_df, acareacao_df, daily_df)
 
 
 elif menu == "motoristas":
@@ -6775,49 +3256,6 @@ elif menu == "retornos":
         mime="text/csv",
         use_container_width=True,
     )
-
-
-
-elif menu == "retorno_rotas":
-    st.title("Controle de Retornos")
-    st.caption("Controle operacional: saiu em rota ontem/antes de ontem, teve insucesso, não retornou pelo WhatsApp, não foi devolvido e não possui nova rota hoje.")
-
-    df_ret = detalhe_retorno_carga_com_insucesso()
-
-    c1, c2 = st.columns(2, gap="small")
-    with c1:
-        indenizacao_metric_card(
-            "Retorno de carga com insucesso",
-            fmt_int(len(df_ret)),
-            "AWBs, entregador, data e tipo de insucesso",
-            "#dc2626",
-            "↩",
-        )
-
-    with c2:
-        indenizacao_metric_card(
-            "Ação operacional",
-            "Cobrança",
-            "Cobrar retorno / tratativa do entregador",
-            "#b45309",
-            "📌",
-        )
-
-    st.subheader("Retorno de carga com insucesso")
-    st.caption("AWBs sem retorno no WhatsApp, sem DEVOLVIDO no Eu Entrego e sem nova rota criada hoje.")
-
-    if df_ret.empty:
-        st.success("Nenhuma carga com insucesso anterior pendente de cobrança.")
-    else:
-        st.info(f"{len(df_ret)} AWB(s) para cobrança.")
-        render_table(df_ret, height=560)
-        st.download_button(
-            "⬇ Exportar Excel — Retorno de carga com insucesso",
-            data=to_excel_bytes(df_ret, "Retorno com insucesso"),
-            file_name="controle_retorno_carga_com_insucesso.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
 
 
 elif menu == "edi":
@@ -6921,7 +3359,7 @@ elif menu == "bi_azul":
     )
 
     cards_l2 = [
-        ("Divergências", fmt_int(divergencias_qtd), "BI x EDI", "🚨", "#d92d20", "#fff0ef", "bi_divergentes"),
+        ("Divergências", fmt_int(divergencias_qtd), "BI x EDI", "!", "#d92d20", "#fff0ef", "bi_divergentes"),
         ("No BI e não no EDI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO BI E NÃO NO EDI")), "Cobrado no BI, ausente no EDI", "BI", "#d97706", "#fff7e8", "bi_no_bi_nao_edi"),
         ("No EDI e não no BI", fmt_int(bi_count(bi_azul_conferencia, resultado="NO EDI E NÃO NO BI")), "No EDI, ausente no BI", "EDI", "#7c3aed", "#f5f3ff", "bi_no_edi_nao_bi"),
     ]
@@ -6991,100 +3429,6 @@ elif menu == "pendcorp":
     if pendcorp_base.empty:
         pendcorp_base = filter_terms(fila_filtrada, ["PENDENCIA", "PENDÊNCIA"])
     render_table(pendcorp_base.head(500), height=520)
-
-
-
-elif menu == "indenizacao":
-    st.title("Indenização")
-    st.caption("Visão operacional baseada na planilha Passível a Débito.")
-
-    metrics_ind = indenizacao_metrics()
-    base_ind = metrics_ind["base"]
-
-    if base_ind is None or base_ind.empty:
-        st.info("Nenhum dado de Passível a Débito sincronizado para exibir o painel de Indenização.")
-    else:
-        c1, c2, c3 = st.columns(3, gap="small")
-
-        with c1:
-            indenizacao_metric_card(
-                "Valor total CDSP2",
-                _money_br_ind(metrics_ind["valor_cdsp2"]),
-                "OFENSOR contém CDSP2; descontos abatidos",
-                "#0b63ce",
-                "🏢",
-            )
-
-        with c2:
-            indenizacao_metric_card(
-                "Valor total SAO12",
-                _money_br_ind(metrics_ind["valor_sao12"]),
-                "OFENSOR contém SAO12",
-                "#7c3aed",
-                "🏬",
-            )
-
-        with c3:
-            indenizacao_metric_card(
-                "Débito revertido",
-                _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM",
-                "#0f766e",
-                "↩️",
-            )
-
-        c4, c5, c6 = st.columns(3, gap="small")
-
-        with c4:
-            indenizacao_metric_card(
-                "Desconto aplicado",
-                _money_br_ind(metrics_ind["valor_desconto"]),
-                f"{fmt_int(metrics_ind['qtd_desconto'])} AWB(s) com HOUVE DESCONTO? = SIM",
-                "#be123c",
-                "−",
-            )
-
-        with c5:
-            indenizacao_metric_card(
-                "Falta análise supervisora",
-                fmt_int(metrics_ind["qtd_supervisao"]),
-                f"Coluna M vazia: {_money_br_ind(metrics_ind['valor_supervisao'])}",
-                "#d97706",
-                "🔎",
-            )
-
-        with c6:
-            indenizacao_metric_card(
-                "Total monitorado",
-                fmt_int(len(base_ind)),
-                f"Valor total: {_money_br_ind(float(base_ind['_VALOR_INDENIZACAO'].sum()))}",
-                "#08254e",
-                "Σ",
-            )
-
-        render_indenizacao_evolucao()
-
-        st.markdown("### Detalhamento da Indenização")
-
-        aba = st.radio(
-            "Selecionar visão",
-            ["CDSP2", "SAO12", "Débito revertido", "Desconto aplicado", "Falta análise supervisora", "Base completa"],
-            horizontal=True,
-        )
-
-        mapa = {
-            "CDSP2": "cdsp2",
-            "SAO12": "sao12",
-            "Débito revertido": "revertido",
-            "Desconto aplicado": "desconto",
-            "Falta análise supervisora": "supervisao",
-            "Base completa": "todos",
-        }
-
-        detalhe = indenizacao_detail_rows(mapa[aba])
-        st.caption(f"{fmt_int(len(detalhe))} registro(s) encontrado(s).")
-        render_table(detalhe, height=460)
-
 
 
 elif menu == "relatorio":
