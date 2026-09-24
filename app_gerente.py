@@ -9,6 +9,7 @@ import pandas as pd
 import altair as alt
 import streamlit as st
 import gspread
+import requests
 from google.oauth2.service_account import Credentials
 
 
@@ -19,6 +20,7 @@ st.set_page_config(
 )
 
 DEFAULT_MANAGER_SOURCE_URL = ""
+DEFAULT_INDENIZACAO_SOURCE_URL = "https://docs.google.com/spreadsheets/d/19dRtnW3dsDcyOpRhEU0ifoPhGr8cXkxu6El1W5A-Xws/edit?gid=0#gid=0"
 LOGO_PATH = Path(__file__).with_name("gds-logo.png")
 
 SHEET_NAMES = [
@@ -2110,6 +2112,30 @@ def _values_to_dataframe(values):
         normalized_rows.append(row)
 
     return pd.DataFrame(normalized_rows, columns=headers)
+
+
+def _extract_google_sheet_id(url):
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", str(url or ""))
+    return match.group(1) if match else None
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def read_public_indenizacao_sheet(url):
+    """
+    Lê diretamente a planilha Passível a Débito / Indenização.
+
+    O painel gerencial continua usando PASSIVEL_DEBITO_DETALHE como fallback,
+    mas esta leitura direta permite que o botão Sincronizar Dados reflita
+    alterações recentes da planilha de indenização sem depender do app operacional.
+    """
+    sheet_id = _extract_google_sheet_id(url)
+    if not sheet_id:
+        return pd.DataFrame()
+
+    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    response = requests.get(csv_url, timeout=30)
+    response.raise_for_status()
+    return pd.read_csv(io.BytesIO(response.content))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -5402,8 +5428,27 @@ if not SOURCE_URL:
 def indenizacao_base_rows():
     """
     Base do painel de Indenização.
-    Usa a aba sincronizada PASSIVEL_DEBITO_DETALHE, vinda da planilha Passível a Débito.
+
+    Prioridade:
+    1. Leitura direta da planilha Passível a Débito / Indenização.
+    2. Fallback para a aba sincronizada PASSIVEL_DEBITO_DETALHE da base gerencial.
     """
+    try:
+        live_url = st.secrets.get("INDENIZACAO_SOURCE_URL", "")
+    except Exception:
+        live_url = ""
+
+    if not live_url:
+        live_url = DEFAULT_INDENIZACAO_SOURCE_URL
+
+    if live_url:
+        try:
+            live_df = read_public_indenizacao_sheet(live_url)
+            if live_df is not None and not live_df.empty:
+                return live_df.copy()
+        except Exception:
+            pass
+
     df = globals().get("passivel_debito_detalhe", pd.DataFrame())
     return pd.DataFrame() if df is None else df.copy()
 
