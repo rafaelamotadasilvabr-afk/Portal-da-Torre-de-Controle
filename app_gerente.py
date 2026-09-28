@@ -5892,7 +5892,7 @@ def indenizacao_metrics():
 
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
     if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
+        mask_supervisao = _serie_vazia(df[col_supervisora])
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
@@ -5931,7 +5931,7 @@ def indenizacao_detail_rows(tipo):
     mask_bases_supervisora = _mask_ofensor_cdsp2_sao12(df)
 
     if col_supervisora and col_supervisora in df.columns:
-        mask_supervisao = _serie_vazia(df[col_supervisora]) & mask_bases_supervisora
+        mask_supervisao = _serie_vazia(df[col_supervisora])
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
@@ -7090,7 +7090,7 @@ elif menu == "indenizacao":
             indenizacao_metric_card(
                 "Falta análise supervisora",
                 fmt_int(metrics_ind["qtd_supervisao"]),
-                f"Coluna M vazia: {_money_br_ind(metrics_ind['valor_supervisao'])}",
+                f"Coluna M vazia — todas as bases: {_money_br_ind(metrics_ind['valor_supervisao'])}",
                 "#d97706",
                 "🔎",
             )
