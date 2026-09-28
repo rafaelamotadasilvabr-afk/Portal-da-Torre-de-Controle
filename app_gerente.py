@@ -5842,12 +5842,30 @@ def _mask_ofensor_sao12(df):
 
 
 
+def _indenizacao_mask_acatado(df):
+    """Débito acatado CDSP2/SAO12, sem desconto ou reversão; cada linha uma vez."""
+    if df is None or df.empty:
+        return pd.Series(False, index=df.index if df is not None else None)
+    # A coluna B é a referência operacional do STATUS PROCESSO.
+    if len(df.columns) < 2:
+        return pd.Series(False, index=df.index)
+    status = df.iloc[:, 1].fillna("").astype(str).map(normalize_text).str.strip()
+    return (
+        status.eq("DEBITO ACATADO")
+        & _mask_ofensor_cdsp2_sao12(df)
+        & ~_indenizacao_mask_desconto(df)
+        & ~_indenizacao_mask_debito_revertido_sim(df)
+    )
+
+
 def indenizacao_metrics():
     df = indenizacao_prepare(indenizacao_base_rows())
 
     if df.empty:
         return {
             "base": df,
+            "valor_total_processo": 0.0,
+            "valor_acatado": 0.0,
             "valor_cdsp2": 0.0,
             "valor_sao12": 0.0,
             "qtd_revertido": 0,
@@ -5882,6 +5900,8 @@ def indenizacao_metrics():
 
     return {
         "base": df,
+        "valor_total_processo": float(valor.sum()),
+        "valor_acatado": float(valor[_indenizacao_mask_acatado(df)].sum()),
         "valor_cdsp2": valor_cdsp2_liquido,
         "valor_sao12": float(valor[mask_sao12].sum()),
         "qtd_revertido": int(mask_revertido.sum()),
@@ -5915,7 +5935,9 @@ def indenizacao_detail_rows(tipo):
     else:
         mask_supervisao = pd.Series(False, index=df.index)
 
-    if tipo == "cdsp2":
+    if tipo == "acatado":
+        out = df[_indenizacao_mask_acatado(df)].copy()
+    elif tipo == "cdsp2":
         out = df[mask_cdsp2 & ~mask_desconto].copy()
     elif tipo == "sao12":
         out = df[mask_sao12].copy()
@@ -5932,78 +5954,53 @@ def indenizacao_detail_rows(tipo):
 
 
 def indenizacao_evolucao_mensal():
-    """
-    Evolução mensal do valor de indenização.
-    Agrupa por mês/ano com base na coluna de data da planilha Passível a Débito.
-    """
-    df_raw = indenizacao_base_rows()
-    if df_raw is None or df_raw.empty:
+    df = indenizacao_prepare(indenizacao_base_rows())
+    if df.empty:
         return pd.DataFrame()
-
-    data_col = _indenizacao_data_col(df_raw)
-    valor_col = _indenizacao_valor_col(df_raw)
-
-    if not data_col or not valor_col:
+    data_col = _indenizacao_data_col(df)
+    if not data_col:
         return pd.DataFrame()
-
-    df = df_raw.copy()
     df["_DATA_INDENIZACAO"] = pd.to_datetime(df[data_col], errors="coerce", dayfirst=True)
-    df["_VALOR_INDENIZACAO"] = _to_money_series_ind(df[valor_col])
-
+    df["DEBITO_ACATADO"] = df["_VALOR_INDENIZACAO"].where(_indenizacao_mask_acatado(df), 0.0)
     df = df.dropna(subset=["_DATA_INDENIZACAO"]).copy()
     if df.empty:
         return pd.DataFrame()
-
-    df["ANO"] = df["_DATA_INDENIZACAO"].dt.year
-    df["MES_NUM"] = df["_DATA_INDENIZACAO"].dt.month
-    df["MES_ANO"] = df["_DATA_INDENIZACAO"].dt.strftime("%m/%Y")
-
-    evol = (
-        df.groupby(["ANO", "MES_NUM", "MES_ANO"], as_index=False)["_VALOR_INDENIZACAO"]
-        .sum()
-        .sort_values(["ANO", "MES_NUM"])
-    )
-    evol = evol.rename(columns={"_VALOR_INDENIZACAO": "VALOR"})
+    df["MES"] = df["_DATA_INDENIZACAO"].dt.to_period("M").dt.to_timestamp()
+    evol = df.groupby("MES", as_index=False).agg(
+        VALOR=("_VALOR_INDENIZACAO", "sum"),
+        DEBITO_ACATADO=("DEBITO_ACATADO", "sum"),
+    ).sort_values("MES")
+    evol["MES_ANO"] = evol["MES"].dt.strftime("%m/%Y")
     evol["VALOR_FORMATADO"] = evol["VALOR"].map(_money_br_ind)
-
+    evol["ACATADO_FORMATADO"] = evol["DEBITO_ACATADO"].map(_money_br_ind)
     return evol
 
 
 def render_indenizacao_evolucao():
     evol = indenizacao_evolucao_mensal()
-
-    st.markdown("### Evolução mensal")
-    st.caption("Valor total por mês/ano com base na data da planilha Passível a Débito.")
-
+    st.markdown("### Evolução mensal dos processos")
+    st.caption("Situação atual dos processos por mês da DATA DE CLAIM. Débito acatado: CDSP2/SAO12, sem descontos e sem reversões.")
     if evol is None or evol.empty:
         st.info("Não foi possível montar a evolução mensal. Verifique se a planilha possui coluna de data e valor.")
         return
-
-    chart_df = evol.copy()
-    chart = (
-        alt.Chart(chart_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X("MES_ANO:N", title="Mês/Ano", sort=list(chart_df["MES_ANO"])),
-            y=alt.Y("VALOR:Q", title="Valor"),
-            tooltip=[
-                alt.Tooltip("MES_ANO:N", title="Mês/Ano"),
-                alt.Tooltip("VALOR_FORMATADO:N", title="Valor"),
-            ],
-        )
-        .properties(height=280)
-    )
-
+    atual = pd.Timestamp.now(tz="America/Sao_Paulo").strftime("%m/%Y")
+    ordem = list(evol["MES_ANO"])
+    chart_df = evol.melt(id_vars=["MES_ANO"], value_vars=["VALOR", "DEBITO_ACATADO"], var_name="SERIE", value_name="VALOR_SERIE")
+    chart_df["SERIE"] = chart_df["SERIE"].map({"VALOR": "Total dos processos", "DEBITO_ACATADO": "Débito acatado — CDSP2 / SAO12"})
+    chart_df["VALOR_FORMATADO"] = chart_df["VALOR_SERIE"].map(_money_br_ind)
+    chart_df["PERIODO"] = chart_df["MES_ANO"].map(lambda mes: "Mês em andamento" if mes == atual else "")
+    chart = alt.Chart(chart_df).mark_line(point=True).encode(
+        x=alt.X("MES_ANO:N", title="Mês/Ano", sort=ordem),
+        y=alt.Y("VALOR_SERIE:Q", title="Valor (R$)", axis=alt.Axis(labelExpr="'R$ ' + replace(replace(replace(format(datum.value, ',.0f'), ',', '#'), '.', ','), '#', '.')")),
+        color=alt.Color("SERIE:N", title=None, scale=alt.Scale(domain=["Total dos processos", "Débito acatado — CDSP2 / SAO12"], range=["#0b63ce", "#d97706"]), legend=alt.Legend(orient="top")),
+        tooltip=[alt.Tooltip("MES_ANO:N", title="Mês/Ano"), alt.Tooltip("SERIE:N", title="Indicador"), alt.Tooltip("VALOR_FORMATADO:N", title="Valor"), alt.Tooltip("PERIODO:N", title="Período")],
+    ).properties(height=280)
     st.altair_chart(chart, use_container_width=True)
-
-    tabela = evol[["MES_ANO", "VALOR_FORMATADO"]].rename(
-        columns={
-            "MES_ANO": "MÊS/ANO",
-            "VALOR_FORMATADO": "VALOR",
-        }
-    )
+    if atual in ordem:
+        st.caption(f"{atual}: mês em andamento.")
+    st.caption("Registros sem data válida permanecem nos cards, mas não entram no gráfico. O mês representa o claim, não a data do acatamento ou da reversão.")
+    tabela = evol[["MES_ANO", "VALOR_FORMATADO", "ACATADO_FORMATADO"]].rename(columns={"MES_ANO": "MÊS/ANO", "VALOR_FORMATADO": "TOTAL DOS PROCESSOS", "ACATADO_FORMATADO": "DÉBITO ACATADO — CDSP2 / SAO12"})
     render_table(tabela, height=260)
-
 
 
 def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰"):
@@ -7053,18 +7050,18 @@ elif menu == "indenizacao":
 
         with c1:
             indenizacao_metric_card(
-                "Valor total CDSP2",
-                _money_br_ind(metrics_ind["valor_cdsp2"]),
-                "OFENSOR contém CDSP2; descontos abatidos",
+                "Valor Total de processo",
+                _money_br_ind(metrics_ind["valor_total_processo"]),
+                "Toda a planilha — sem filtros",
                 "#0b63ce",
                 "🏢",
             )
 
         with c2:
             indenizacao_metric_card(
-                "Valor total SAO12",
-                _money_br_ind(metrics_ind["valor_sao12"]),
-                "OFENSOR contém SAO12",
+                "Débito acatado — CDSP2 / SAO12",
+                _money_br_ind(metrics_ind["valor_acatado"]),
+                "Inclui compartilhados; sem descontos e sem reversões",
                 "#7c3aed",
                 "🏬",
             )
@@ -7113,13 +7110,12 @@ elif menu == "indenizacao":
 
         aba = st.radio(
             "Selecionar visão",
-            ["CDSP2", "SAO12", "Débito revertido", "Desconto aplicado", "Falta análise supervisora", "Base completa"],
+            ["Débito acatado — CDSP2 / SAO12", "Débito revertido", "Desconto aplicado", "Falta análise supervisora", "Base completa"],
             horizontal=True,
         )
 
         mapa = {
-            "CDSP2": "cdsp2",
-            "SAO12": "sao12",
+            "Débito acatado — CDSP2 / SAO12": "acatado",
             "Débito revertido": "revertido",
             "Desconto aplicado": "desconto",
             "Falta análise supervisora": "supervisao",
