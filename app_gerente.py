@@ -5897,10 +5897,14 @@ def indenizacao_metrics():
         mask_supervisao = pd.Series(False, index=df.index)
 
     valor_cdsp2_liquido = float(valor[mask_cdsp2 & ~mask_desconto].sum())
+    # Valor total de processo: somente OFENSOR CDSP2, SAO12 ou compartilhado.
+    # A máscara procura a base em qualquer parte do campo OFENSOR, então
+    # combinações como CDSP2/VCP, CGH/CDSP2 e VCP/SAO12 entram uma única vez.
+    mask_bases_processo = _mask_ofensor_cdsp2_sao12(df)
 
     return {
         "base": df,
-        "valor_total_processo": float(valor.sum()),
+        "valor_total_processo": float(valor[mask_bases_processo].sum()),
         "valor_acatado": float(valor[_indenizacao_mask_acatado(df)].sum()),
         "valor_cdsp2": valor_cdsp2_liquido,
         "valor_sao12": float(valor[mask_sao12].sum()),
@@ -5990,17 +5994,62 @@ def render_indenizacao_evolucao():
     chart_df["VALOR_FORMATADO"] = chart_df["VALOR_SERIE"].map(_money_br_ind)
     chart_df["PERIODO"] = chart_df["MES_ANO"].map(lambda mes: "Mês em andamento" if mes == atual else "")
     chart = alt.Chart(chart_df).mark_line(point=True).encode(
-        x=alt.X("MES_ANO:N", title="Mês/Ano", sort=ordem),
+        x=alt.X("MES_ANO:N", title="Mês/Ano", sort=ordem, axis=alt.Axis(labelAngle=0, labelOverlap=True)),
         y=alt.Y("VALOR_SERIE:Q", title="Valor (R$)", axis=alt.Axis(labelExpr="'R$ ' + replace(replace(replace(format(datum.value, ',.0f'), ',', '#'), '.', ','), '#', '.')")),
-        color=alt.Color("SERIE:N", title=None, scale=alt.Scale(domain=["Total dos processos", "Débito acatado — CDSP2 / SAO12"], range=["#0b63ce", "#d97706"]), legend=alt.Legend(orient="top")),
+        color=alt.Color("SERIE:N", title=None, scale=alt.Scale(domain=["Total dos processos", "Débito acatado — CDSP2 / SAO12"], range=["#0b63ce", "#d97706"]), legend=alt.Legend(orient="top", columns=1, labelLimit=500, labelFontSize=12)),
         tooltip=[alt.Tooltip("MES_ANO:N", title="Mês/Ano"), alt.Tooltip("SERIE:N", title="Indicador"), alt.Tooltip("VALOR_FORMATADO:N", title="Valor"), alt.Tooltip("PERIODO:N", title="Período")],
-    ).properties(height=280)
+    ).properties(height=340)
     st.altair_chart(chart, use_container_width=True)
     if atual in ordem:
         st.caption(f"{atual}: mês em andamento.")
     st.caption("Registros sem data válida permanecem nos cards, mas não entram no gráfico. O mês representa o claim, não a data do acatamento ou da reversão.")
     tabela = evol[["MES_ANO", "VALOR_FORMATADO", "ACATADO_FORMATADO"]].rename(columns={"MES_ANO": "MÊS/ANO", "VALOR_FORMATADO": "TOTAL DOS PROCESSOS", "ACATADO_FORMATADO": "DÉBITO ACATADO — CDSP2 / SAO12"})
     render_table(tabela, height=260)
+
+
+def render_indenizacao_layout(financeiros, acompanhamento):
+    """Apresentação exclusiva da aba Indenização; recebe valores já calculados."""
+    from html import escape
+
+    css = """<style>
+    .ind-layout-finance {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:8px 0 24px;}
+    .ind-layout-finance .indenizacao-card {height:100%;box-sizing:border-box;margin:0;min-height:180px;padding:20px;}
+    .ind-layout-finance .indenizacao-label {min-height:34px;line-height:1.4;overflow-wrap:anywhere;}
+    .ind-layout-finance .indenizacao-value {font-size:clamp(22px,2.1vw,32px);line-height:1.25;margin:8px 0;}
+    .ind-layout-finance .indenizacao-sub {line-height:1.5;}
+    .ind-layout-heading {font-size:22px;font-weight:750;margin:0 0 12px;color:#242424;}
+    .ind-layout-strip {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid #ded9d2;border-radius:16px;padding:24px 0;margin:0 0 24px;box-shadow:0 4px 14px rgba(30,25,20,.05);}
+    .ind-layout-item {padding:0 22px;min-width:0;border-right:1px solid #e6e3df;}
+    .ind-layout-item:last-child {border-right:0;}
+    .ind-layout-item-head {display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+    .ind-layout-item-icon {background:#f2f7fd;border-radius:12px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+    .ind-layout-item-value {font-size:30px;font-weight:800;line-height:1.2;color:var(--accent);}
+    .ind-layout-item-label {font-size:14px;font-weight:700;line-height:1.45;color:#242424;}
+    .ind-layout-item-sub {font-size:12px;line-height:1.5;color:#666;margin-top:5px;overflow-wrap:anywhere;}
+    @media(max-width:1100px){.ind-layout-finance,.ind-layout-strip{grid-template-columns:repeat(2,minmax(0,1fr));}.ind-layout-item:nth-child(2){border-right:0;}.ind-layout-item:nth-child(n+3){border-top:1px solid #e6e3df;padding-top:20px;margin-top:20px;}}
+    @media(max-width:600px){.ind-layout-finance,.ind-layout-strip{grid-template-columns:1fr;}.ind-layout-item{border-right:0;}.ind-layout-item:nth-child(n+2){border-top:1px solid #e6e3df;padding-top:20px;margin-top:20px;}.ind-layout-finance .indenizacao-card{min-height:0;}}
+    </style>"""
+    financial_html = []
+    for label, value, subtitle, accent, icon in financeiros:
+        financial_html.append(
+            f'<div class="indenizacao-card" style="--accent:{escape(accent)};">'
+            f'<div class="indenizacao-icon">{escape(str(icon))}</div>'
+            f'<div class="indenizacao-label">{escape(str(label))}</div>'
+            f'<div class="indenizacao-value">{escape(str(value))}</div>'
+            f'<div class="indenizacao-sub">{escape(str(subtitle))}</div></div>'
+        )
+    tracking_html = []
+    for label, value, subtitle, accent, icon in acompanhamento:
+        tracking_html.append(
+            f'<div class="ind-layout-item" style="--accent:{escape(accent)};">'
+            f'<div class="ind-layout-item-head"><span class="ind-layout-item-icon">{escape(str(icon))}</span>'
+            f'<span class="ind-layout-item-value">{escape(str(value))}</span></div>'
+            f'<div class="ind-layout-item-label">{escape(str(label))}</div>'
+            f'<div class="ind-layout-item-sub">{escape(str(subtitle))}</div></div>'
+        )
+    st.markdown(css + '<div class="ind-layout-finance">' + ''.join(financial_html)
+                + '</div><div class="ind-layout-heading">Acompanhamento dos processos</div>'
+                + '<div class="ind-layout-strip">' + ''.join(tracking_html) + '</div>', unsafe_allow_html=True)
 
 
 def indenizacao_metric_card(label, value, subtitle, accent="#0b63ce", icon="💰"):
@@ -7046,90 +7095,29 @@ elif menu == "indenizacao":
     if base_ind is None or base_ind.empty:
         st.info("Nenhum dado de Passível a Débito sincronizado para exibir o painel de Indenização.")
     else:
-        c1, c2, c3 = st.columns(3, gap="small")
-
-        with c1:
-            indenizacao_metric_card(
-                "Valor Total de processo",
-                _money_br_ind(metrics_ind["valor_total_processo"]),
-                "Toda a planilha — sem filtros",
-                "#0b63ce",
-                "🏢",
-            )
-
-        with c2:
-            indenizacao_metric_card(
-                "Débito acatado — CDSP2 / SAO12",
-                _money_br_ind(metrics_ind["valor_acatado"]),
-                "Inclui compartilhados; sem descontos e sem reversões",
-                "#7c3aed",
-                "🏬",
-            )
-
-        with c3:
-            indenizacao_metric_card(
-                "Débito revertido",
-                _money_br_ind(metrics_ind["valor_revertido"]),
-                f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM",
-                "#0f766e",
-                "↩️",
-            )
-
-        c4, c5, c6 = st.columns(3, gap="small")
-
-        with c4:
-            indenizacao_metric_card(
-                "Desconto aplicado",
-                _money_br_ind(metrics_ind["valor_desconto"]),
-                f"{fmt_int(metrics_ind['qtd_desconto'])} AWB(s) com HOUVE DESCONTO? = SIM",
-                "#be123c",
-                "−",
-            )
-
-        with c5:
-            indenizacao_metric_card(
-                "Falta análise supervisora",
-                fmt_int(metrics_ind["qtd_supervisao"]),
-                f"Coluna M vazia — todas as bases: {_money_br_ind(metrics_ind['valor_supervisao'])}",
-                "#d97706",
-                "🔎",
-            )
-
-        with c6:
-            indenizacao_metric_card(
-                "Total monitorado",
-                fmt_int(len(base_ind)),
-                f"Valor total: {_money_br_ind(float(base_ind['_VALOR_INDENIZACAO'].sum()))}",
-                "#08254e",
-                "Σ",
-            )
-
         # Quantidades por STATUS PROCESSO (coluna B), considerando todas as bases.
         status_processo_ind = (
             base_ind.iloc[:, 1].fillna("").astype(str)
             .map(normalize_text).str.replace(r"\s+", " ", regex=True).str.strip()
         )
-        c7, c8, _ = st.columns(3, gap="small")
 
-        with c7:
-            indenizacao_metric_card(
-                "Processo em análise",
-                fmt_int(int(status_processo_ind.eq("PROCESSO EM ANALISE").sum())),
-                "STATUS PROCESSO — todas as bases",
-                "#0b63ce",
-                "🔎",
-            )
+        render_indenizacao_layout(
+        [
+            ('Valor Total de processo', _money_br_ind(metrics_ind['valor_total_processo']), 'OFENSOR: CDSP2, SAO12 e compartilhados', '#0b63ce', '🏢'),
+            ('Débito acatado — CDSP2 / SAO12', _money_br_ind(metrics_ind['valor_acatado']), 'Inclui compartilhados; sem descontos e sem reversões', '#7c3aed', '🏬'),
+            ('Débito revertido', _money_br_ind(metrics_ind['valor_revertido']), f"{fmt_int(metrics_ind['qtd_revertido'])} registro(s) com DÉBITO REVERTIDO = SIM", '#0f766e', '↩️'),
+            ('Desconto aplicado', _money_br_ind(metrics_ind['valor_desconto']), f"{fmt_int(metrics_ind['qtd_desconto'])} AWB(s) com HOUVE DESCONTO? = SIM", '#be123c', '−'),
+        ],
+        [
+            ('Total monitorado', fmt_int(len(base_ind)), f"Valor total: {_money_br_ind(float(base_ind['_VALOR_INDENIZACAO'].sum()))}", '#08254e', 'Σ'),
+            ('Processo em análise', fmt_int(int(status_processo_ind.eq('PROCESSO EM ANALISE').sum())), 'STATUS PROCESSO — todas as bases', '#0b63ce', '🔎'),
+            ('Processo com documento pendente', fmt_int(int(status_processo_ind.isin({'FALTA DOCUMENTO', 'PROCESSO COM DOCUMENTO PENDENTE'}).sum())), 'STATUS PROCESSO — todas as bases', '#d97706', '📄'),
+            ('Falta análise supervisora', fmt_int(metrics_ind['qtd_supervisao']), f"Coluna M vazia — todas as bases: {_money_br_ind(metrics_ind['valor_supervisao'])}", '#d97706', '🔎'),
+        ]
+        )
 
-        with c8:
-            indenizacao_metric_card(
-                "Processo com documento pendente",
-                fmt_int(int(status_processo_ind.isin({"FALTA DOCUMENTO", "PROCESSO COM DOCUMENTO PENDENTE"}).sum())),
-                "STATUS PROCESSO — todas as bases",
-                "#d97706",
-                "📄",
-            )
-
-        render_indenizacao_evolucao()
+        with st.container(border=True):
+            render_indenizacao_evolucao()
 
         st.markdown("### Detalhamento da Indenização")
 
