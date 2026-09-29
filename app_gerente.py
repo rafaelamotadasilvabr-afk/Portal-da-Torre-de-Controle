@@ -7123,7 +7123,7 @@ elif menu == "indenizacao":
         with c8:
             indenizacao_metric_card(
                 "Processo com documento pendente",
-                fmt_int(int(status_processo_ind.eq("PROCESSO COM DOCUMENTO PENDENTE").sum())),
+                fmt_int(int(status_processo_ind.isin({"FALTA DOCUMENTO", "PROCESSO COM DOCUMENTO PENDENTE"}).sum())),
                 "STATUS PROCESSO — todas as bases",
                 "#d97706",
                 "📄",
