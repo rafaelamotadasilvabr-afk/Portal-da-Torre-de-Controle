@@ -7104,6 +7104,31 @@ elif menu == "indenizacao":
                 "Σ",
             )
 
+        # Quantidades por STATUS PROCESSO (coluna B), considerando todas as bases.
+        status_processo_ind = (
+            base_ind.iloc[:, 1].fillna("").astype(str)
+            .map(normalize_text).str.replace(r"\s+", " ", regex=True).str.strip()
+        )
+        c7, c8, _ = st.columns(3, gap="small")
+
+        with c7:
+            indenizacao_metric_card(
+                "Processo em análise",
+                fmt_int(int(status_processo_ind.eq("PROCESSO EM ANALISE").sum())),
+                "STATUS PROCESSO — todas as bases",
+                "#0b63ce",
+                "🔎",
+            )
+
+        with c8:
+            indenizacao_metric_card(
+                "Processo com documento pendente",
+                fmt_int(int(status_processo_ind.eq("PROCESSO COM DOCUMENTO PENDENTE").sum())),
+                "STATUS PROCESSO — todas as bases",
+                "#d97706",
+                "📄",
+            )
+
         render_indenizacao_evolucao()
 
         st.markdown("### Detalhamento da Indenização")
