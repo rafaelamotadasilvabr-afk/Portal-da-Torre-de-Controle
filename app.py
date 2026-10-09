@@ -631,7 +631,8 @@ def read_eu_entrego_files(uploaded_files, awb_filter=None):
             .reset_index(drop=True)
         )
     else:
-        eu_latest = pd.DataFrame()
+        # Preserva o esquema mesmo quando nenhuma AWB do Eu Entrego corresponde à carteira.
+        eu_latest = pd.DataFrame(columns=["AWB"])
 
     if route_parts:
         route_dates = pd.concat(route_parts, ignore_index=True, sort=False)
@@ -3102,6 +3103,9 @@ def classify_row(row, today, returns_set):
 
 def build_master(last_mile, eu_latest, route_dates, tower_latest, returns_set, today, tower_history=None):
     master = last_mile.copy()
+    if "AWB" not in eu_latest.columns:
+        eu_latest = eu_latest.copy()
+        eu_latest["AWB"] = pd.Series(dtype="str")
 
     master = master.merge(
         eu_latest,
