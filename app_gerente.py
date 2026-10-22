@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 DEFAULT_MANAGER_SOURCE_URL = ""
-DEFAULT_INDENIZACAO_SOURCE_URL = "https://docs.google.com/spreadsheets/d/19dRtnW3dsDcyOpRhEU0ifoPhGr8cXkxu6El1W5A-Xws/edit?gid=0#gid=0"
+DEFAULT_INDENIZACAO_SOURCE_URL = "https://docs.google.com/spreadsheets/d/1em8uV05-olPoCCro_RIx8fUNnUsNb190miHJOmcR9dk/edit?gid=203954152#gid=203954152"
 LOGO_PATH = Path(__file__).with_name("gds-logo.png")
 
 SHEET_NAMES = [
