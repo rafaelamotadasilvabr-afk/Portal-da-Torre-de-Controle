@@ -2121,21 +2121,29 @@ def _extract_google_sheet_id(url):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def read_public_indenizacao_sheet(url):
-    """
-    Lê diretamente a planilha Passível a Débito / Indenização.
-
-    O painel gerencial continua usando PASSIVEL_DEBITO_DETALHE como fallback,
-    mas esta leitura direta permite que o botão Sincronizar Dados reflita
-    alterações recentes da planilha de indenização sem depender do app operacional.
-    """
+    """Consulta a aba correta de indenização, inclusive em Sheets privados."""
     sheet_id = _extract_google_sheet_id(url)
     if not sheet_id:
-        return pd.DataFrame()
+        raise ValueError("Link da planilha de indenização inválido.")
 
-    csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    worksheet_name = "PASSIVEL DE DÉBITO ATUALIZADA"
+    gc = _google_sheet_client()
+    if gc is not None:
+        spreadsheet = gc.open_by_key(sheet_id)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        return _values_to_dataframe(worksheet.get_all_values())
+
+    # Alternativa para planilhas publicadas sem credenciais de serviço.
+    import urllib.parse
+    csv_url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?"
+        + urllib.parse.urlencode({"tqx": "out:csv", "sheet": worksheet_name})
+    )
     response = requests.get(csv_url, timeout=30)
     response.raise_for_status()
-    return pd.read_csv(io.BytesIO(response.content))
+    if "text/html" in response.headers.get("Content-Type", "").lower():
+        raise RuntimeError("Google Sheets retornou HTML em vez de CSV; verifique o compartilhamento.")
+    return pd.read_csv(io.BytesIO(response.content), dtype=str, keep_default_na=False)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -5446,11 +5454,15 @@ def indenizacao_base_rows():
             live_df = read_public_indenizacao_sheet(live_url)
             if live_df is not None and not live_df.empty:
                 return live_df.copy()
-        except Exception:
-            pass
+            st.error("A aba de indenização foi encontrada, mas está vazia. Os dados antigos não serão exibidos como atuais.")
+            return pd.DataFrame()
+        except Exception as exc:
+            st.error(f"Falha na atualização da planilha de indenização: {exc}")
+            st.warning("Dados de indenização indisponíveis: confira o acesso e o nome da aba no Google Sheets.")
+            return pd.DataFrame()
 
-    df = globals().get("passivel_debito_detalhe", pd.DataFrame())
-    return pd.DataFrame() if df is None else df.copy()
+    st.error("Fonte da planilha de indenização não configurada.")
+    return pd.DataFrame()
 
 
 def _indenizacao_base_col(df):
