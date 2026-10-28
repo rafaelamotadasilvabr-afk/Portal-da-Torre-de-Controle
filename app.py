@@ -2713,6 +2713,20 @@ def build_unique_action_queue(master_df, edi_loaded=False, analysis_date=None):
             return 3, "CRÍTICA", "ENTREGUE EU ENTREGO X PENDENTE SK", \
                 "Analisar possível erro de integração Eu Entrego x SK"
 
+        # Backlog: SLA vencido no SK tem precedência sobre insucesso de rota.
+        # DEVOLVIDO no Eu Entrego é retorno ao galpão, não entrega concluída.
+        # Pendências e Qualidade permanecem nas respectivas filas; Avarias /
+        # Salvados são excluídos no filtro gerencial de backlog.
+        if (
+            sk_pendente_entrega
+            and atraso > 0
+            and not sk_baixado_ou_finalizado
+            and not esta_na_pendencia
+            and not entregue_eu_pendente_sk
+        ):
+            return 8, "CRÍTICA", "ENTREGA EM ATRASO", \
+                "Cobrar regularização da entrega e registrar a causa do atraso"
+
         # Insucesso sem pendência:
         # Entra somente se continua PENDENTE ENTREGA no SK,
         # teve insucesso no Eu Entrego, não está baixado no SK
